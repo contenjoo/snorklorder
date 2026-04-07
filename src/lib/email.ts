@@ -5,6 +5,20 @@ const DIGEST_RECIPIENTS = ["jon@snorkl.app", "jeff@snorkl.app"];
 const ADMIN_EMAIL = process.env.GMAIL_USER || "";
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || "https://snorkl-teacher-reg.vercel.app";
 
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function safe(value: string | null | undefined, fallback = "") {
+  if (!value) return fallback;
+  return escapeHtml(value);
+}
+
 function getTransporter() {
   const user = process.env.GMAIL_USER;
   const pass = process.env.GMAIL_APP_PASSWORD;
@@ -22,14 +36,18 @@ interface TeacherInfo {
 export async function sendTeacherNotification(schoolName: string, teacher: TeacherInfo) {
   const t = getTransporter();
   if (!t) return;
+  const safeSchoolName = safe(schoolName);
+  const safeTeacherName = safe(teacher.name);
+  const safeTeacherEmail = safe(teacher.email);
+  const safeTeacherSubject = safe(teacher.subject, "N/A");
   await t.sendMail({
     from: ADMIN_EMAIL,
     to: JON_EMAIL,
-    subject: `[Snorkl] New Teacher - ${schoolName}`,
+    subject: `[Snorkl] New Teacher - ${schoolName.replace(/[\r\n]/g, " ").trim()}`,
     html: `
       <h3>New Teacher Registration</h3>
-      <p><b>School:</b> ${schoolName}</p>
-      <p><b>Name:</b> ${teacher.name} | <b>Email:</b> ${teacher.email} | <b>Subject:</b> ${teacher.subject || "N/A"}</p>
+      <p><b>School:</b> ${safeSchoolName}</p>
+      <p><b>Name:</b> ${safeTeacherName} | <b>Email:</b> ${safeTeacherEmail} | <b>Subject:</b> ${safeTeacherSubject}</p>
       <p style="color:#666;font-size:12px">Please upgrade this teacher in Snorkl.</p>
     `,
   });
@@ -37,7 +55,7 @@ export async function sendTeacherNotification(schoolName: string, teacher: Teach
 
 // 선택 교사 일괄 발송 (Jon에게만 + 확인 링크 포함)
 export async function sendBatchNotification(
-  groups: { schoolName: string; teachers: (TeacherInfo & { id?: number })[] }[],
+  groups: { schoolName: string; schoolNameEn?: string; teachers: (TeacherInfo & { id?: number })[] }[],
   confirmToken?: string
 ) {
   const t = getTransporter();
@@ -47,13 +65,14 @@ export async function sendBatchNotification(
     const lines = g.teachers.map((tc, i) =>
       `<tr>
         <td style="padding:6px 12px;border-bottom:1px solid #f0f0f0;color:#666">${i + 1}</td>
-        <td style="padding:6px 12px;border-bottom:1px solid #f0f0f0;font-weight:500">${tc.email}</td>
-        <td style="padding:6px 12px;border-bottom:1px solid #f0f0f0;color:#666">${tc.subject || ""}</td>
+        <td style="padding:6px 12px;border-bottom:1px solid #f0f0f0;font-weight:500">${safe(tc.email)}</td>
+        <td style="padding:6px 12px;border-bottom:1px solid #f0f0f0;color:#666">${safe(tc.subject)}</td>
       </tr>`
     ).join("");
+    const enName = g.schoolNameEn ? `<span style="color:#999;font-weight:normal;font-size:13px"> · ${safe(g.schoolNameEn)}</span>` : "";
     return `
       <div style="margin-bottom:24px">
-        <h3 style="color:#1e3a5f;margin:0 0 8px;font-size:16px">🏫 ${g.schoolName} <span style="color:#999;font-weight:normal">(${g.teachers.length})</span></h3>
+        <h3 style="color:#1e3a5f;margin:0 0 8px;font-size:16px">🏫 ${safe(g.schoolName)}${enName} <span style="color:#999;font-weight:normal">(${g.teachers.length})</span></h3>
         <table style="width:100%;border-collapse:collapse;font-size:14px">
           <thead><tr style="background:#f8f9fa">
             <th style="padding:6px 12px;text-align:left;font-size:12px;color:#999">#</th>
@@ -69,11 +88,11 @@ export async function sendBatchNotification(
     ? `
       <div style="text-align:center;margin:32px 0;padding:24px;background:#f0f7ff;border-radius:12px">
         <p style="margin:0 0 12px;color:#1e3a5f;font-size:15px">After upgrading, please confirm:</p>
-        <a href="${BASE_URL}/confirm/${confirmToken}"
+        <a href="${BASE_URL}/confirm/${encodeURIComponent(confirmToken)}"
            style="display:inline-block;background:#2563eb;color:white;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:16px">
           ✅ Confirm Upgrades
         </a>
-        <p style="margin:12px 0 0;color:#999;font-size:12px">Or copy this link: ${BASE_URL}/confirm/${confirmToken}</p>
+        <p style="margin:12px 0 0;color:#999;font-size:12px">Or copy this link: ${safe(`${BASE_URL}/confirm/${confirmToken}`)}</p>
       </div>`
     : "";
 
@@ -106,12 +125,12 @@ export async function sendAdminNotification(request: { name: string; contactName
   await t.sendMail({
     from: ADMIN_EMAIL,
     to: ADMIN_EMAIL,
-    subject: `[Snorkl] 새 학교 등록 요청 - ${request.name}`,
+    subject: `[Snorkl] 새 학교 등록 요청 - ${request.name.replace(/[\r\n]/g, " ").trim()}`,
     html: `
       <h3>학교 등록 요청</h3>
-      <p><b>학교명:</b> ${request.name}</p>
-      <p><b>지역:</b> ${request.region || "미입력"}</p>
-      <p><b>담당자:</b> ${request.contactName} (${request.contactEmail})</p>
+      <p><b>학교명:</b> ${safe(request.name)}</p>
+      <p><b>지역:</b> ${safe(request.region, "미입력")}</p>
+      <p><b>담당자:</b> ${safe(request.contactName)} (${safe(request.contactEmail)})</p>
       <p><a href="https://snorkl-teacher-reg.vercel.app/admin/requests">승인하러 가기 →</a></p>
     `,
   });
@@ -124,14 +143,14 @@ export async function sendSchoolCodeEmail(email: string, name: string, schoolNam
   await t.sendMail({
     from: ADMIN_EMAIL,
     to: email,
-    subject: `[Snorkl] ${schoolName} 학교 코드가 발급되었습니다`,
+    subject: `[Snorkl] ${schoolName.replace(/[\r\n]/g, " ").trim()} 학교 코드가 발급되었습니다`,
     html: `
       <div style="max-width:480px;margin:0 auto;font-family:sans-serif">
-        <h2 style="color:#1e3a5f">${schoolName}</h2>
-        <p>${name} 선생님, 학교 등록이 승인되었습니다!</p>
+        <h2 style="color:#1e3a5f">${safe(schoolName)}</h2>
+        <p>${safe(name)} 선생님, 학교 등록이 승인되었습니다!</p>
         <div style="background:#f0f7ff;border-radius:12px;padding:20px;text-align:center;margin:20px 0">
           <p style="color:#666;margin:0 0 8px">학교 코드</p>
-          <p style="font-size:32px;font-weight:bold;color:#1e3a5f;letter-spacing:4px;margin:0">${code}</p>
+          <p style="font-size:32px;font-weight:bold;color:#1e3a5f;letter-spacing:4px;margin:0">${safe(code)}</p>
         </div>
         <p>아래 링크를 동료 선생님들에게 공유해주세요:</p>
         <p><a href="https://snorkl-teacher-reg.vercel.app" style="color:#2563eb">https://snorkl-teacher-reg.vercel.app</a></p>
@@ -154,8 +173,10 @@ export async function sendDailyDigest(teachers: { teacherName: string; teacherEm
     bySchool.get(tc.schoolName)!.push(tc);
   }
   const body = Array.from(bySchool.entries()).map(([school, tcs]) => {
-    const lines = tcs.map((tc, i) => `${i + 1}. ${tc.teacherName} - ${tc.teacherEmail}${tc.subject ? ` (${tc.subject})` : ""}`).join("<br>");
-    return `<h3>${school} (${tcs.length})</h3><p>${lines}</p>`;
+    const lines = tcs
+      .map((tc, i) => `${i + 1}. ${safe(tc.teacherName)} - ${safe(tc.teacherEmail)}${tc.subject ? ` (${safe(tc.subject)})` : ""}`)
+      .join("<br>");
+    return `<h3>${safe(school)} (${tcs.length})</h3><p>${lines}</p>`;
   }).join("<hr>");
   await t.sendMail({
     from: ADMIN_EMAIL,

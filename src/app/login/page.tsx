@@ -21,8 +21,10 @@ export default function LoginPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password }),
       });
+      const data = await res.json().catch(() => null);
+
       if (!res.ok) {
-        setError("Wrong password");
+        setError(data?.error || "Login failed");
         return;
       }
       router.push("/admin");

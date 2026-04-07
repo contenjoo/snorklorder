@@ -4,8 +4,9 @@ import { db } from "@/db";
 import { schoolRequests, schools } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { sendSchoolCodeEmail } from "@/lib/email";
+import { checkAuth } from "@/lib/auth";
 
-function generateCode(nameEn: string | null, name: string): string {
+function generateCode(nameEn: string | null): string {
   // Try English name first
   if (nameEn) {
     const code = nameEn
@@ -22,6 +23,10 @@ function generateCode(nameEn: string | null, name: string): string {
 }
 
 export async function POST(req: NextRequest) {
+  if (!(await checkAuth())) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const { id, action, rejectReason } = await req.json();
 
   if (!id || !action) {
@@ -51,7 +56,7 @@ export async function POST(req: NextRequest) {
 
   if (action === "approve") {
     // Generate unique code
-    let code = generateCode(request.nameEn, request.name);
+    let code = generateCode(request.nameEn);
     let attempt = 0;
     while (attempt < 10) {
       const existing = await db.select().from(schools).where(eq(schools.code, code));

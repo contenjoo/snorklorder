@@ -24,7 +24,6 @@ export async function GET(
     ? JSON.parse(batch.confirmedIds)
     : [];
 
-  // 배치 교사 + 학교 정보
   const teacherList = await db
     .select({
       id: teachers.id,
@@ -37,39 +36,7 @@ export async function GET(
     .from(teachers)
     .innerJoin(schools, eq(teachers.schoolId, schools.id))
     .where(inArray(teachers.id, teacherIds));
-
-  // 전체 학교 현황 (Jon이 볼 수 있게)
-  const allSchools = await db
-    .select({
-      id: schools.id,
-      name: schools.name,
-      nameEn: schools.nameEn,
-      code: schools.code,
-      region: schools.region,
-      team: schools.team,
-    })
-    .from(schools);
-
-  const allTeachers = await db
-    .select({
-      id: teachers.id,
-      email: teachers.email,
-      status: teachers.status,
-      schoolId: teachers.schoolId,
-    })
-    .from(teachers);
-
-  // 학교별 교사 수 집계
-  const schoolSummary = allSchools.map((s) => {
-    const sTeachers = allTeachers.filter((t) => t.schoolId === s.id);
-    return {
-      ...s,
-      total: sTeachers.length,
-      pending: sTeachers.filter((t) => t.status === "pending").length,
-      sent: sTeachers.filter((t) => t.status === "sent").length,
-      upgraded: sTeachers.filter((t) => t.status === "upgraded").length,
-    };
-  }).filter((s) => s.total > 0);
+  const uniqueSchools = new Set(teacherList.map((teacher) => teacher.schoolName));
 
   return NextResponse.json({
     batch: {
@@ -80,13 +47,12 @@ export async function GET(
     },
     teachers: teacherList,
     confirmedIds,
-    schoolSummary,
     stats: {
-      totalSchools: schoolSummary.length,
-      totalTeachers: allTeachers.length,
-      pending: allTeachers.filter((t) => t.status === "pending").length,
-      sent: allTeachers.filter((t) => t.status === "sent").length,
-      upgraded: allTeachers.filter((t) => t.status === "upgraded").length,
+      totalSchools: uniqueSchools.size,
+      totalTeachers: teacherList.length,
+      pending: teacherList.filter((teacher) => teacher.status === "pending").length,
+      sent: teacherList.filter((teacher) => teacher.status === "sent").length,
+      upgraded: teacherList.filter((teacher) => teacher.status === "upgraded").length,
     },
   });
 }
@@ -109,23 +75,38 @@ export async function POST(
     return NextResponse.json({ error: "Invalid token" }, { status: 404 });
   }
 
+  if (!Array.isArray(confirmedTeacherIds)) {
+    return NextResponse.json({ error: "confirmedTeacherIds must be an array" }, { status: 400 });
+  }
+
+  const allowedTeacherIds: number[] = JSON.parse(batch.teacherIds);
+  const allowedTeacherIdSet = new Set(allowedTeacherIds);
+  const normalizedConfirmedIds = [...new Set(
+    confirmedTeacherIds.filter((id): id is number => Number.isInteger(id))
+  )];
+  const invalidIds = normalizedConfirmedIds.filter((id) => !allowedTeacherIdSet.has(id));
+
+  if (invalidIds.length > 0) {
+    return NextResponse.json({ error: "Invalid teacher IDs in confirmation request" }, { status: 400 });
+  }
+
   // 배치 업데이트
   await db
     .update(upgradeBatches)
     .set({
-      confirmedIds: JSON.stringify(confirmedTeacherIds),
+      confirmedIds: JSON.stringify(normalizedConfirmedIds),
       status: "confirmed",
       confirmedAt: new Date(),
     })
     .where(eq(upgradeBatches.id, batch.id));
 
   // 확인된 교사들 상태를 upgraded로 변경
-  if (confirmedTeacherIds.length > 0) {
+  if (normalizedConfirmedIds.length > 0) {
     await db
       .update(teachers)
       .set({ status: "upgraded" })
-      .where(inArray(teachers.id, confirmedTeacherIds));
+      .where(inArray(teachers.id, normalizedConfirmedIds));
   }
 
-  return NextResponse.json({ success: true, count: confirmedTeacherIds.length });
+  return NextResponse.json({ success: true, count: normalizedConfirmedIds.length });
 }

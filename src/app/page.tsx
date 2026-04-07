@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-type Step = "choose" | "schoolForm" | "individualForm" | "success" | "request" | "requestSent";
+type Step = "choose" | "schoolForm" | "batchForm" | "individualForm" | "success" | "batchSuccess" | "request" | "requestSent";
 type FindMode = "search" | "code";
 
 interface SchoolResult { id: number; name: string; nameEn: string | null; code: string; }
@@ -30,6 +30,8 @@ export default function TeacherRegistration() {
   const [reqRegion, setReqRegion] = useState("");
   const [reqContactName, setReqContactName] = useState("");
   const [reqContactEmail, setReqContactEmail] = useState("");
+  const [batchEmails, setBatchEmails] = useState("");
+  const [batchResult, setBatchResult] = useState<{ registered: number; duplicates: number } | null>(null);
 
   useEffect(() => {
     if (searchQuery.length < 1) { setSearchResults([]); return; }
@@ -83,8 +85,25 @@ export default function TeacherRegistration() {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "create", type: "upgrade", schoolName: schoolInput.trim(), emails: email.trim(), accountType: "teacher", quantity: 1, notes: `개인 등록 | 이름: ${name.trim()} | 과목: ${subject.trim() || "N/A"}` }),
       });
-      if (!res.ok) { setError("등록 실패"); return; }
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || "등록 실패"); return; }
       setStep("success");
+    } catch { setError("연결 오류입니다."); } finally { setLoading(false); }
+  }
+
+  async function submitBatch() {
+    const emails = batchEmails.split(/[\n,;]+/).map((e) => e.trim()).filter((e) => e && e.includes("@"));
+    if (emails.length === 0) { setError("유효한 이메일을 입력해주세요."); return; }
+    setLoading(true); setError("");
+    try {
+      const res = await fetch("/api/register/batch", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ schoolCode: schoolCode.trim(), emails }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || "등록 실패"); return; }
+      setBatchResult({ registered: data.registered, duplicates: data.duplicates });
+      setStep("batchSuccess");
     } catch { setError("연결 오류입니다."); } finally { setLoading(false); }
   }
 
@@ -96,14 +115,16 @@ export default function TeacherRegistration() {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: reqName.trim(), nameEn: reqNameEn.trim() || null, region: reqRegion || null, contactName: reqContactName.trim(), contactEmail: reqContactEmail.trim() }),
       });
-      if (!res.ok) { setError("요청 실패"); return; } setStep("requestSent");
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || "요청 실패"); return; }
+      setStep("requestSent");
     } catch { setError("연결 오류입니다."); } finally { setLoading(false); }
   }
 
   function reset() {
     setStep("choose"); setSchoolCode(""); setSchoolName(""); setSchoolNameEn("");
     setSearchQuery(""); setSearchResults([]); setName(""); setEmail("");
-    setSubject(""); setSchoolInput(""); setError("");
+    setSubject(""); setSchoolInput(""); setError(""); setBatchEmails(""); setBatchResult(null);
   }
 
   // Shared input class
@@ -223,14 +244,18 @@ export default function TeacherRegistration() {
             </div>
           )}
 
-          {/* ===== 학교 소속 교사 폼 ===== */}
+          {/* ===== 학교 소속 교사 폼 (1명) ===== */}
           {step === "schoolForm" && (
             <div className="p-6 space-y-5">
               <div className="text-center rounded-xl bg-blue-50 border border-blue-100 p-5">
                 <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center text-2xl mx-auto mb-2">🏫</div>
                 <p className="text-xl font-bold text-gray-900">{schoolName}</p>
                 {schoolNameEn && <p className="text-sm text-blue-600">{schoolNameEn}</p>}
-                <button onClick={reset} className="text-sm text-blue-600 font-semibold underline mt-2">학교 변경</button>
+                <div className="flex items-center justify-center gap-3 mt-2">
+                  <button onClick={reset} className="text-sm text-blue-600 font-semibold underline">학교 변경</button>
+                  <span className="text-gray-300">|</span>
+                  <button onClick={() => { setStep("batchForm"); setError(""); }} className="text-sm text-blue-600 font-semibold underline">일괄 등록으로 전환</button>
+                </div>
               </div>
 
               <div className="flex items-start gap-2 rounded-xl bg-amber-50 border border-amber-200 p-3">
@@ -256,6 +281,88 @@ export default function TeacherRegistration() {
               {error && <p className="text-sm text-red-600 font-medium bg-red-50 p-3 rounded-xl">{error}</p>}
               <Button onClick={submitSchoolTeacher} disabled={loading} className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-base font-bold rounded-xl">
                 {loading ? "등록 중..." : "등록하기"}
+              </Button>
+            </div>
+          )}
+
+          {/* ===== 학교 일괄 등록 폼 ===== */}
+          {step === "batchForm" && (
+            <div className="p-6 space-y-5">
+              <div className="text-center rounded-xl bg-blue-50 border border-blue-100 p-5">
+                <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center text-2xl mx-auto mb-2">🏫</div>
+                <p className="text-xl font-bold text-gray-900">{schoolName}</p>
+                {schoolNameEn && <p className="text-sm text-blue-600">{schoolNameEn}</p>}
+                <div className="flex items-center justify-center gap-3 mt-2">
+                  <button onClick={reset} className="text-sm text-blue-600 font-semibold underline">학교 변경</button>
+                  <span className="text-gray-300">|</span>
+                  <button onClick={() => { setStep("schoolForm"); setError(""); }} className="text-sm text-blue-600 font-semibold underline">1명 등록으로 전환</button>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-2 rounded-xl bg-green-50 border border-green-200 p-3">
+                <span className="text-base">📋</span>
+                <p className="text-sm text-green-800 font-medium">
+                  여러 선생님의 이메일을 한번에 등록합니다. <b>Snorkl 가입 이메일</b>을 입력해주세요.
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className={labelCls}>이메일 목록 *</Label>
+                <textarea
+                  placeholder={"teacher1@school.kr\nteacher2@school.kr\nteacher3@school.kr"}
+                  value={batchEmails}
+                  onChange={(e) => setBatchEmails(e.target.value)}
+                  rows={8}
+                  autoFocus
+                  className="w-full bg-white border-2 border-gray-200 text-gray-900 placeholder:text-gray-400 text-sm font-mono rounded-xl p-4 focus:border-blue-500 focus:ring-blue-500 outline-none resize-y"
+                />
+                <p className="text-xs text-gray-400">한 줄에 하나씩, 또는 쉼표(,)로 구분해서 입력하세요</p>
+              </div>
+
+              {batchEmails.trim() && (
+                <div className="text-sm text-gray-600 bg-gray-50 rounded-xl p-3">
+                  인식된 이메일: <span className="font-bold text-blue-600">
+                    {batchEmails.split(/[\n,;]+/).map((e) => e.trim()).filter((e) => e && e.includes("@")).length}개
+                  </span>
+                </div>
+              )}
+
+              {error && <p className="text-sm text-red-600 font-medium bg-red-50 p-3 rounded-xl">{error}</p>}
+              <Button onClick={submitBatch} disabled={loading} className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-base font-bold rounded-xl">
+                {loading ? "등록 중..." : "일괄 등록하기"}
+              </Button>
+              <button onClick={reset} className="w-full text-sm text-gray-400 font-medium hover:text-gray-600 transition-colors py-1">← 돌아가기</button>
+            </div>
+          )}
+
+          {/* ===== 일괄 등록 완료 ===== */}
+          {step === "batchSuccess" && batchResult && (
+            <div className="p-8 text-center space-y-5">
+              <div className="mx-auto w-20 h-20 rounded-2xl bg-green-50 border-2 border-green-200 flex items-center justify-center">
+                <svg className="w-10 h-10 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-2xl font-bold text-gray-900">일괄 등록 완료!</h3>
+                <div className="mt-4 space-y-2">
+                  <div className="inline-flex items-center gap-2 bg-green-50 rounded-lg px-4 py-2">
+                    <span className="text-green-600 font-bold text-lg">{batchResult.registered}명</span>
+                    <span className="text-green-700 text-sm">새로 등록</span>
+                  </div>
+                  {batchResult.duplicates > 0 && (
+                    <div className="block">
+                      <span className="text-sm text-gray-500">이미 등록됨: {batchResult.duplicates}명 (건너뜀)</span>
+                    </div>
+                  )}
+                </div>
+                <p className="text-base text-gray-500 mt-3">
+                  프리미엄 업그레이드 요청이 접수되었습니다.
+                  <br /><span className="font-semibold text-gray-700">처리까지 1~2 영업일</span> 소요됩니다.
+                </p>
+              </div>
+              <Button variant="outline" onClick={reset} className="border-2 border-gray-200 text-gray-700 font-semibold h-11 rounded-xl hover:bg-gray-50">
+                처음으로
               </Button>
             </div>
           )}

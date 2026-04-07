@@ -31,7 +31,13 @@ export default function RequestsPage() {
 
   async function load() {
     const res = await fetch("/api/school-requests");
-    setRequests(await res.json());
+    const data = await res.json();
+    if (!res.ok) {
+      setRequests([]);
+      setMessage(data.error || "목록을 불러오지 못했습니다.");
+      return;
+    }
+    setRequests(Array.isArray(data) ? data : []);
   }
 
   useEffect(() => { load(); }, []);
@@ -52,6 +58,8 @@ export default function RequestsPage() {
           : "거절되었습니다."
         );
         load();
+      } else {
+        setMessage(data.error || "처리에 실패했습니다.");
       }
     } catch {
       setMessage("오류 발생");

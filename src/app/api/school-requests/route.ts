@@ -3,23 +3,46 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { schoolRequests } from "@/db/schema";
 import { desc } from "drizzle-orm";
+import { checkAuth } from "@/lib/auth";
+import { checkRateLimit, createRateLimitResponse, isValidEmail, normalizeText } from "@/lib/security";
 
 // POST: 교사가 학교 등록 요청 (public)
 export async function POST(req: NextRequest) {
+  const rateLimit = checkRateLimit({
+    request: req,
+    key: "public-school-request",
+    limit: 5,
+    windowMs: 10 * 60 * 1000,
+  });
+
+  if (!rateLimit.ok) {
+    return createRateLimitResponse("Too many school requests. Please try again later.", rateLimit.retryAfter);
+  }
+
   const { name, nameEn, region, contactName, contactEmail } = await req.json();
 
   if (!name || !contactName || !contactEmail) {
     return NextResponse.json({ error: "학교명, 담당자 이름, 이메일은 필수입니다." }, { status: 400 });
   }
 
+  const normalizedName = normalizeText(name, 120);
+  const normalizedNameEn = typeof nameEn === "string" ? normalizeText(nameEn, 120) : null;
+  const normalizedRegion = typeof region === "string" ? normalizeText(region, 40) : null;
+  const normalizedContactName = normalizeText(contactName, 80);
+  const normalizedContactEmail = normalizeText(contactEmail, 254).toLowerCase();
+
+  if (!normalizedName || !normalizedContactName || !isValidEmail(normalizedContactEmail)) {
+    return NextResponse.json({ error: "입력값이 올바르지 않습니다." }, { status: 400 });
+  }
+
   const [request] = await db
     .insert(schoolRequests)
     .values({
-      name: name.trim(),
-      nameEn: nameEn?.trim() || null,
-      region: region || null,
-      contactName: contactName.trim(),
-      contactEmail: contactEmail.trim().toLowerCase(),
+      name: normalizedName,
+      nameEn: normalizedNameEn,
+      region: normalizedRegion,
+      contactName: normalizedContactName,
+      contactEmail: normalizedContactEmail,
     })
     .returning();
 
@@ -28,11 +51,15 @@ export async function POST(req: NextRequest) {
     sendAdminNotification(request).catch(console.error);
   });
 
-  return NextResponse.json({ success: true, request });
+  return NextResponse.json({ success: true });
 }
 
 // GET: 관리자용 요청 목록 (admin protected by middleware)
 export async function GET() {
+  if (!(await checkAuth())) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const result = await db
     .select()
     .from(schoolRequests)

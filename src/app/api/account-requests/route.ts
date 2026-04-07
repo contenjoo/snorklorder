@@ -3,8 +3,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { accountRequests } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
+import { checkAuth } from "@/lib/auth";
+import { checkRateLimit, createRateLimitResponse, isValidEmail, normalizeText } from "@/lib/security";
 
 export async function GET() {
+  if (!(await checkAuth())) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const result = await db
     .select()
     .from(accountRequests)
@@ -17,22 +23,66 @@ export async function POST(req: NextRequest) {
   const { action, id, ...data } = body;
 
   if (action === "create") {
+    const isAuthenticated = await checkAuth();
+
+    if (!isAuthenticated) {
+      const rateLimit = checkRateLimit({
+        request: req,
+        key: "public-account-request",
+        limit: 5,
+        windowMs: 10 * 60 * 1000,
+      });
+
+      if (!rateLimit.ok) {
+        return createRateLimitResponse("Too many account requests. Please try again later.", rateLimit.retryAfter);
+      }
+    }
+
+    if (!data.schoolName || !data.emails) {
+      return NextResponse.json({ error: "schoolName and emails are required" }, { status: 400 });
+    }
+
+    const emailList = String(data.emails)
+      .split(/[,;\n]+/)
+      .map((email) => email.trim().toLowerCase())
+      .filter((email) => email.length > 0);
+    const uniqueValidEmails = [...new Set(emailList.filter((email) => isValidEmail(email)))];
+
+    if (uniqueValidEmails.length === 0) {
+      return NextResponse.json({ error: "At least one valid email is required" }, { status: 400 });
+    }
+
+    if (!isAuthenticated && uniqueValidEmails.length > 3) {
+      return NextResponse.json({ error: "Public requests can include up to 3 emails" }, { status: 400 });
+    }
+
+    const normalizedSchoolName = normalizeText(String(data.schoolName), 120);
+    const normalizedNotes = typeof data.notes === "string" ? normalizeText(data.notes, 500) : null;
+
+    if (!normalizedSchoolName) {
+      return NextResponse.json({ error: "schoolName is required" }, { status: 400 });
+    }
+
     const [item] = await db
       .insert(accountRequests)
       .values({
-        type: data.type || "upgrade",
-        schoolName: data.schoolName,
-        emails: data.emails,
-        accountType: data.accountType || "teacher",
-        quantity: data.quantity || 1,
-        oldEmail: data.oldEmail || null,
-        fromType: data.fromType || null,
-        extensionDate: data.extensionDate || null,
-        notes: data.notes || null,
-        status: data.status || "draft",
+        type: isAuthenticated ? data.type || "upgrade" : "upgrade",
+        schoolName: normalizedSchoolName,
+        emails: uniqueValidEmails.join(", "),
+        accountType: isAuthenticated ? data.accountType || "teacher" : "teacher",
+        quantity: isAuthenticated ? data.quantity || 1 : uniqueValidEmails.length,
+        oldEmail: isAuthenticated ? data.oldEmail || null : null,
+        fromType: isAuthenticated ? data.fromType || null : null,
+        extensionDate: isAuthenticated ? data.extensionDate || null : null,
+        notes: normalizedNotes,
+        status: isAuthenticated ? data.status || "draft" : "draft",
       })
       .returning();
-    return NextResponse.json({ request: item });
+    return NextResponse.json({ success: true, requestId: item.id });
+  }
+
+  if (!(await checkAuth())) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   if (action === "update" && id) {

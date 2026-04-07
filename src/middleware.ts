@@ -1,9 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 
+function isPublicApiRequest(request: NextRequest, pathname: string) {
+  if (pathname.startsWith("/api/auth")) return true;
+  if (pathname.startsWith("/api/register")) return true;
+  if (pathname.startsWith("/api/schools/lookup")) return true;
+  if (pathname.startsWith("/api/schools/search")) return true;
+  if (pathname.startsWith("/api/confirm/")) return true;
+  if (pathname.startsWith("/api/cron/")) return true;
+
+  if (pathname === "/api/school-requests" && request.method === "POST") {
+    return true;
+  }
+
+  if (pathname === "/api/account-requests" && request.method === "POST") {
+    return true;
+  }
+
+  return false;
+}
+
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Only protect /admin routes (not /api/auth or /api/register or /api/schools/lookup)
+  // Only protect /admin routes.
   if (pathname.startsWith("/admin")) {
     const auth = request.cookies.get("snorkl-admin-auth");
     if (auth?.value !== "authenticated") {
@@ -11,18 +30,7 @@ export function middleware(request: NextRequest) {
     }
   }
 
-  // Protect admin API routes
-  if (
-    pathname.startsWith("/api/") &&
-    !pathname.startsWith("/api/register") &&
-    !pathname.startsWith("/api/schools/lookup") &&
-    !pathname.startsWith("/api/schools/search") &&
-    !pathname.startsWith("/api/school-requests") &&
-    !pathname.startsWith("/api/account-requests") &&
-    !pathname.startsWith("/api/confirm/") &&
-    !pathname.startsWith("/api/cron/") &&
-    !pathname.startsWith("/api/auth")
-  ) {
+  if (pathname.startsWith("/api/") && !isPublicApiRequest(request, pathname)) {
     const auth = request.cookies.get("snorkl-admin-auth");
     if (auth?.value !== "authenticated") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
