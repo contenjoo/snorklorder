@@ -202,9 +202,9 @@ export default function TeachersPage() {
     try {
       const res = await fetch("/api/send-email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teacherIds: Array.from(selected) }) });
       const data = await res.json();
-      setMessage(data.success ? `${selected.size} teachers sent` : "Failed");
+      setMessage(data.success ? `${selected.size}명 발송 완료` : "발송 실패");
       if (data.success) { setSelected(new Set()); load(); }
-    } catch { setMessage("Error"); } finally { setSending(false); }
+    } catch { setMessage("오류"); } finally { setSending(false); }
   }
   async function markStatus(status: string) {
     if (selected.size === 0) return;
@@ -226,9 +226,9 @@ export default function TeachersPage() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Teachers</h1>
+          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">교사 관리</h1>
           <div className="flex items-center gap-3 mt-1.5">
-            <span className="text-sm text-gray-500"><b className="text-gray-900">{schoolCount + indivCount}</b> total</span>
+            <span className="text-sm text-gray-500"><b className="text-gray-900">{schoolCount + indivCount}</b>명</span>
             <span className="w-1 h-1 rounded-full bg-gray-300" />
             {statusBreakdown.map(([status, count]) => (
               <button key={status} onClick={() => setFilterStatus(filterStatus === status ? "all" : status)}
@@ -243,11 +243,11 @@ export default function TeachersPage() {
         <div className="flex items-center gap-2">
           <button onClick={downloadCSV} className="text-xs text-gray-500 hover:text-gray-900 px-3 py-2 rounded-lg border hover:bg-gray-50 transition-colors">
             <svg className="w-4 h-4 inline mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
-            Export CSV
+            CSV 내보내기
           </button>
           <button onClick={selectAll}
             className="text-xs text-gray-500 hover:text-gray-900 px-3 py-2 rounded-lg border hover:bg-gray-50 transition-colors">
-            {filteredSchools.flatMap((s) => s.teachers).every((t) => selected.has(t.id)) && schoolCount > 0 ? "Deselect All" : "Select All"}
+            {filteredSchools.flatMap((s) => s.teachers).every((t) => selected.has(t.id)) && schoolCount > 0 ? "전체 해제" : "전체 선택"}
           </button>
         </div>
       </div>
@@ -256,7 +256,7 @@ export default function TeachersPage() {
       <div className="flex items-center gap-2 flex-wrap">
         {/* Tab switcher */}
         <div className="flex items-center rounded-lg border bg-white p-0.5 gap-0.5">
-          {([["all", `All ${schoolCount + indivCount}`], ["school", `School ${schoolCount}`], ["individual", `Individual ${indivCount}`]] as const).map(([t, label]) => (
+          {([["all", `전체 ${schoolCount + indivCount}`], ["school", `단체 ${schoolCount}`], ["individual", `개별 ${indivCount}`]] as const).map(([t, label]) => (
             <button key={t} onClick={() => setTab(t as ViewTab)}
               className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${tab === t ? "bg-gray-900 text-white" : "text-gray-500 hover:text-gray-900"}`}>
               {label}
@@ -267,7 +267,7 @@ export default function TeachersPage() {
         {/* Search */}
         <div className="relative flex-1 max-w-xs">
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
-          <input placeholder="Search by name, email, or school..."
+          <input placeholder="이름, 이메일, 학교 검색..."
             value={search} onChange={(e) => setSearch(e.target.value)}
             className="w-full pl-9 pr-3 py-2 text-sm border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300 transition-all" />
         </div>
@@ -275,7 +275,7 @@ export default function TeachersPage() {
         {/* Team filter */}
         <select value={filterTeam} onChange={(e) => setFilterTeam(e.target.value)}
           className="text-xs border rounded-lg px-3 py-2 bg-white text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-200">
-          <option value="all">All Teams</option>
+          <option value="all">전체 팀</option>
           {allTeams.map((t) => <option key={t} value={t}>{t}</option>)}
         </select>
 
@@ -284,7 +284,7 @@ export default function TeachersPage() {
           {(["school", "email", "status", "recent"] as const).map(s => (
             <button key={s} onClick={() => setSortBy(s)}
               className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${sortBy === s ? "bg-gray-100 text-gray-900" : "text-gray-400 hover:text-gray-700"}`}>
-              {s === "school" ? "By School" : s === "email" ? "A-Z" : s === "status" ? "Status" : "Recent"}
+              {s === "school" ? "학교별" : s === "email" ? "가나다순" : s === "status" ? "상태별" : "최근순"}
             </button>
           ))}
         </div>
@@ -304,19 +304,19 @@ export default function TeachersPage() {
       {selected.size > 0 && (
         <div className="flex items-center gap-3 px-4 py-3 bg-blue-600 text-white rounded-xl sticky top-16 z-10 shadow-lg">
           <span className="font-bold">{selected.size}</span>
-          <span className="text-blue-200 text-sm">selected</span>
+          <span className="text-blue-200 text-sm">명 선택됨</span>
           <div className="h-5 w-px bg-blue-400" />
           <button onClick={sendSelected} disabled={sending}
             className="bg-white text-blue-700 px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-blue-50 disabled:opacity-50 transition-colors">
-            {sending ? "Sending..." : "Send to Jon"}
+            {sending ? "발송 중..." : "Jon에게 발송"}
           </button>
           <button onClick={() => markStatus("upgraded")}
             className="bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-emerald-600 transition-colors">
-            Mark Upgraded
+            업그레이드 처리
           </button>
-          <button onClick={() => markStatus("sent")} className="text-blue-200 hover:text-white text-xs px-2 py-1">Mark Sent</button>
-          <button onClick={() => markStatus("pending")} className="text-blue-200 hover:text-white text-xs px-2 py-1">Mark Pending</button>
-          <button onClick={() => setSelected(new Set())} className="ml-auto text-blue-200 hover:text-white text-sm">Clear</button>
+          <button onClick={() => markStatus("sent")} className="text-blue-200 hover:text-white text-xs px-2 py-1">발송됨 처리</button>
+          <button onClick={() => markStatus("pending")} className="text-blue-200 hover:text-white text-xs px-2 py-1">대기중 처리</button>
+          <button onClick={() => setSelected(new Set())} className="ml-auto text-blue-200 hover:text-white text-sm">취소</button>
           {message && <span className="text-sm text-green-300">{message}</span>}
         </div>
       )}
@@ -325,7 +325,7 @@ export default function TeachersPage() {
       {(tab === "all" || tab === "school") && viewMode === "grouped" && filteredSchools.length > 0 && (
         <div className="space-y-3">
           {tab === "all" && (
-            <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">School Purchase</h2>
+            <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">단체구매</h2>
           )}
           {filteredSchools.map((school) => {
             const tc = teamColorMap[school.team || ""] || { bg: "bg-gray-50", text: "text-gray-600" };
@@ -349,7 +349,7 @@ export default function TeachersPage() {
                         <span className={`text-[10px] px-2 py-0.5 rounded-full ${tc.bg} ${tc.text}`}>{school.team}</span>
                       )}
                       {pendingC > 0 && (
-                        <span className="text-[10px] font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full">{pendingC} pending</span>
+                        <span className="text-[10px] font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full">{pendingC} 대기</span>
                       )}
                     </div>
                   </div>
@@ -394,18 +394,18 @@ export default function TeachersPage() {
       {(tab === "all" || tab === "school") && viewMode === "flat" && flatTeachers.length > 0 && (
         <div>
           {tab === "all" && (
-            <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">School Purchase</h2>
+            <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">단체구매</h2>
           )}
           <div className="bg-white rounded-xl border overflow-hidden">
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wider">
                   <th className="px-4 py-3 w-8"><input type="checkbox" onChange={selectAll} className="rounded" /></th>
-                  <th className="px-4 py-3 font-medium">Email</th>
-                  <th className="px-4 py-3 font-medium">Name</th>
-                  <th className="px-4 py-3 font-medium">School</th>
-                  <th className="px-4 py-3 font-medium">Team</th>
-                  <th className="px-4 py-3 font-medium text-right">Status</th>
+                  <th className="px-4 py-3 font-medium">이메일</th>
+                  <th className="px-4 py-3 font-medium">이름</th>
+                  <th className="px-4 py-3 font-medium">학교</th>
+                  <th className="px-4 py-3 font-medium">팀</th>
+                  <th className="px-4 py-3 font-medium text-right">상태</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
@@ -444,7 +444,7 @@ export default function TeachersPage() {
       {/* ===== Individual Purchase ===== */}
       {(tab === "all" || tab === "individual") && individualBySchool.length > 0 && (
         <div className="space-y-3">
-          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Individual Purchase</h2>
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">개별구매</h2>
           <div className="bg-white rounded-xl border overflow-hidden">
             {individualBySchool.map(([schoolName, teachers], idx) => (
               <div key={schoolName} className={idx > 0 ? "border-t" : ""}>
@@ -476,8 +476,8 @@ export default function TeachersPage() {
 
       {filteredSchools.length === 0 && individualBySchool.length === 0 && (
         <div className="text-center py-20">
-          <p className="text-gray-400 text-sm">No teachers found</p>
-          {search && <p className="text-gray-300 text-xs mt-1">Try a different search term</p>}
+          <p className="text-gray-400 text-sm">검색 결과 없음</p>
+          {search && <p className="text-gray-300 text-xs mt-1">다른 검색어를 시도해보세요</p>}
         </div>
       )}
     </div>

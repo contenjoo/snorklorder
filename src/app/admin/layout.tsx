@@ -4,11 +4,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const navItems = [
-  { href: "/admin", label: "Dashboard", icon: "grid" },
-  { href: "/admin/schools", label: "Schools", icon: "school" },
-  { href: "/admin/teachers", label: "Teachers", icon: "users" },
-  { href: "/admin/accounts", label: "Accounts", icon: "receipt" },
-  { href: "/admin/requests", label: "Requests", icon: "inbox" },
+  { href: "/admin", label: "대시보드", icon: "grid" },
+  { href: "/admin/schools", label: "학교", icon: "school" },
+  { href: "/admin/teachers", label: "교사", icon: "users" },
+  { href: "/admin/accounts", label: "정산", icon: "receipt" },
+  { href: "/admin/requests", label: "요청", icon: "inbox" },
 ];
 
 const icons: Record<string, React.ReactNode> = {
@@ -30,7 +30,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center">
               <span className="text-white text-xs font-bold">S</span>
             </div>
-            <span className="font-bold text-gray-900 tracking-tight">Snorkl Order</span>
+            <span className="font-bold text-gray-900 tracking-tight">Snorkl 주문관리</span>
           </Link>
           <nav className="flex gap-0.5">
             {navItems.map((item) => {

@@ -84,6 +84,7 @@ export default function SchoolsPage() {
   const [fregion, setFregion] = useState("");
   const [fteam, setFteam] = useState("");
   const [ferror, setFerror] = useState("");
+  const [translating, setTranslating] = useState(false);
 
   const filtered = useMemo(() => {
     let result = schools.filter((s) => {
@@ -178,6 +179,32 @@ export default function SchoolsPage() {
     setFname(""); setFnameEn(""); setFcode(""); setFdomain(""); setFregion(""); setFteam("");
     setOpen(false); load();
   }
+  async function translateName(korean: string) {
+    if (!korean.trim()) return;
+    setTranslating(true);
+    try {
+      const res = await fetch("/api/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: korean.trim() }),
+      });
+      const data = await res.json();
+      if (data.translated) {
+        setFnameEn(data.translated);
+        // Auto-generate code from English name
+        const code = data.translated
+          .replace(/\b(elementary|middle|high|school|university|college)\b/gi, "")
+          .trim()
+          .split(/\s+/)
+          .map((w: string) => w.toUpperCase())
+          .join("")
+          .replace(/[^A-Z]/g, "")
+          .slice(0, 12);
+        if (code && !fcode) setFcode(code);
+      }
+    } catch {} finally { setTranslating(false); }
+  }
+
   async function deleteSchool(id: number) {
     if (!confirm("이 학교와 소속 교사를 모두 삭제할까요?")) return;
     await fetch(`/api/schools?id=${id}`, { method: "DELETE" }); load();
@@ -188,11 +215,11 @@ export default function SchoolsPage() {
       {/* Header with stats ribbon */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Schools</h1>
+          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">학교 관리</h1>
           <div className="flex items-center gap-3 mt-1.5">
-            <span className="text-sm text-gray-500"><b className="text-gray-900">{filtered.length}</b> schools</span>
+            <span className="text-sm text-gray-500"><b className="text-gray-900">{filtered.length}</b>교</span>
             <span className="w-1 h-1 rounded-full bg-gray-300" />
-            <span className="text-sm text-gray-500"><b className="text-gray-900">{totalTeachers}</b> teachers</span>
+            <span className="text-sm text-gray-500"><b className="text-gray-900">{totalTeachers}</b>명</span>
             {regionStats.length > 0 && (
               <>
                 <span className="w-1 h-1 rounded-full bg-gray-300" />
@@ -212,7 +239,7 @@ export default function SchoolsPage() {
           <DialogTrigger render={
             <Button className="shadow-sm">
               <svg className="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" /></svg>
-              Add School
+              학교 추가
             </Button>
           } />
           <DialogContent>
@@ -221,11 +248,11 @@ export default function SchoolsPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label>학교명 (한국어) *</Label>
-                  <Input placeholder="예: 효명고등학교" value={fname} onChange={(e) => setFname(e.target.value)} />
+                  <Input placeholder="예: 효명고등학교" value={fname} onChange={(e) => setFname(e.target.value)} onBlur={() => { if (fname && !fnameEn) translateName(fname); }} />
                 </div>
                 <div className="space-y-1">
-                  <Label>English Name</Label>
-                  <Input placeholder="e.g. Hyo-Myeong HS" value={fnameEn} onChange={(e) => setFnameEn(e.target.value)} />
+                  <Label>영문명 {translating && <span className="text-xs text-blue-500">(번역 중...)</span>}</Label>
+                  <Input placeholder="자동 번역됨" value={fnameEn} onChange={(e) => setFnameEn(e.target.value)} />
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-3">
@@ -260,21 +287,21 @@ export default function SchoolsPage() {
       <div className="flex items-center gap-2 flex-wrap">
         <div className="relative flex-1 max-w-xs">
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
-          <Input placeholder="Search schools or teachers..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
+          <Input placeholder="학교명, 코드, 교사 검색..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
         </div>
         <Select value={filterTeam} onValueChange={(v) => setFilterTeam(v ?? "all")}>
-          <SelectTrigger className="w-36"><SelectValue placeholder="All Teams" /></SelectTrigger>
+          <SelectTrigger className="w-36"><SelectValue placeholder="전체 팀" /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Teams</SelectItem>
+            <SelectItem value="all">전체 팀</SelectItem>
             {allTeams.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-            <SelectItem value="none">Unassigned</SelectItem>
+            <SelectItem value="none">미배정</SelectItem>
           </SelectContent>
         </Select>
         <div className="flex items-center rounded-lg border bg-white p-0.5 gap-0.5 ml-auto">
           {(["teachers", "name", "recent"] as const).map(s => (
             <button key={s} onClick={() => setSortBy(s)}
               className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${sortBy === s ? "bg-gray-100 text-gray-900" : "text-gray-400 hover:text-gray-700"}`}>
-              {s === "teachers" ? "Most Teachers" : s === "name" ? "A-Z" : "Recent"}
+              {s === "teachers" ? "교사수순" : s === "name" ? "가나다순" : "최근순"}
             </button>
           ))}
         </div>
@@ -292,15 +319,15 @@ export default function SchoolsPage() {
       {selected.size > 0 && (
         <div className="flex items-center gap-3 px-4 py-3 bg-blue-600 text-white rounded-xl sticky top-16 z-10 shadow-lg">
           <span className="font-bold">{selected.size}</span>
-          <span className="text-blue-200 text-sm">teachers selected</span>
+          <span className="text-blue-200 text-sm">명 선택됨</span>
           <div className="h-5 w-px bg-blue-400" />
           <Button size="sm" onClick={sendSelected} disabled={sending} className="bg-white text-blue-700 hover:bg-blue-50 shadow-none">
-            {sending ? "Sending..." : "Send to Jon"}
+            {sending ? "발송 중..." : "Jon에게 발송"}
           </Button>
           <Button size="sm" onClick={markUpgraded} className="bg-emerald-500 hover:bg-emerald-600 text-white shadow-none">
-            Mark Upgraded
+            업그레이드 처리
           </Button>
-          <button onClick={() => setSelected(new Set())} className="ml-auto text-blue-200 hover:text-white text-sm">Clear</button>
+          <button onClick={() => setSelected(new Set())} className="ml-auto text-blue-200 hover:text-white text-sm">취소</button>
           {message && <span className="text-sm text-green-300">{message}</span>}
         </div>
       )}
@@ -329,7 +356,7 @@ export default function SchoolsPage() {
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0 ml-2">
                       <span className="text-lg font-bold text-gray-900">{school.teachers.length}</span>
-                      <span className="text-xs text-gray-400">teachers</span>
+                      <span className="text-xs text-gray-400">명</span>
                     </div>
                   </div>
 
@@ -358,12 +385,12 @@ export default function SchoolsPage() {
                 {isOpen && (
                   <div className="border-t">
                     {school.teachers.length === 0 ? (
-                      <p className="text-center text-gray-400 text-sm py-6">No teachers registered</p>
+                      <p className="text-center text-gray-400 text-sm py-6">등록된 교사 없음</p>
                     ) : (
                       <>
                         <div className="flex items-center gap-2 px-4 py-2 bg-gray-50/80">
                           <input type="checkbox" checked={allChecked} onChange={() => toggleSchoolTeachers(school)} className="rounded" />
-                          <span className="text-xs text-gray-500">Select all ({school.teachers.length})</span>
+                          <span className="text-xs text-gray-500">전체 선택 ({school.teachers.length}명)</span>
                         </div>
                         <div className="divide-y divide-gray-50 max-h-72 overflow-y-auto">
                           {school.teachers.map((t) => (
@@ -379,8 +406,8 @@ export default function SchoolsPage() {
                           ))}
                         </div>
                         <div className="flex items-center justify-between px-4 py-2 bg-gray-50/80 border-t">
-                          <button onClick={() => copyCode(school.code)} className="text-xs text-blue-600 hover:underline">Copy Code</button>
-                          <button onClick={() => deleteSchool(school.id)} className="text-xs text-red-400 hover:text-red-600">Delete School</button>
+                          <button onClick={() => copyCode(school.code)} className="text-xs text-blue-600 hover:underline">코드 복사</button>
+                          <button onClick={() => deleteSchool(school.id)} className="text-xs text-red-400 hover:text-red-600">학교 삭제</button>
                         </div>
                       </>
                     )}
@@ -398,12 +425,12 @@ export default function SchoolsPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wider">
-                <th className="px-4 py-3 font-medium">School</th>
-                <th className="px-4 py-3 font-medium">Code</th>
-                <th className="px-4 py-3 font-medium">Region</th>
-                <th className="px-4 py-3 font-medium">Team</th>
-                <th className="px-4 py-3 font-medium text-right">Teachers</th>
-                <th className="px-4 py-3 font-medium text-right">Status</th>
+                <th className="px-4 py-3 font-medium">학교</th>
+                <th className="px-4 py-3 font-medium">코드</th>
+                <th className="px-4 py-3 font-medium">지역</th>
+                <th className="px-4 py-3 font-medium">팀</th>
+                <th className="px-4 py-3 font-medium text-right">교사수</th>
+                <th className="px-4 py-3 font-medium text-right">상태</th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -433,11 +460,11 @@ export default function SchoolsPage() {
                     <td className="px-4 py-3 text-right font-semibold">{school.teachers.length}</td>
                     <td className="px-4 py-3 text-right">
                       {pendingC > 0 ? (
-                        <span className="text-xs font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">{pendingC} pending</span>
+                        <span className="text-xs font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">{pendingC} 대기</span>
                       ) : school.teachers.length > 0 ? (
-                        <span className="text-xs text-emerald-500">All good</span>
+                        <span className="text-xs text-emerald-500">완료</span>
                       ) : (
-                        <span className="text-xs text-gray-300">Empty</span>
+                        <span className="text-xs text-gray-300">교사 없음</span>
                       )}
                     </td>
                   </tr>
@@ -448,7 +475,7 @@ export default function SchoolsPage() {
         </div>
       )}
 
-      {filtered.length === 0 && <p className="text-center text-gray-400 py-16 text-sm">No results found</p>}
+      {filtered.length === 0 && <p className="text-center text-gray-400 py-16 text-sm">검색 결과 없음</p>}
     </div>
   );
 }

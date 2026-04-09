@@ -89,9 +89,9 @@ export default function AdminDashboard() {
         body: JSON.stringify({ teacherIds: pendingTeacherIds }),
       });
       const data = await res.json();
-      setMessage(data.success ? `${pendingTeacherIds.length} teachers sent to Jon` : "Failed");
+      setMessage(data.success ? `${pendingTeacherIds.length}명 Jon에게 발송 완료` : "발송 실패");
       if (data.success) refresh();
-    } catch { setMessage("Connection error"); } finally { setSending(false); }
+    } catch { setMessage("연결 오류"); } finally { setSending(false); }
   }
 
   return (
@@ -101,7 +101,7 @@ export default function AdminDashboard() {
         <div className="bg-white rounded-xl border p-5">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Schools</p>
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">학교</p>
               <p className="text-3xl font-bold text-gray-900 mt-1">{totalSchools}</p>
             </div>
             <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
@@ -118,7 +118,7 @@ export default function AdminDashboard() {
         <div className="bg-white rounded-xl border p-5">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Teachers</p>
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">교사</p>
               <p className="text-3xl font-bold text-gray-900 mt-1">{totalTeachers}</p>
             </div>
             <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center">
@@ -126,15 +126,15 @@ export default function AdminDashboard() {
             </div>
           </div>
           <div className="mt-3 flex items-center gap-2">
-            <span className="text-[10px] text-emerald-600 font-medium">{upgradedCount} upgraded</span>
-            <span className="text-[10px] text-purple-600 font-medium">{individualCount} individual</span>
+            <span className="text-[10px] text-emerald-600 font-medium">{upgradedCount} 업그레이드</span>
+            <span className="text-[10px] text-purple-600 font-medium">{individualCount} 개별구매</span>
           </div>
         </div>
 
         <div className="bg-white rounded-xl border p-5">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Upgrade Rate</p>
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">업그레이드율</p>
               <p className="text-3xl font-bold text-gray-900 mt-1">{upgradeRate}%</p>
             </div>
             <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center">
@@ -151,7 +151,7 @@ export default function AdminDashboard() {
         <div className={`rounded-xl border p-5 ${needUpgrade > 0 ? "bg-amber-50 border-amber-200" : "bg-emerald-50 border-emerald-200"}`}>
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Action Needed</p>
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">처리 필요</p>
               <p className={`text-3xl font-bold mt-1 ${needUpgrade > 0 ? "text-amber-900" : "text-emerald-900"}`}>{needUpgrade}</p>
             </div>
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${needUpgrade > 0 ? "bg-amber-100" : "bg-emerald-100"}`}>
@@ -164,8 +164,8 @@ export default function AdminDashboard() {
           </div>
           {needUpgrade > 0 && (
             <div className="mt-3 flex items-center gap-2 text-[10px]">
-              <span className="text-amber-700">{pendingCount} pending</span>
-              <span className="text-blue-700">{sentCount} sent</span>
+              <span className="text-amber-700">{pendingCount} 대기중</span>
+              <span className="text-blue-700">{sentCount} 발송됨</span>
             </div>
           )}
         </div>
@@ -176,19 +176,19 @@ export default function AdminDashboard() {
         <div className="bg-white rounded-xl border overflow-hidden">
           <div className="flex items-center justify-between px-5 py-3 border-b bg-gray-50/80">
             <div className="flex items-center gap-3">
-              <h2 className="font-semibold text-gray-900">Pending Upgrades</h2>
-              <span className="text-xs font-medium text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full">{needUpgrade} teachers</span>
+              <h2 className="font-semibold text-gray-900">업그레이드 대기</h2>
+              <span className="text-xs font-medium text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full">{needUpgrade}명</span>
             </div>
             <div className="flex items-center gap-2">
               {pendingCount > 0 && (
                 <button onClick={sendAllPending} disabled={sending}
                   className="text-xs font-semibold bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
-                  {sending ? "Sending..." : `Send ${pendingCount} to Jon`}
+                  {sending ? "발송 중..." : `${pendingCount}명 Jon에게 발송`}
                 </button>
               )}
               <Link href="/admin/teachers"
                 className="text-xs text-gray-500 hover:text-gray-900 px-3 py-2 rounded-lg border hover:bg-gray-50 transition-colors">
-                View All
+                전체 보기
               </Link>
             </div>
           </div>
@@ -228,7 +228,7 @@ export default function AdminDashboard() {
           </div>
 
           {message && (
-            <div className={`px-5 py-2.5 text-sm font-medium ${message.includes("sent") ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
+            <div className={`px-5 py-2.5 text-sm font-medium ${message.includes("완료") ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
               {message}
             </div>
           )}
@@ -242,8 +242,8 @@ export default function AdminDashboard() {
             <svg className="w-5 h-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
           </div>
           <div>
-            <p className="font-semibold text-emerald-900">All teachers upgraded</p>
-            <p className="text-sm text-emerald-700">{upgradedCount + individualCount} premium accounts active</p>
+            <p className="font-semibold text-emerald-900">전체 교사 업그레이드 완료</p>
+            <p className="text-sm text-emerald-700">{upgradedCount + individualCount}명 프리미엄 계정 활성화</p>
           </div>
         </div>
       )}
@@ -253,7 +253,7 @@ export default function AdminDashboard() {
         {/* Teams */}
         <div className="bg-white rounded-xl border overflow-hidden">
           <div className="px-5 py-3 border-b bg-gray-50/80">
-            <h2 className="font-semibold text-gray-900">Teams</h2>
+            <h2 className="font-semibold text-gray-900">팀별 현황</h2>
           </div>
           <div className="divide-y">
             {Array.from(teams.entries())
@@ -265,7 +265,7 @@ export default function AdminDashboard() {
                   <Link href="/admin/schools" key={team} className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50/80 transition-colors">
                     <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${tc.bg} ${tc.text}`}>{team}</span>
                     <div className="flex-1" />
-                    <span className="text-xs text-gray-400">{data.schools} schools</span>
+                    <span className="text-xs text-gray-400">{data.schools}교</span>
                     <span className="text-sm font-semibold text-gray-900 w-8 text-right">{data.teachers}</span>
                     <div className="h-1.5 w-12 rounded-full bg-gray-100 overflow-hidden">
                       <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${rate}%` }} />
@@ -279,8 +279,8 @@ export default function AdminDashboard() {
         {/* Recent teachers */}
         <div className="bg-white rounded-xl border overflow-hidden">
           <div className="flex items-center justify-between px-5 py-3 border-b bg-gray-50/80">
-            <h2 className="font-semibold text-gray-900">Recent Teachers</h2>
-            <Link href="/admin/teachers" className="text-xs text-blue-600 hover:underline">View all</Link>
+            <h2 className="font-semibold text-gray-900">최근 등록 교사</h2>
+            <Link href="/admin/teachers" className="text-xs text-blue-600 hover:underline">전체 보기</Link>
           </div>
           <div className="divide-y">
             {recentTeachers.map((t) => {
@@ -308,8 +308,8 @@ export default function AdminDashboard() {
         <div className="bg-white rounded-xl border overflow-hidden">
           <div className="flex items-center gap-2 px-5 py-3 border-b bg-gray-50/80">
             <svg className="w-4 h-4 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
-            <h2 className="font-semibold text-gray-900">Missing English Names</h2>
-            <span className="text-xs text-amber-600 font-medium">{missingEnglish.length} schools</span>
+            <h2 className="font-semibold text-gray-900">영문명 미등록</h2>
+            <span className="text-xs text-amber-600 font-medium">{missingEnglish.length}교</span>
           </div>
           <div className="px-5 py-3 flex flex-wrap gap-1.5">
             {missingEnglish.map((s) => (
