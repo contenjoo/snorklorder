@@ -24,16 +24,17 @@ export async function POST(req: NextRequest) {
       schoolId: teachers.schoolId,
       schoolName: schools.name,
       schoolNameEn: schools.nameEn,
+      schoolTeam: schools.team,
     })
     .from(teachers)
     .innerJoin(schools, eq(teachers.schoolId, schools.id))
     .where(inArray(teachers.id, teacherIds));
 
   // Group by school
-  const grouped = new Map<number, { schoolName: string; schoolNameEn?: string; teachers: typeof selected }>();
+  const grouped = new Map<number, { schoolName: string; schoolNameEn?: string; team?: string; teachers: typeof selected }>();
   for (const t of selected) {
     if (!grouped.has(t.schoolId)) {
-      grouped.set(t.schoolId, { schoolName: t.schoolName, schoolNameEn: t.schoolNameEn || undefined, teachers: [] });
+      grouped.set(t.schoolId, { schoolName: t.schoolName, schoolNameEn: t.schoolNameEn || undefined, team: t.schoolTeam || undefined, teachers: [] });
     }
     grouped.get(t.schoolId)!.teachers.push(t);
   }

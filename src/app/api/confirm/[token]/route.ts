@@ -32,6 +32,7 @@ export async function GET(
       subject: teachers.subject,
       status: teachers.status,
       schoolName: schools.name,
+      schoolNameEn: schools.nameEn,
     })
     .from(teachers)
     .innerJoin(schools, eq(teachers.schoolId, schools.id))

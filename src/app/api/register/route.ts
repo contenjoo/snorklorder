@@ -3,7 +3,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { teachers, schools } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
-import { sendTeacherNotification } from "@/lib/email";
 import { checkRateLimit, createRateLimitResponse, isValidEmail, normalizeText } from "@/lib/security";
 
 export async function POST(req: NextRequest) {
@@ -73,13 +72,6 @@ export async function POST(req: NextRequest) {
       status: "pending",
     })
     .returning();
-
-  // Send notification email to Jon/Jeff (non-blocking)
-  sendTeacherNotification(school.name, {
-    name: teacher.name,
-    email: teacher.email,
-    subject: teacher.subject,
-  }).catch((err) => console.error("[Email] Notification failed:", err));
 
   return NextResponse.json({
     success: true,

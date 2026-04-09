@@ -10,6 +10,7 @@ interface Teacher {
   subject: string | null;
   status: string;
   schoolName: string;
+  schoolNameEn: string | null;
 }
 
 interface Stats {
@@ -119,10 +120,11 @@ export default function ConfirmPage() {
 
   if (!data) return null;
 
-  const bySchool = new Map<string, Teacher[]>();
+  const bySchool = new Map<string, { nameEn: string | null; teachers: Teacher[] }>();
   for (const teacher of data.teachers) {
-    if (!bySchool.has(teacher.schoolName)) bySchool.set(teacher.schoolName, []);
-    bySchool.get(teacher.schoolName)!.push(teacher);
+    const key = teacher.schoolName;
+    if (!bySchool.has(key)) bySchool.set(key, { nameEn: teacher.schoolNameEn, teachers: [] });
+    bySchool.get(key)!.teachers.push(teacher);
   }
 
   if (done) {
@@ -192,11 +194,12 @@ export default function ConfirmPage() {
           </span>
         </div>
 
-        {Array.from(bySchool.entries()).map(([schoolName, schoolTeachers]) => (
+        {Array.from(bySchool.entries()).map(([schoolName, { nameEn, teachers: schoolTeachers }]) => (
           <div key={schoolName} className="bg-white rounded-xl shadow-sm border mb-4 overflow-hidden">
             <div className="bg-gray-50 px-4 py-3 border-b">
               <h2 className="font-semibold text-gray-900">
-                {schoolName}
+                {nameEn || schoolName}
+                {nameEn && <span className="ml-2 text-sm font-normal text-gray-400">{schoolName}</span>}
                 <span className="ml-2 text-sm font-normal text-gray-500">
                   ({schoolTeachers.length})
                 </span>

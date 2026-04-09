@@ -55,32 +55,29 @@ export async function sendTeacherNotification(schoolName: string, teacher: Teach
 
 // 선택 교사 일괄 발송 (Jon에게만 + 확인 링크 포함)
 export async function sendBatchNotification(
-  groups: { schoolName: string; schoolNameEn?: string; teachers: (TeacherInfo & { id?: number })[] }[],
+  groups: { schoolName: string; schoolNameEn?: string; team?: string; teachers: (TeacherInfo & { id?: number })[] }[],
   confirmToken?: string
 ) {
   const t = getTransporter();
   if (!t) return { success: false, error: "Gmail not configured" };
   const total = groups.reduce((s, g) => s + g.teachers.length, 0);
+
+  // Collect unique district/team names for subject
+  const teams = [...new Set(groups.map((g) => g.team).filter(Boolean))] as string[];
+  const districtLabel = teams.length > 0 ? ` [${teams.join(", ")}]` : "";
+
   const body = groups.map((g) => {
-    const lines = g.teachers.map((tc, i) =>
-      `<tr>
-        <td style="padding:6px 12px;border-bottom:1px solid #f0f0f0;color:#666">${i + 1}</td>
-        <td style="padding:6px 12px;border-bottom:1px solid #f0f0f0;font-weight:500">${safe(tc.email)}</td>
-        <td style="padding:6px 12px;border-bottom:1px solid #f0f0f0;color:#666">${safe(tc.subject)}</td>
-      </tr>`
+    const emailList = g.teachers.map((tc) =>
+      `<div style="padding:5px 0;font-size:14px;font-family:monospace">${safe(tc.email)}</div>`
     ).join("");
-    const enName = g.schoolNameEn ? `<span style="color:#999;font-weight:normal;font-size:13px"> · ${safe(g.schoolNameEn)}</span>` : "";
+    const enName = g.schoolNameEn ? ` · ${safe(g.schoolNameEn)}` : "";
+    const teamBadge = g.team ? `<span style="display:inline-block;background:#e0e7ff;color:#4338ca;font-size:11px;padding:2px 8px;border-radius:10px;margin-left:6px;font-weight:normal">${safe(g.team)}</span>` : "";
     return `
       <div style="margin-bottom:24px">
-        <h3 style="color:#1e3a5f;margin:0 0 8px;font-size:16px">🏫 ${safe(g.schoolName)}${enName} <span style="color:#999;font-weight:normal">(${g.teachers.length})</span></h3>
-        <table style="width:100%;border-collapse:collapse;font-size:14px">
-          <thead><tr style="background:#f8f9fa">
-            <th style="padding:6px 12px;text-align:left;font-size:12px;color:#999">#</th>
-            <th style="padding:6px 12px;text-align:left;font-size:12px;color:#999">Email</th>
-            <th style="padding:6px 12px;text-align:left;font-size:12px;color:#999">Subject</th>
-          </tr></thead>
-          <tbody>${lines}</tbody>
-        </table>
+        <h3 style="color:#1e3a5f;margin:0 0 8px;font-size:16px">🏫 ${safe(g.schoolName)}${enName}${teamBadge} <span style="color:#999;font-weight:normal">(${g.teachers.length})</span></h3>
+        <div style="background:#f8f9fa;border-radius:8px;padding:8px 14px">
+          ${emailList}
+        </div>
       </div>`;
   }).join("");
 
@@ -99,7 +96,7 @@ export async function sendBatchNotification(
   await t.sendMail({
     from: ADMIN_EMAIL,
     to: JON_EMAIL,
-    subject: `[Snorkl] Upgrade Request - ${total} teacher${total !== 1 ? "s" : ""}, ${groups.length} school(s)`,
+    subject: `[Snorkl] Upgrade Request - ${total} teacher${total !== 1 ? "s" : ""}, ${groups.length} school(s)${districtLabel}`,
     html: `
       <div style="max-width:600px;margin:0 auto;font-family:-apple-system,sans-serif">
         <div style="background:#1e3a5f;color:white;padding:20px 24px;border-radius:12px 12px 0 0">
