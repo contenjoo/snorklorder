@@ -14,8 +14,10 @@ import {
 
 interface AccountRequest {
   id: number;
+  channel: string;
   type: string;
   schoolName: string;
+  schoolNameEn: string | null;
   emails: string;
   accountType: string;
   quantity: number;
@@ -41,6 +43,11 @@ const TYPES = [
   { value: "extension", label: "연장", icon: "📅", en: "Extension" },
 ];
 
+const CHANNELS = [
+  { value: "company", label: "회사몰", icon: "🏢" },
+  { value: "school_store", label: "학교장터", icon: "🏫" },
+];
+
 const STATUSES = [
   { value: "draft", label: "작성 중", color: "bg-gray-100 text-gray-600", dot: "bg-gray-400" },
   { value: "sent", label: "요청 완료", color: "bg-amber-100 text-amber-700", dot: "bg-amber-400" },
@@ -52,24 +59,25 @@ const STATUSES = [
 // 이메일 본문 생성 (snorkl-manager 그대로)
 function generateEmail(r: AccountRequest) {
   const accLabel = r.accountType === "teacher" ? "teacher" : r.accountType === "student" ? "student" : "school";
+  const school = r.schoolNameEn || r.schoolName;
   let subject = "";
   let body = "";
 
   if (r.type === "upgrade") {
-    subject = `Account Upgrade Request – ${r.schoolName} (${r.quantity || 1} ${accLabel})`;
+    subject = `Account Upgrade Request – ${school} (${r.quantity || 1} ${accLabel})`;
     const emailList = r.emails.split(/[,;\n]+/).map((e) => e.trim()).filter(Boolean).map((e) => `- Email: ${e}`).join("\n");
-    body = `Hi Jon,\n\nI'd like to request an upgrade for ${r.quantity || 1} ${accLabel} account${(r.quantity || 1) > 1 ? "s" : ""} for ${r.schoolName}.\n\n${emailList}${r.notes ? `\n\nNote: ${r.notes}` : ""}\n\nPlease let me know once it's done. Thank you.\n\nBanghyun`;
+    body = `Hi Jon,\n\nI'd like to request an upgrade for ${r.quantity || 1} ${accLabel} account${(r.quantity || 1) > 1 ? "s" : ""} for ${school}.\n\n${emailList}${r.notes ? `\n\nNote: ${r.notes}` : ""}\n\nPlease let me know once it's done. Thank you.\n\nBanghyun`;
   } else if (r.type === "email_change") {
-    subject = `Account Email Change Request – ${r.schoolName}`;
-    body = `Hi Jon,\n\nCould you please update the email for the account at ${r.schoolName}?\n\n- Old email: ${r.oldEmail || ""}\n- New email: ${r.emails || ""}${r.notes ? `\n\nNote: ${r.notes}` : ""}\n\nThank you.\n\nBanghyun`;
+    subject = `Account Email Change Request – ${school}`;
+    body = `Hi Jon,\n\nCould you please update the email for the account at ${school}?\n\n- Old email: ${r.oldEmail || ""}\n- New email: ${r.emails || ""}${r.notes ? `\n\nNote: ${r.notes}` : ""}\n\nThank you.\n\nBanghyun`;
   } else if (r.type === "type_change") {
     subject = `Account Type Change Request - ${r.emails}`;
     body = `Hi Jon,\n\nThe account ${r.emails || ""} was registered as a ${r.fromType === "teacher" ? "teacher" : "student"}, but this user is a ${r.fromType === "teacher" ? "student" : "teacher"}. Could you please change the account type?${r.notes ? `\n\nNote: ${r.notes}` : ""}\n\nThank you.\n\nBanghyun`;
   } else if (r.type === "extension") {
-    subject = `Account Extension Request – ${r.schoolName}`;
+    subject = `Account Extension Request – ${school}`;
     body = `Hi Jon,\n\nCould you extend the ${r.emails || ""} account through ${r.extensionDate || "[DATE]"}?\n\nPlease send me an invoice for that too.${r.notes ? `\n\nNote: ${r.notes}` : ""}\n\nThanks,\n\nBanghyun`;
   } else {
-    subject = `Snorkl Request – ${r.schoolName}`;
+    subject = `Snorkl Request – ${school}`;
     body = `Hi Jon,\n\n${r.notes || ""}\n\nBanghyun`;
   }
   return { subject, body };
@@ -78,6 +86,7 @@ function generateEmail(r: AccountRequest) {
 export default function AccountsPage() {
   const [requests, setRequests] = useState<AccountRequest[]>([]);
   const [filter, setFilter] = useState("all");
+  const [filterChannel, setFilterChannel] = useState("all");
   const [filterType, setFilterType] = useState("all");
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
@@ -87,8 +96,11 @@ export default function AccountsPage() {
   const [sendMsg, setSendMsg] = useState("");
 
   // Form
+  const [fChannel, setFChannel] = useState("company");
   const [fType, setFType] = useState("upgrade");
   const [fSchool, setFSchool] = useState("");
+  const [fSchoolEn, setFSchoolEn] = useState("");
+  const [translating, setTranslating] = useState(false);
   const [fEmails, setFEmails] = useState("");
   const [fAccType, setFAccType] = useState("teacher");
   const [fQty, setFQty] = useState(1);
@@ -115,8 +127,22 @@ export default function AccountsPage() {
   }
   useEffect(() => { load(); }, []);
 
+  async function translateSchool(korean: string) {
+    if (!korean.trim()) return;
+    setTranslating(true);
+    try {
+      const res = await fetch("/api/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: korean.trim() }),
+      });
+      const data = await res.json();
+      if (data.translated) setFSchoolEn(data.translated);
+    } catch {} finally { setTranslating(false); }
+  }
+
   function resetForm() {
-    setFType("upgrade"); setFSchool(""); setFEmails(""); setFAccType("teacher");
+    setFChannel("company"); setFType("upgrade"); setFSchool(""); setFSchoolEn(""); setFEmails(""); setFAccType("teacher");
     setFQty(1); setFOldEmail(""); setFFromType("teacher"); setFExtDate("");
     setFNotes(""); setFInvNum(""); setFInvAmt(""); setFInvDue("");
     setFPayLink(""); setFPayDate(""); setFPayMethod(""); setEditing(null);
@@ -124,7 +150,7 @@ export default function AccountsPage() {
 
   function openEdit(r: AccountRequest) {
     setEditing(r);
-    setFType(r.type); setFSchool(r.schoolName); setFEmails(r.emails);
+    setFChannel(r.channel || "company"); setFType(r.type); setFSchool(r.schoolName); setFSchoolEn(r.schoolNameEn || ""); setFEmails(r.emails);
     setFAccType(r.accountType || "teacher"); setFQty(r.quantity || 1);
     setFOldEmail(r.oldEmail || ""); setFFromType(r.fromType || "teacher");
     setFExtDate(r.extensionDate || ""); setFNotes(r.notes || "");
@@ -136,7 +162,7 @@ export default function AccountsPage() {
 
   async function save() {
     const data = {
-      type: fType, schoolName: fSchool, emails: fEmails, accountType: fAccType,
+      channel: fChannel, type: fType, schoolName: fSchool, schoolNameEn: fSchoolEn || null, emails: fEmails, accountType: fAccType,
       quantity: fQty, oldEmail: fOldEmail || null, fromType: fFromType || null,
       extensionDate: fExtDate || null, notes: fNotes || null,
       invoiceNumber: fInvNum || null, invoiceAmount: fInvAmt || null,
@@ -222,6 +248,7 @@ export default function AccountsPage() {
 
   const filtered = requests.filter((r) => {
     if (filter !== "all" && r.status !== filter) return false;
+    if (filterChannel !== "all" && (r.channel || "company") !== filterChannel) return false;
     if (filterType !== "all" && r.type !== filterType) return false;
     if (search) {
       const q = search.toLowerCase();
@@ -243,6 +270,13 @@ export default function AccountsPage() {
         </div>
         <div className="flex items-center gap-1.5">
           <Input placeholder="검색..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-36 h-7 text-xs" />
+          <Select value={filterChannel} onValueChange={(v) => setFilterChannel(v ?? "all")}>
+            <SelectTrigger className="w-24 h-7 text-[11px]"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">구매처</SelectItem>
+              {CHANNELS.map((c) => <SelectItem key={c.value} value={c.value}>{c.icon} {c.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
           <Select value={filterType} onValueChange={(v) => setFilterType(v ?? "all")}>
             <SelectTrigger className="w-24 h-7 text-[11px]"><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -259,6 +293,14 @@ export default function AccountsPage() {
                 <DialogTitle>{editing ? "요청 수정" : "새 요청"}</DialogTitle>
               </DialogHeader>
               <div className="space-y-3">
+                <div className="flex gap-1">
+                  {CHANNELS.map((c) => (
+                    <button key={c.value} onClick={() => setFChannel(c.value)}
+                      className={`flex-1 py-2 rounded-lg text-xs text-center transition-colors ${fChannel === c.value ? "bg-indigo-100 ring-1 ring-indigo-400 font-semibold" : "bg-gray-50 hover:bg-gray-100"}`}>
+                      {c.icon} {c.label}
+                    </button>
+                  ))}
+                </div>
                 <div className="grid grid-cols-4 gap-1">
                   {TYPES.map((t) => (
                     <button key={t.value} onClick={() => setFType(t.value)}
@@ -269,7 +311,11 @@ export default function AccountsPage() {
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">학교명 *</Label>
-                  <Input value={fSchool} onChange={(e) => setFSchool(e.target.value)} placeholder="School Name" className="h-8 text-sm" />
+                  <Input value={fSchool} onChange={(e) => setFSchool(e.target.value)} onBlur={() => !fSchoolEn && translateSchool(fSchool)} placeholder="한국어 학교명" className="h-8 text-sm" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">영문 학교명 {translating && <span className="text-blue-500 animate-pulse">번역 중...</span>}</Label>
+                  <Input value={fSchoolEn} onChange={(e) => setFSchoolEn(e.target.value)} placeholder="English School Name (자동 번역)" className="h-8 text-sm" />
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">이메일 *</Label>
@@ -367,6 +413,7 @@ export default function AccountsPage() {
 
         {filtered.map((r) => {
           const typeInfo = TYPES.find((t) => t.value === r.type);
+          const channelInfo = CHANNELS.find((c) => c.value === (r.channel || "company"));
           const statusInfo = STATUSES.find((s) => s.value === r.status);
           const emails = r.emails.split(/[,;\n]+/).map((e) => e.trim()).filter(Boolean);
 
@@ -379,6 +426,10 @@ export default function AccountsPage() {
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
                   <span className="font-semibold text-sm text-gray-900 truncate">{r.schoolName}</span>
+                  {r.schoolNameEn && <span className="text-[10px] text-gray-400 truncate">({r.schoolNameEn})</span>}
+                  {(r.channel || "company") === "school_store" && (
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-medium whitespace-nowrap">학교장터</span>
+                  )}
                   <span className="text-[10px] text-gray-400">{emails.length > 1 ? `${emails.length}명` : ""}</span>
                 </div>
                 <div className="text-[11px] font-mono text-gray-500 truncate">

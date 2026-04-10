@@ -66,8 +66,10 @@ export async function POST(req: NextRequest) {
     const [item] = await db
       .insert(accountRequests)
       .values({
+        channel: isAuthenticated ? data.channel || "company" : "company",
         type: isAuthenticated ? data.type || "upgrade" : "upgrade",
         schoolName: normalizedSchoolName,
+        schoolNameEn: data.schoolNameEn || null,
         emails: uniqueValidEmails.join(", "),
         accountType: isAuthenticated ? data.accountType || "teacher" : "teacher",
         quantity: isAuthenticated ? data.quantity || 1 : uniqueValidEmails.length,
@@ -87,7 +89,7 @@ export async function POST(req: NextRequest) {
 
   if (action === "update" && id) {
     const updates: Record<string, unknown> = { updatedAt: new Date() };
-    const fields = ["type", "schoolName", "emails", "accountType", "quantity", "oldEmail",
+    const fields = ["channel", "type", "schoolName", "schoolNameEn", "emails", "accountType", "quantity", "oldEmail",
       "fromType", "extensionDate", "notes", "status", "invoiceNumber", "invoiceAmount",
       "invoiceDueDate", "paymentLink", "paymentDate", "paymentMethod"];
     for (const f of fields) {

@@ -27,6 +27,7 @@ export const teachers = pgTable("teachers", {
 
 export const schoolRequests = pgTable("school_requests", {
   id: serial("id").primaryKey(),
+  channel: text("channel").notNull().default("company"), // company | school_store
   name: text("name").notNull(),
   nameEn: text("name_en"),
   region: text("region"),
@@ -40,8 +41,10 @@ export const schoolRequests = pgTable("school_requests", {
 
 export const accountRequests = pgTable("account_requests", {
   id: serial("id").primaryKey(),
+  channel: text("channel").notNull().default("company"), // company | school_store
   type: text("type").notNull().default("upgrade"), // upgrade | email_change | type_change | extension
   schoolName: text("school_name").notNull(),
+  schoolNameEn: text("school_name_en"),
   emails: text("emails").notNull(),
   accountType: text("account_type").default("teacher"),
   quantity: integer("quantity").default(1),
