@@ -11,6 +11,7 @@ interface Teacher {
   status: string;
   schoolName: string;
   schoolNameEn: string | null;
+  schoolTeam: string | null;
 }
 
 const SUBJECT_EN: Record<string, string> = {
@@ -147,10 +148,10 @@ export default function ConfirmPage() {
 
   if (!data) return null;
 
-  const bySchool = new Map<string, { nameEn: string | null; teachers: Teacher[] }>();
+  const bySchool = new Map<string, { nameEn: string | null; team: string | null; teachers: Teacher[] }>();
   for (const teacher of data.teachers) {
     const key = teacher.schoolName;
-    if (!bySchool.has(key)) bySchool.set(key, { nameEn: teacher.schoolNameEn, teachers: [] });
+    if (!bySchool.has(key)) bySchool.set(key, { nameEn: teacher.schoolNameEn, team: teacher.schoolTeam, teachers: [] });
     bySchool.get(key)!.teachers.push(teacher);
   }
 
@@ -229,16 +230,29 @@ export default function ConfirmPage() {
           </span>
         </div>
 
-        {Array.from(bySchool.entries()).map(([schoolName, { nameEn, teachers: schoolTeachers }]) => (
+        {Array.from(bySchool.entries()).map(([schoolName, { nameEn, team, teachers: schoolTeachers }]) => {
+          const isIndividual = team?.includes("개별");
+          return (
           <div key={schoolName} className="bg-white rounded-xl shadow-sm border mb-4 overflow-hidden">
             <div className="bg-gray-50 px-4 py-3 border-b flex items-center justify-between">
-              <h2 className="font-semibold text-gray-900">
-                {nameEn || schoolName}
-                {nameEn && <span className="ml-2 text-sm font-normal text-gray-400">{schoolName}</span>}
-                <span className="ml-2 text-sm font-normal text-gray-500">
-                  ({schoolTeachers.length})
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="font-semibold text-gray-900">
+                    {nameEn || schoolName}
+                    {nameEn && <span className="ml-2 text-sm font-normal text-gray-400">{schoolName}</span>}
+                    <span className="ml-2 text-sm font-normal text-gray-500">
+                      ({schoolTeachers.length})
+                    </span>
+                  </h2>
+                </div>
+                <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${
+                  isIndividual
+                    ? "bg-orange-100 text-orange-700"
+                    : "bg-indigo-100 text-indigo-700"
+                }`}>
+                  {isIndividual ? "Teacher Upgrade" : "School Upgrade"}
                 </span>
-              </h2>
+              </div>
               <button
                 onClick={() => copySchoolEmails(schoolTeachers)}
                 className="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700 transition-colors"
@@ -285,7 +299,8 @@ export default function ConfirmPage() {
               ))}
             </div>
           </div>
-        ))}
+        );
+        })}
 
         <div className="sticky bottom-4 mt-6">
           <button
