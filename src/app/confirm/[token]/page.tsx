@@ -34,6 +34,7 @@ interface Stats {
 interface BatchData {
   batch: { id: number; status: string; createdAt: string; confirmedAt: string | null };
   teachers: Teacher[];
+  newTeachers: Teacher[];
   confirmedIds: number[];
   stats: Stats;
 }
@@ -86,7 +87,8 @@ export default function ConfirmPage() {
 
   const copyAllEmails = () => {
     if (!data) return;
-    const emails = data.teachers.map((t) => t.email);
+    const all = [...data.teachers, ...(data.newTeachers || [])];
+    const emails = all.map((t) => t.email);
     copyEmails(emails, `${emails.length} emails copied`);
   };
 
@@ -97,11 +99,12 @@ export default function ConfirmPage() {
 
   const selectAll = () => {
     if (!data) return;
-    if (selected.size === data.teachers.length) {
+    const all = [...data.teachers, ...(data.newTeachers || [])];
+    if (selected.size === all.length) {
       setSelected(new Set());
       return;
     }
-    setSelected(new Set(data.teachers.map((teacher) => teacher.id)));
+    setSelected(new Set(all.map((teacher) => teacher.id)));
   };
 
   const handleSubmit = async () => {
@@ -148,11 +151,14 @@ export default function ConfirmPage() {
 
   if (!data) return null;
 
-  const bySchool = new Map<string, { nameEn: string | null; team: string | null; teachers: Teacher[] }>();
-  for (const teacher of data.teachers) {
+  const batchTeacherIds = new Set(data.teachers.map((t) => t.id));
+  const allTeachers = [...data.teachers, ...(data.newTeachers || [])];
+
+  const bySchool = new Map<string, { nameEn: string | null; team: string | null; teachers: (Teacher & { isNew?: boolean })[] }>();
+  for (const teacher of allTeachers) {
     const key = teacher.schoolName;
     if (!bySchool.has(key)) bySchool.set(key, { nameEn: teacher.schoolNameEn, team: teacher.schoolTeam, teachers: [] });
-    bySchool.get(key)!.teachers.push(teacher);
+    bySchool.get(key)!.teachers.push({ ...teacher, isNew: !batchTeacherIds.has(teacher.id) });
   }
 
   if (done) {
@@ -226,7 +232,7 @@ export default function ConfirmPage() {
             </button>
           </div>
           <span className="text-sm text-gray-500">
-            {selected.size} / {data.teachers.length} selected
+            {selected.size} / {allTeachers.length} selected
           </span>
         </div>
 
@@ -278,6 +284,9 @@ export default function ConfirmPage() {
                         <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
                           {SUBJECT_EN[teacher.subject] || teacher.subject}
                         </span>
+                      )}
+                      {teacher.isNew && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 font-bold">NEW</span>
                       )}
                     </div>
                     {teacher.name && teacher.name !== teacher.email.split("@")[0] && (

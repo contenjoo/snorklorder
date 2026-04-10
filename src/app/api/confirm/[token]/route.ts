@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { upgradeBatches, teachers, schools } from "@/db/schema";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, and, notInArray } from "drizzle-orm";
 
 // GET: 배치 정보 + 교사 목록 조회
 export async function GET(
@@ -31,6 +31,7 @@ export async function GET(
       email: teachers.email,
       subject: teachers.subject,
       status: teachers.status,
+      schoolId: teachers.schoolId,
       schoolName: schools.name,
       schoolNameEn: schools.nameEn,
       schoolTeam: schools.team,
@@ -38,7 +39,35 @@ export async function GET(
     .from(teachers)
     .innerJoin(schools, eq(teachers.schoolId, schools.id))
     .where(inArray(teachers.id, teacherIds));
+  // 같은 학교의 신규 pending/sent 교사 조회 (배치에 없는)
+  const schoolIds = [...new Set(teacherList.map((t) => t.schoolId))];
+  let newTeachers: typeof teacherList = [];
+  if (schoolIds.length > 0 && teacherIds.length > 0) {
+    newTeachers = await db
+      .select({
+        id: teachers.id,
+        name: teachers.name,
+        email: teachers.email,
+        subject: teachers.subject,
+        status: teachers.status,
+        schoolName: schools.name,
+        schoolNameEn: schools.nameEn,
+        schoolTeam: schools.team,
+        schoolId: teachers.schoolId,
+      })
+      .from(teachers)
+      .innerJoin(schools, eq(teachers.schoolId, schools.id))
+      .where(
+        and(
+          inArray(teachers.schoolId, schoolIds),
+          notInArray(teachers.id, teacherIds),
+          inArray(teachers.status, ["pending", "sent"])
+        )
+      );
+  }
+
   const uniqueSchools = new Set(teacherList.map((teacher) => teacher.schoolName));
+  const allTeachers = [...teacherList, ...newTeachers];
 
   return NextResponse.json({
     batch: {
@@ -48,13 +77,14 @@ export async function GET(
       confirmedAt: batch.confirmedAt,
     },
     teachers: teacherList,
+    newTeachers,
     confirmedIds,
     stats: {
       totalSchools: uniqueSchools.size,
-      totalTeachers: teacherList.length,
-      pending: teacherList.filter((teacher) => teacher.status === "pending").length,
-      sent: teacherList.filter((teacher) => teacher.status === "sent").length,
-      upgraded: teacherList.filter((teacher) => teacher.status === "upgraded").length,
+      totalTeachers: allTeachers.length,
+      pending: allTeachers.filter((teacher) => teacher.status === "pending").length,
+      sent: allTeachers.filter((teacher) => teacher.status === "sent").length,
+      upgraded: allTeachers.filter((teacher) => teacher.status === "upgraded").length,
     },
   });
 }
@@ -81,21 +111,20 @@ export async function POST(
     return NextResponse.json({ error: "confirmedTeacherIds must be an array" }, { status: 400 });
   }
 
-  const allowedTeacherIds: number[] = JSON.parse(batch.teacherIds);
-  const allowedTeacherIdSet = new Set(allowedTeacherIds);
+  const batchTeacherIds: number[] = JSON.parse(batch.teacherIds);
   const normalizedConfirmedIds = [...new Set(
     confirmedTeacherIds.filter((id): id is number => Number.isInteger(id))
   )];
-  const invalidIds = normalizedConfirmedIds.filter((id) => !allowedTeacherIdSet.has(id));
 
-  if (invalidIds.length > 0) {
-    return NextResponse.json({ error: "Invalid teacher IDs in confirmation request" }, { status: 400 });
-  }
+  // 신규 교사도 배치에 추가 (같은 학교의 pending/sent 교사)
+  const newIds = normalizedConfirmedIds.filter((id) => !batchTeacherIds.includes(id));
+  const updatedBatchIds = [...new Set([...batchTeacherIds, ...newIds])];
 
-  // 배치 업데이트
+  // 배치 업데이트 (신규 교사 포함)
   await db
     .update(upgradeBatches)
     .set({
+      teacherIds: JSON.stringify(updatedBatchIds),
       confirmedIds: JSON.stringify(normalizedConfirmedIds),
       status: "confirmed",
       confirmedAt: new Date(),
