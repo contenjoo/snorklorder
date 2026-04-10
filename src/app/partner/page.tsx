@@ -34,6 +34,7 @@ export default function PartnerDashboard() {
   const [upgrading, setUpgrading] = useState(false);
   const [msg, setMsg] = useState("");
   const [expandedSchools, setExpandedSchools] = useState<Set<number>>(new Set());
+  const [copied, setCopied] = useState("");
 
   useEffect(() => {
     Promise.all([
@@ -114,6 +115,24 @@ export default function PartnerDashboard() {
     } else {
       setSelected(new Set(actionTeachers.map((t) => t.id)));
     }
+  }
+
+  function copyEmails(emails: string[], label: string) {
+    navigator.clipboard.writeText(emails.join("\n"));
+    setCopied(label);
+    setTimeout(() => setCopied(""), 2500);
+  }
+
+  function copyAllActionEmails() {
+    const emails = actionTeachers.map((t) => t.email);
+    copyEmails(emails, `${emails.length} emails copied`);
+  }
+
+  function copySchoolEmails(school: School) {
+    const emails = school.teachers
+      .filter((t) => t.status === "pending" || t.status === "sent")
+      .map((t) => t.email);
+    copyEmails(emails, `${school.nameEn || school.name}: ${emails.length} copied`);
   }
 
   function toggleSchool(id: number) {
@@ -246,9 +265,14 @@ export default function PartnerDashboard() {
           ) : (
             <>
               <div className="flex items-center justify-between px-1">
-                <button onClick={selectAllAction} className="text-sm font-medium text-blue-600 hover:text-blue-800">
-                  {selected.size === actionTeachers.length ? "Deselect All" : "Select All"}
-                </button>
+                <div className="flex items-center gap-3">
+                  <button onClick={selectAllAction} className="text-sm font-medium text-blue-600 hover:text-blue-800">
+                    {selected.size === actionTeachers.length ? "Deselect All" : "Select All"}
+                  </button>
+                  <button onClick={copyAllActionEmails} className="text-sm font-medium text-slate-500 hover:text-slate-700 flex items-center gap-1">
+                    📋 Copy All Emails
+                  </button>
+                </div>
                 <span className="text-sm text-slate-500">{selected.size} / {actionTeachers.length} selected</span>
               </div>
 
@@ -265,7 +289,10 @@ export default function PartnerDashboard() {
                         )}
                         <span className="ml-2 text-sm text-slate-500">({needTeachers.length})</span>
                       </div>
-                      <div className="flex gap-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <button onClick={(e) => { e.stopPropagation(); copySchoolEmails(school); }}
+                          className="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-700 font-medium transition-colors"
+                          title="Copy emails">📋</button>
                         {school.counts.pending > 0 && <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">{school.counts.pending} pending</span>}
                         {school.counts.sent > 0 && <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">{school.counts.sent} sent</span>}
                         {school.counts.upgraded > 0 && <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-medium">{school.counts.upgraded} done</span>}
@@ -419,6 +446,11 @@ export default function PartnerDashboard() {
         <div className={`fixed bottom-4 right-4 px-5 py-3 rounded-xl text-sm font-medium shadow-lg z-50 ${
           msg.includes("upgraded") ? "bg-emerald-600 text-white" : "bg-red-600 text-white"
         }`}>{msg}</div>
+      )}
+      {copied && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 px-5 py-3 rounded-xl text-sm font-medium shadow-lg z-50 bg-slate-800 text-white">
+          ✅ {copied}
+        </div>
       )}
     </div>
   );
