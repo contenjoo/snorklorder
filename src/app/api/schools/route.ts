@@ -115,6 +115,44 @@ export async function POST(req: NextRequest) {
   return NextResponse.json(school);
 }
 
+export async function PATCH(req: NextRequest) {
+  const body = await req.json();
+  const { id, name, nameEn, code, domain, region, team } = body;
+
+  if (!id) {
+    return NextResponse.json({ error: "ID required" }, { status: 400 });
+  }
+  if (!name || !code) {
+    return NextResponse.json({ error: "Name and code required" }, { status: 400 });
+  }
+
+  // Check code uniqueness (excluding self)
+  const existing = await db
+    .select()
+    .from(schools)
+    .where(eq(schools.code, code.toUpperCase()));
+
+  if (existing.length > 0 && existing[0].id !== id) {
+    return NextResponse.json({ error: "School code already exists" }, { status: 409 });
+  }
+
+  const [updated] = await db
+    .update(schools)
+    .set({
+      name,
+      nameEn: nameEn || null,
+      code: code.toUpperCase(),
+      domain: domain || null,
+      region: region || null,
+      team: team || null,
+    })
+    .where(eq(schools.id, id))
+    .returning();
+
+  cache = null;
+  return NextResponse.json(updated);
+}
+
 export async function DELETE(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get("id");

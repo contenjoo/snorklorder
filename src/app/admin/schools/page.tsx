@@ -75,8 +75,9 @@ export default function SchoolsPage() {
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [sortBy, setSortBy] = useState<"name" | "teachers" | "recent">("teachers");
 
-  // Add school form
+  // Add/Edit school form
   const [open, setOpen] = useState(false);
+  const [editingSchool, setEditingSchool] = useState<School | null>(null);
   const [fname, setFname] = useState("");
   const [fnameEn, setFnameEn] = useState("");
   const [fcode, setFcode] = useState("");
@@ -85,6 +86,30 @@ export default function SchoolsPage() {
   const [fteam, setFteam] = useState("");
   const [ferror, setFerror] = useState("");
   const [translating, setTranslating] = useState(false);
+
+  function openEditDialog(school: School) {
+    setEditingSchool(school);
+    setFname(school.name);
+    setFnameEn(school.nameEn || "");
+    setFcode(school.code);
+    setFdomain(school.domain || "");
+    setFregion(school.region || "");
+    setFteam(school.team || "");
+    setFerror("");
+    setOpen(true);
+  }
+
+  function openAddDialog() {
+    setEditingSchool(null);
+    setFname(""); setFnameEn(""); setFcode(""); setFdomain(""); setFregion(""); setFteam(""); setFerror("");
+    setOpen(true);
+  }
+
+  function closeDialog() {
+    setOpen(false);
+    setEditingSchool(null);
+    setFname(""); setFnameEn(""); setFcode(""); setFdomain(""); setFregion(""); setFteam(""); setFerror("");
+  }
 
   const filtered = useMemo(() => {
     let result = schools.filter((s) => {
@@ -190,13 +215,21 @@ export default function SchoolsPage() {
     await fetch("/api/teachers", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: Array.from(selected), status: "upgraded" }) });
     setSelected(new Set()); load();
   }
-  async function addSchool() {
+  async function saveSchool() {
     setFerror("");
     if (!fname.trim() || !fcode.trim()) { setFerror("Name and code required"); return; }
-    const res = await fetch("/api/schools", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: fname.trim(), nameEn: fnameEn.trim() || null, code: fcode.trim().toUpperCase(), domain: fdomain.trim() || null, region: fregion || null, team: fteam.trim() || null }) });
-    if (!res.ok) { const d = await res.json(); setFerror(d.error || "Failed"); return; }
-    setFname(""); setFnameEn(""); setFcode(""); setFdomain(""); setFregion(""); setFteam("");
-    setOpen(false); load();
+    const payload = { name: fname.trim(), nameEn: fnameEn.trim() || null, code: fcode.trim().toUpperCase(), domain: fdomain.trim() || null, region: fregion || null, team: fteam.trim() || null };
+
+    if (editingSchool) {
+      // Update existing
+      const res = await fetch("/api/schools", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: editingSchool.id, ...payload }) });
+      if (!res.ok) { const d = await res.json(); setFerror(d.error || "Failed"); return; }
+    } else {
+      // Create new
+      const res = await fetch("/api/schools", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      if (!res.ok) { const d = await res.json(); setFerror(d.error || "Failed"); return; }
+    }
+    closeDialog(); load();
   }
   async function translateName(korean: string) {
     if (!korean.trim()) return;
@@ -254,15 +287,15 @@ export default function SchoolsPage() {
             )}
           </div>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog open={open} onOpenChange={(v) => { if (!v) closeDialog(); else setOpen(true); }}>
           <DialogTrigger render={
-            <Button className="shadow-sm">
+            <Button className="shadow-sm" onClick={openAddDialog}>
               <svg className="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" /></svg>
               학교 추가
             </Button>
           } />
           <DialogContent>
-            <DialogHeader><DialogTitle>학교 추가</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle>{editingSchool ? "학교 수정" : "학교 추가"}</DialogTitle></DialogHeader>
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
@@ -296,7 +329,7 @@ export default function SchoolsPage() {
                 <Input placeholder="hmh.or.kr" value={fdomain} onChange={(e) => setFdomain(e.target.value)} />
               </div>
               {ferror && <p className="text-sm text-red-600">{ferror}</p>}
-              <Button onClick={addSchool} className="w-full">추가</Button>
+              <Button onClick={saveSchool} className="w-full">{editingSchool ? "저장" : "추가"}</Button>
             </div>
           </DialogContent>
         </Dialog>
@@ -378,7 +411,7 @@ export default function SchoolsPage() {
             const allChecked = school.teachers.length > 0 && school.teachers.every(t => selected.has(t.id));
 
             return (
-              <div key={school.id} className={`bg-white rounded-xl border transition-all ${isOpen ? "ring-2 ring-blue-200 shadow-md" : "hover:shadow-md"}`}>
+              <div key={school.id} className={`group bg-white rounded-xl border transition-all ${isOpen ? "ring-2 ring-blue-200 shadow-md" : "hover:shadow-md"}`}>
                 {/* Card header */}
                 <div className="p-4 cursor-pointer" onClick={() => toggleExpand(school.id)}>
                   <div className="flex items-start justify-between">
@@ -389,7 +422,12 @@ export default function SchoolsPage() {
                       </div>
                       {school.nameEn && <p className="text-xs text-gray-400 mt-0.5 truncate">{school.name}</p>}
                     </div>
-                    <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                    <div className="flex items-center gap-2 shrink-0 ml-2">
+                      <button onClick={(e) => { e.stopPropagation(); openEditDialog(school); }}
+                        className="p-1 rounded-md text-gray-300 hover:text-blue-600 hover:bg-blue-50 transition-colors opacity-0 group-hover:opacity-100"
+                        title="학교 수정">
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" /></svg>
+                      </button>
                       <span className="text-lg font-bold text-gray-900">{school.teachers.length}</span>
                       <span className="text-xs text-gray-400">명</span>
                     </div>
@@ -442,7 +480,10 @@ export default function SchoolsPage() {
                         </div>
                         <div className="flex items-center justify-between px-4 py-2 bg-gray-50/80 border-t">
                           <button onClick={() => copyCode(school.code)} className="text-xs text-blue-600 hover:underline">코드 복사</button>
-                          <button onClick={() => deleteSchool(school.id)} className="text-xs text-red-400 hover:text-red-600">학교 삭제</button>
+                          <div className="flex items-center gap-3">
+                            <button onClick={(e) => { e.stopPropagation(); openEditDialog(school); }} className="text-xs text-gray-500 hover:text-blue-600">✏️ 수정</button>
+                            <button onClick={() => deleteSchool(school.id)} className="text-xs text-red-400 hover:text-red-600">학교 삭제</button>
+                          </div>
                         </div>
                       </>
                     )}
@@ -480,6 +521,7 @@ export default function SchoolsPage() {
                 {!groupByTeam && <th className="px-4 py-3 font-medium">팀</th>}
                 <th className="px-4 py-3 font-medium text-right">교사수</th>
                 <th className="px-4 py-3 font-medium text-right">상태</th>
+                <th className="px-4 py-3 font-medium w-10"></th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -517,6 +559,13 @@ export default function SchoolsPage() {
                       ) : (
                         <span className="text-xs text-gray-300">교사 없음</span>
                       )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <button onClick={(e) => { e.stopPropagation(); openEditDialog(school); }}
+                        className="p-1 rounded-md text-gray-300 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                        title="수정">
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" /></svg>
+                      </button>
                     </td>
                   </tr>
                 );
