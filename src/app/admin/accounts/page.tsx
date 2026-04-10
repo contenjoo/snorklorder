@@ -64,9 +64,14 @@ function generateEmail(r: AccountRequest) {
   let body = "";
 
   if (r.type === "upgrade") {
-    subject = `Account Upgrade Request – ${school} (${r.quantity || 1} ${accLabel})`;
+    const isSchool = r.accountType === "school";
+    subject = isSchool
+      ? `School Upgrade Request – ${school}`
+      : `Teacher Upgrade Request – ${school} (${r.quantity || 1} ${accLabel})`;
     const emailList = r.emails.split(/[,;\n]+/).map((e) => e.trim()).filter(Boolean).map((e) => `- Email: ${e}`).join("\n");
-    body = `Hi Jon,\n\nI'd like to request an upgrade for ${r.quantity || 1} ${accLabel} account${(r.quantity || 1) > 1 ? "s" : ""} for ${school}.\n\n${emailList}${r.notes ? `\n\nNote: ${r.notes}` : ""}\n\nPlease let me know once it's done. Thank you.\n\nBanghyun`;
+    body = isSchool
+      ? `Hi Jon,\n\nI'd like to request a school-wide upgrade for ${school}.\n\n${emailList}${r.notes ? `\n\nNote: ${r.notes}` : ""}\n\nPlease let me know once it's done. Thank you.\n\nBanghyun`
+      : `Hi Jon,\n\nI'd like to request an upgrade for ${r.quantity || 1} ${accLabel} account${(r.quantity || 1) > 1 ? "s" : ""} for ${school}.\n\n${emailList}${r.notes ? `\n\nNote: ${r.notes}` : ""}\n\nPlease let me know once it's done. Thank you.\n\nBanghyun`;
   } else if (r.type === "email_change") {
     subject = `Account Email Change Request – ${school}`;
     body = `Hi Jon,\n\nCould you please update the email for the account at ${school}?\n\n- Old email: ${r.oldEmail || ""}\n- New email: ${r.emails || ""}${r.notes ? `\n\nNote: ${r.notes}` : ""}\n\nThank you.\n\nBanghyun`;
