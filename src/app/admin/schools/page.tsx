@@ -127,6 +127,25 @@ export default function SchoolsPage() {
     return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
   }, [filtered]);
 
+  const [groupByTeam, setGroupByTeam] = useState(true);
+
+  const groupedByTeam = useMemo(() => {
+    if (!groupByTeam) return [{ team: null, schools: filtered }];
+    const map = new Map<string, School[]>();
+    for (const s of filtered) {
+      const key = s.team || "미배정";
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(s);
+    }
+    // Sort teams: named teams first (alphabetical), 미배정 last
+    const entries = Array.from(map.entries()).sort((a, b) => {
+      if (a[0] === "미배정") return 1;
+      if (b[0] === "미배정") return -1;
+      return a[0].localeCompare(b[0]);
+    });
+    return entries.map(([team, schools]) => ({ team, schools }));
+  }, [filtered, groupByTeam]);
+
   function toggleExpand(id: number) {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -297,7 +316,11 @@ export default function SchoolsPage() {
             <SelectItem value="none">미배정</SelectItem>
           </SelectContent>
         </Select>
-        <div className="flex items-center rounded-lg border bg-white p-0.5 gap-0.5 ml-auto">
+        <button onClick={() => setGroupByTeam(!groupByTeam)}
+          className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ml-auto ${groupByTeam ? "bg-indigo-50 text-indigo-700 border-indigo-200" : "bg-white text-gray-500 border-gray-200 hover:bg-gray-50"}`}>
+          {groupByTeam ? "👥 팀별" : "📋 전체"}
+        </button>
+        <div className="flex items-center rounded-lg border bg-white p-0.5 gap-0.5">
           {(["teachers", "name", "recent"] as const).map(s => (
             <button key={s} onClick={() => setSortBy(s)}
               className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${sortBy === s ? "bg-gray-100 text-gray-900" : "text-gray-400 hover:text-gray-700"}`}>
@@ -333,9 +356,21 @@ export default function SchoolsPage() {
       )}
 
       {/* Grid View */}
-      {viewMode === "grid" && (
+      {viewMode === "grid" && groupedByTeam.map(({ team: groupTeam, schools: groupSchools }) => {
+        const groupTeacherCount = groupSchools.reduce((s, sc) => s + sc.teachers.length, 0);
+        const tc = teamColorMap[groupTeam || ""] || { bg: "bg-gray-50", text: "text-gray-600", dot: "bg-gray-400" };
+        return (
+        <div key={groupTeam || "all"} className="mb-6">
+          {groupByTeam && groupTeam && (
+            <div className="flex items-center gap-3 mb-3 px-1">
+              <div className={`w-2.5 h-2.5 rounded-full ${tc.dot}`} />
+              <h2 className="text-sm font-bold text-gray-800">{groupTeam}</h2>
+              <span className="text-xs text-gray-400">{groupSchools.length}교 · {groupTeacherCount}명</span>
+              <div className="flex-1 h-px bg-gray-200" />
+            </div>
+          )}
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((school) => {
+          {groupSchools.map((school) => {
             const isOpen = expanded.has(school.id);
             const tc = teamColorMap[school.team || ""] || { bg: "bg-gray-50", text: "text-gray-600", dot: "bg-gray-400" };
             const pendingC = school.teachers.filter(t => t.status === "pending").length;
@@ -417,10 +452,24 @@ export default function SchoolsPage() {
             );
           })}
         </div>
-      )}
+        </div>
+        );
+      })}
 
       {/* Table View */}
-      {viewMode === "table" && (
+      {viewMode === "table" && groupedByTeam.map(({ team: groupTeam, schools: groupSchools }) => {
+        const groupTeacherCount = groupSchools.reduce((s, sc) => s + sc.teachers.length, 0);
+        const tc = teamColorMap[groupTeam || ""] || { bg: "bg-gray-50", text: "text-gray-600", dot: "bg-gray-400" };
+        return (
+        <div key={groupTeam || "all"} className="mb-6">
+          {groupByTeam && groupTeam && (
+            <div className="flex items-center gap-3 mb-3 px-1">
+              <div className={`w-2.5 h-2.5 rounded-full ${tc.dot}`} />
+              <h2 className="text-sm font-bold text-gray-800">{groupTeam}</h2>
+              <span className="text-xs text-gray-400">{groupSchools.length}교 · {groupTeacherCount}명</span>
+              <div className="flex-1 h-px bg-gray-200" />
+            </div>
+          )}
         <div className="bg-white rounded-xl border overflow-hidden">
           <table className="w-full text-sm">
             <thead>
@@ -428,14 +477,14 @@ export default function SchoolsPage() {
                 <th className="px-4 py-3 font-medium">학교</th>
                 <th className="px-4 py-3 font-medium">코드</th>
                 <th className="px-4 py-3 font-medium">지역</th>
-                <th className="px-4 py-3 font-medium">팀</th>
+                {!groupByTeam && <th className="px-4 py-3 font-medium">팀</th>}
                 <th className="px-4 py-3 font-medium text-right">교사수</th>
                 <th className="px-4 py-3 font-medium text-right">상태</th>
               </tr>
             </thead>
             <tbody className="divide-y">
-              {filtered.map((school) => {
-                const tc = teamColorMap[school.team || ""] || { bg: "bg-gray-50", text: "text-gray-600", dot: "bg-gray-400" };
+              {groupSchools.map((school) => {
+                const stc = teamColorMap[school.team || ""] || { bg: "bg-gray-50", text: "text-gray-600", dot: "bg-gray-400" };
                 const pendingC = school.teachers.filter(t => t.status === "pending" || t.status === "sent").length;
                 return (
                   <tr key={school.id} className="hover:bg-gray-50/80 cursor-pointer transition-colors" onClick={() => toggleExpand(school.id)}>
@@ -452,11 +501,13 @@ export default function SchoolsPage() {
                       </button>
                     </td>
                     <td className="px-4 py-3 text-gray-600">{school.region || "-"}</td>
-                    <td className="px-4 py-3">
-                      {school.team ? (
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${tc.bg} ${tc.text}`}>{school.team}</span>
-                      ) : <span className="text-gray-300">-</span>}
-                    </td>
+                    {!groupByTeam && (
+                      <td className="px-4 py-3">
+                        {school.team ? (
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${stc.bg} ${stc.text}`}>{school.team}</span>
+                        ) : <span className="text-gray-300">-</span>}
+                      </td>
+                    )}
                     <td className="px-4 py-3 text-right font-semibold">{school.teachers.length}</td>
                     <td className="px-4 py-3 text-right">
                       {pendingC > 0 ? (
@@ -473,7 +524,9 @@ export default function SchoolsPage() {
             </tbody>
           </table>
         </div>
-      )}
+        </div>
+        );
+      })}
 
       {filtered.length === 0 && <p className="text-center text-gray-400 py-16 text-sm">검색 결과 없음</p>}
     </div>
