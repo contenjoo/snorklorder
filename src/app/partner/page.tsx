@@ -25,6 +25,15 @@ interface School {
 
 type Tab = "action" | "schools" | "recent";
 
+const SUBJECT_EN: Record<string, string> = {
+  "수학": "Math", "국어": "Korean", "영어": "English", "과학": "Science",
+  "역사": "History", "사회": "Social Studies", "미술": "Art", "음악": "Music",
+  "체육": "PE", "기술": "Technology", "생명과학": "Biology", "제2외국어": "2nd Language",
+  "담임": "Homeroom", "상담": "Counseling", "사서": "Librarian", "환경": "Environment",
+  "물리": "Physics", "화학": "Chemistry", "지리": "Geography", "도덕": "Ethics",
+  "정보": "IT", "가정": "Home Ec", "일본어": "Japanese", "중국어": "Chinese",
+};
+
 export default function PartnerDashboard() {
   const [schools, setSchools] = useState<School[]>([]);
   const [loading, setLoading] = useState(true);
@@ -304,7 +313,7 @@ export default function PartnerDashboard() {
                           <input type="checkbox" checked={selected.has(t.id)} onChange={() => toggle(t.id)}
                             className="w-4.5 h-4.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
                           <span className="font-mono text-sm text-slate-800 flex-1">{t.email}</span>
-                          {t.subject && <span className="text-[11px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded">{t.subject}</span>}
+                          {t.subject && <span className="text-[11px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded">{SUBJECT_EN[t.subject] || t.subject}</span>}
                           <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${
                             t.status === "pending" ? "bg-amber-100 text-amber-700" : "bg-blue-100 text-blue-700"
                           }`}>{t.status}</span>
@@ -401,7 +410,7 @@ export default function PartnerDashboard() {
                             t.status === "upgraded" ? "bg-emerald-500" : t.status === "sent" ? "bg-blue-500" : "bg-amber-500"
                           }`} />
                           <span className="font-mono text-slate-700 flex-1 truncate">{t.email}</span>
-                          {t.subject && <span className="text-[11px] text-slate-400">{t.subject}</span>}
+                          {t.subject && <span className="text-[11px] text-slate-400">{SUBJECT_EN[t.subject] || t.subject}</span>}
                           <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${
                             t.status === "upgraded" ? "bg-emerald-100 text-emerald-700" :
                             t.status === "sent" ? "bg-blue-100 text-blue-700" : "bg-amber-100 text-amber-700"
