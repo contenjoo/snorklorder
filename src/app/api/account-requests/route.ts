@@ -23,7 +23,12 @@ export async function POST(req: NextRequest) {
   const { action, id, ...data } = body;
 
   if (action === "create") {
-    const isAuthenticated = await checkAuth();
+    // API 키 인증 (외부 서비스 연동용)
+    const apiKey = req.headers.get("x-api-key");
+    const validApiKey = process.env.INTEGRATION_API_KEY;
+    const isApiKeyAuth = !!(validApiKey && apiKey && apiKey === validApiKey);
+
+    const isAuthenticated = isApiKeyAuth || (await checkAuth());
 
     if (!isAuthenticated) {
       const rateLimit = checkRateLimit({
