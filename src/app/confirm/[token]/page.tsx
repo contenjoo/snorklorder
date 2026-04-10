@@ -13,6 +13,15 @@ interface Teacher {
   schoolNameEn: string | null;
 }
 
+const SUBJECT_EN: Record<string, string> = {
+  "수학": "Math", "국어": "Korean", "영어": "English", "과학": "Science",
+  "역사": "History", "사회": "Social Studies", "미술": "Art", "음악": "Music",
+  "체육": "PE", "기술": "Technology", "생명과학": "Biology", "제2외국어": "2nd Language",
+  "담임": "Homeroom", "상담": "Counseling", "사서": "Librarian", "환경": "Environment",
+  "물리": "Physics", "화학": "Chemistry", "지리": "Geography", "도덕": "Ethics",
+  "정보": "IT", "가정": "Home Ec", "일본어": "Japanese", "중국어": "Chinese",
+};
+
 interface Stats {
   totalSchools: number;
   totalTeachers: number;
@@ -36,6 +45,7 @@ export default function ConfirmPage() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
+  const [copied, setCopied] = useState("");
 
   useEffect(() => {
     fetch(`/api/confirm/${token}`)
@@ -65,6 +75,23 @@ export default function ConfirmPage() {
       else next.add(id);
       return next;
     });
+  };
+
+  const copyEmails = (emails: string[], label: string) => {
+    navigator.clipboard.writeText(emails.join("\n"));
+    setCopied(label);
+    setTimeout(() => setCopied(""), 2500);
+  };
+
+  const copyAllEmails = () => {
+    if (!data) return;
+    const emails = data.teachers.map((t) => t.email);
+    copyEmails(emails, `${emails.length} emails copied`);
+  };
+
+  const copySchoolEmails = (teachers: Teacher[]) => {
+    const emails = teachers.map((t) => t.email);
+    copyEmails(emails, `${emails.length} emails copied`);
   };
 
   const selectAll = () => {
@@ -183,12 +210,20 @@ export default function ConfirmPage() {
         </p>
 
         <div className="flex items-center justify-between mb-3 px-1">
-          <button
-            onClick={selectAll}
-            className="text-sm font-medium text-blue-600 hover:text-blue-800"
-          >
-            {selected.size === data.teachers.length ? "Deselect All" : "Select All"}
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={selectAll}
+              className="text-sm font-medium text-blue-600 hover:text-blue-800"
+            >
+              {selected.size === data.teachers.length ? "Deselect All" : "Select All"}
+            </button>
+            <button
+              onClick={copyAllEmails}
+              className="text-sm font-medium text-gray-500 hover:text-gray-700"
+            >
+              📋 Copy All Emails
+            </button>
+          </div>
           <span className="text-sm text-gray-500">
             {selected.size} / {data.teachers.length} selected
           </span>
@@ -196,7 +231,7 @@ export default function ConfirmPage() {
 
         {Array.from(bySchool.entries()).map(([schoolName, { nameEn, teachers: schoolTeachers }]) => (
           <div key={schoolName} className="bg-white rounded-xl shadow-sm border mb-4 overflow-hidden">
-            <div className="bg-gray-50 px-4 py-3 border-b">
+            <div className="bg-gray-50 px-4 py-3 border-b flex items-center justify-between">
               <h2 className="font-semibold text-gray-900">
                 {nameEn || schoolName}
                 {nameEn && <span className="ml-2 text-sm font-normal text-gray-400">{schoolName}</span>}
@@ -204,6 +239,11 @@ export default function ConfirmPage() {
                   ({schoolTeachers.length})
                 </span>
               </h2>
+              <button
+                onClick={() => copySchoolEmails(schoolTeachers)}
+                className="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700 transition-colors"
+                title="Copy emails"
+              >📋</button>
             </div>
             <div className="divide-y">
               {schoolTeachers.map((teacher) => (
@@ -222,7 +262,7 @@ export default function ConfirmPage() {
                       <span className="font-medium text-gray-900 truncate">{teacher.email}</span>
                       {teacher.subject && (
                         <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
-                          {teacher.subject}
+                          {SUBJECT_EN[teacher.subject] || teacher.subject}
                         </span>
                       )}
                     </div>
@@ -258,6 +298,12 @@ export default function ConfirmPage() {
               : `✅ Confirm ${selected.size} Upgrade${selected.size !== 1 ? "s" : ""}`}
           </button>
         </div>
+
+        {copied && (
+          <div className="fixed bottom-4 left-1/2 -translate-x-1/2 px-5 py-3 rounded-xl text-sm font-medium shadow-lg z-50 bg-gray-800 text-white">
+            ✅ {copied}
+          </div>
+        )}
       </div>
     </div>
   );
