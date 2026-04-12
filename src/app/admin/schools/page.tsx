@@ -413,120 +413,163 @@ export default function SchoolsPage() {
 
       {/* Teams View - each team as a card */}
       {viewMode === "teams" && (() => {
-        // Only show actual teams (not 미배정 or 개별)
         const teamGroups = groupedByTeam.filter(g => g.team && g.team !== "미배정" && !g.team.includes("개별"));
-        return (
-          <div className="space-y-3">
-            {teamGroups.map(({ team: teamName, schools: teamSchools }) => {
-              const tc = teamColorMap[teamName || ""] || { bg: "bg-gray-50", text: "text-gray-600", dot: "bg-gray-400" };
-              const isOpen = expandedTeams.has(teamName!);
-              const teamTeacherCount = teamSchools.reduce((s, sc) => s + sc.teachers.length, 0);
-              const upgradedCount = teamSchools.reduce((s, sc) => s + sc.teachers.filter(t => t.status === "upgraded" || t.status === "individual").length, 0);
-              const allConfirmed = teamTeacherCount > 0 && upgradedCount === teamTeacherCount;
-              const rate = teamTeacherCount > 0 ? Math.round((upgradedCount / teamTeacherCount) * 100) : 0;
-              const firstDate = teamSchools.reduce((min, sc) => {
-                const d = sc.teachers.length > 0 ? Math.min(...sc.teachers.map(t => new Date(t.createdAt).getTime())) : Infinity;
-                return Math.min(min, d);
-              }, Infinity);
+        const individualGroups = groupedByTeam.filter(g => g.team && g.team.includes("개별"));
+        const unassigned = groupedByTeam.filter(g => !g.team || g.team === "미배정");
 
-              return (
-                <div key={teamName} className={`bg-white rounded-xl border transition-all ${isOpen ? "ring-2 ring-blue-200 shadow-md" : "hover:shadow-md"}`}>
-                  {/* Team card header */}
-                  <div className="p-5 cursor-pointer flex items-center gap-4" onClick={() => {
-                    setExpandedTeams(prev => {
-                      const next = new Set(prev);
-                      if (next.has(teamName!)) next.delete(teamName!); else next.add(teamName!);
-                      return next;
-                    });
-                  }}>
-                    <div className={`w-3 h-3 rounded-full ${tc.dot}`} />
-                    <div className="flex-1 min-w-0">
-                      <h3 className="text-lg font-bold text-gray-900">{teamName}</h3>
-                      <p className="text-sm text-gray-400 mt-0.5">
-                        {teamSchools.length}개교
-                        {firstDate !== Infinity && ` · ${new Date(firstDate).toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" })}`}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      {/* Progress */}
-                      <div className="text-right mr-2">
-                        <span className="text-sm font-semibold text-gray-700">{upgradedCount}/{teamTeacherCount}명</span>
-                        <div className="h-1.5 w-20 rounded-full bg-gray-100 overflow-hidden mt-1">
-                          <div className="h-full bg-emerald-400 rounded-full transition-all" style={{ width: `${rate}%` }} />
-                        </div>
-                      </div>
-                      {allConfirmed ? (
-                        <span className="text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1.5 rounded-lg">팀 완성</span>
-                      ) : (
-                        <span className="text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 px-3 py-1.5 rounded-lg">진행중</span>
-                      )}
-                      <svg className={`w-5 h-5 text-gray-400 transition-transform ${isOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                      </svg>
+        const renderTeamCard = (teamName: string, teamSchools: School[]) => {
+          const tc = teamColorMap[teamName] || { bg: "bg-gray-50", text: "text-gray-600", dot: "bg-gray-400" };
+          const isOpen = expandedTeams.has(teamName);
+          const teamTeacherCount = teamSchools.reduce((s, sc) => s + sc.teachers.length, 0);
+          const upgradedCount = teamSchools.reduce((s, sc) => s + sc.teachers.filter(t => t.status === "upgraded" || t.status === "individual").length, 0);
+          const allConfirmed = teamTeacherCount > 0 && upgradedCount === teamTeacherCount;
+          const rate = teamTeacherCount > 0 ? Math.round((upgradedCount / teamTeacherCount) * 100) : 0;
+          const firstDate = teamSchools.reduce((min, sc) => {
+            const d = sc.teachers.length > 0 ? Math.min(...sc.teachers.map(t => new Date(t.createdAt).getTime())) : Infinity;
+            return Math.min(min, d);
+          }, Infinity);
+
+          return (
+            <div key={teamName} className={`bg-white rounded-xl border transition-all ${isOpen ? "ring-2 ring-blue-200 shadow-md" : "hover:shadow-md"}`}>
+              <div className="p-5 cursor-pointer flex items-center gap-4" onClick={() => {
+                setExpandedTeams(prev => {
+                  const next = new Set(prev);
+                  if (next.has(teamName)) next.delete(teamName); else next.add(teamName);
+                  return next;
+                });
+              }}>
+                <div className={`w-3 h-3 rounded-full ${tc.dot}`} />
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-lg font-bold text-gray-900">{teamName}</h3>
+                  <p className="text-sm text-gray-400 mt-0.5">
+                    {teamSchools.length}개교
+                    {firstDate !== Infinity && ` · ${new Date(firstDate).toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" })}`}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="text-right mr-2">
+                    <span className="text-sm font-semibold text-gray-700">{upgradedCount}/{teamTeacherCount}명</span>
+                    <div className="h-1.5 w-20 rounded-full bg-gray-100 overflow-hidden mt-1">
+                      <div className="h-full bg-emerald-400 rounded-full transition-all" style={{ width: `${rate}%` }} />
                     </div>
                   </div>
-
-                  {/* Expanded: school list */}
-                  {isOpen && (
-                    <div className="border-t">
-                      <div className="divide-y">
-                        {teamSchools.map(school => {
-                          const teacher = school.teachers[0];
-                          const upgC = school.teachers.filter(t => t.status === "upgraded" || t.status === "individual").length;
-                          return (
-                            <div key={school.id} className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50/80 transition-colors">
-                              <span className={`w-2 h-2 rounded-full shrink-0 ${upgC === school.teachers.length && school.teachers.length > 0 ? "bg-emerald-400" : school.teachers.length > 0 ? "bg-amber-400" : "bg-gray-300"}`} />
-                              <div className="flex-1 min-w-0">
-                                <span className="text-sm font-medium text-gray-900">{school.name}</span>
-                                {school.nameEn && <span className="text-xs text-gray-400 ml-2">{school.nameEn}</span>}
-                              </div>
-                              {teacher && (
-                                <span className="text-xs text-gray-500">{teacher.name}</span>
-                              )}
-                              <span className="text-xs text-gray-400 font-mono">{school.teachers.length}명</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                      {/* Team actions */}
-                      <div className="flex items-center gap-2 px-5 py-3 bg-gray-50/80 border-t">
-                        <button onClick={() => {
-                          const emails = teamSchools.flatMap(s => s.teachers.map(t => t.email));
-                          navigator.clipboard.writeText(emails.join("\n"));
-                          setCopied(teamName!);
-                          setTimeout(() => setCopied(null), 2000);
-                        }} className="text-xs text-gray-600 hover:text-blue-600 bg-white border rounded-lg px-3 py-1.5 transition-colors">
-                          {copied === teamName ? "복사됨!" : "이메일 복사"}
-                        </button>
-                        <button onClick={() => {
-                          const contacts = teamSchools.map(s => {
-                            const t = s.teachers[0];
-                            return t ? `${s.name}\t${t.name}\t${t.email}` : s.name;
-                          });
-                          navigator.clipboard.writeText(contacts.join("\n"));
-                          setCopied(teamName + "-contacts");
-                          setTimeout(() => setCopied(null), 2000);
-                        }} className="text-xs text-gray-600 hover:text-blue-600 bg-white border rounded-lg px-3 py-1.5 transition-colors">
-                          {copied === teamName + "-contacts" ? "복사됨!" : "연락처 복사"}
-                        </button>
-                        <button onClick={() => {
-                          const all = teamSchools.map(s => {
-                            const teacherList = s.teachers.map(t => `${t.name}\t${t.email}\t${t.status}`).join("\n");
-                            return `${s.name} (${s.code})\n${teacherList}`;
-                          });
-                          navigator.clipboard.writeText(all.join("\n\n"));
-                          setCopied(teamName + "-all");
-                          setTimeout(() => setCopied(null), 2000);
-                        }} className="text-xs text-gray-600 hover:text-blue-600 bg-white border rounded-lg px-3 py-1.5 transition-colors">
-                          {copied === teamName + "-all" ? "복사됨!" : "전체 복사"}
-                        </button>
-                      </div>
-                    </div>
+                  {allConfirmed ? (
+                    <span className="text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1.5 rounded-lg">팀 완성</span>
+                  ) : (
+                    <span className="text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 px-3 py-1.5 rounded-lg">진행중</span>
                   )}
+                  <svg className={`w-5 h-5 text-gray-400 transition-transform ${isOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
                 </div>
-              );
-            })}
-            {teamGroups.length === 0 && <p className="text-center text-gray-400 py-16 text-sm">팀 배정된 학교가 없습니다</p>}
+              </div>
+
+              {isOpen && (
+                <div className="border-t">
+                  <div className="divide-y">
+                    {teamSchools.map(school => {
+                      const teacher = school.teachers[0];
+                      const upgC = school.teachers.filter(t => t.status === "upgraded" || t.status === "individual").length;
+                      return (
+                        <div key={school.id} className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50/80 transition-colors">
+                          <span className={`w-2 h-2 rounded-full shrink-0 ${upgC === school.teachers.length && school.teachers.length > 0 ? "bg-emerald-400" : school.teachers.length > 0 ? "bg-amber-400" : "bg-gray-300"}`} />
+                          <div className="flex-1 min-w-0">
+                            <span className="text-sm font-medium text-gray-900">{school.name}</span>
+                            {school.nameEn && <span className="text-xs text-gray-400 ml-2">{school.nameEn}</span>}
+                          </div>
+                          {teacher && <span className="text-xs text-gray-500">{teacher.name}</span>}
+                          <span className="text-xs text-gray-400 font-mono">{school.teachers.length}명</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="flex items-center gap-2 px-5 py-3 bg-gray-50/80 border-t">
+                    <button onClick={() => {
+                      const emails = teamSchools.flatMap(s => s.teachers.map(t => t.email));
+                      navigator.clipboard.writeText(emails.join("\n"));
+                      setCopied(teamName);
+                      setTimeout(() => setCopied(null), 2000);
+                    }} className="text-xs text-gray-600 hover:text-blue-600 bg-white border rounded-lg px-3 py-1.5 transition-colors">
+                      {copied === teamName ? "복사됨!" : "이메일 복사"}
+                    </button>
+                    <button onClick={() => {
+                      const contacts = teamSchools.map(s => {
+                        const t = s.teachers[0];
+                        return t ? `${s.name}\t${t.name}\t${t.email}` : s.name;
+                      });
+                      navigator.clipboard.writeText(contacts.join("\n"));
+                      setCopied(teamName + "-contacts");
+                      setTimeout(() => setCopied(null), 2000);
+                    }} className="text-xs text-gray-600 hover:text-blue-600 bg-white border rounded-lg px-3 py-1.5 transition-colors">
+                      {copied === teamName + "-contacts" ? "복사됨!" : "연락처 복사"}
+                    </button>
+                    <button onClick={() => {
+                      const all = teamSchools.map(s => {
+                        const teacherList = s.teachers.map(t => `${t.name}\t${t.email}\t${t.status}`).join("\n");
+                        return `${s.name} (${s.code})\n${teacherList}`;
+                      });
+                      navigator.clipboard.writeText(all.join("\n\n"));
+                      setCopied(teamName + "-all");
+                      setTimeout(() => setCopied(null), 2000);
+                    }} className="text-xs text-gray-600 hover:text-blue-600 bg-white border rounded-lg px-3 py-1.5 transition-colors">
+                      {copied === teamName + "-all" ? "복사됨!" : "전체 복사"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        };
+
+        const totalGroupTeachers = teamGroups.reduce((s, g) => s + g.schools.reduce((ss, sc) => ss + sc.teachers.length, 0), 0);
+        const totalIndivTeachers = individualGroups.reduce((s, g) => s + g.schools.reduce((ss, sc) => ss + sc.teachers.length, 0), 0);
+        const totalIndivSchools = individualGroups.reduce((s, g) => s + g.schools.length, 0);
+
+        return (
+          <div className="space-y-8">
+            {/* 공동구매팀 */}
+            {teamGroups.length > 0 && (
+              <div>
+                <div className="flex items-center gap-3 mb-4 px-1">
+                  <div className="w-1 h-6 rounded-full bg-blue-500" />
+                  <h2 className="text-base font-bold text-gray-900">공동구매팀</h2>
+                  <span className="text-xs text-gray-400">{teamGroups.length}팀 · {teamGroups.reduce((s, g) => s + g.schools.length, 0)}교 · {totalGroupTeachers}명</span>
+                </div>
+                <div className="space-y-3">
+                  {teamGroups.map(({ team: teamName, schools: teamSchools }) => renderTeamCard(teamName!, teamSchools))}
+                </div>
+              </div>
+            )}
+
+            {/* 일반 학교 (개별) */}
+            {individualGroups.length > 0 && (
+              <div>
+                <div className="flex items-center gap-3 mb-4 px-1">
+                  <div className="w-1 h-6 rounded-full bg-gray-400" />
+                  <h2 className="text-base font-bold text-gray-900">일반 학교</h2>
+                  <span className="text-xs text-gray-400">{totalIndivSchools}교 · {totalIndivTeachers}명</span>
+                </div>
+                <div className="space-y-3">
+                  {individualGroups.map(({ team: teamName, schools: teamSchools }) => renderTeamCard(teamName!, teamSchools))}
+                </div>
+              </div>
+            )}
+
+            {/* 미배정 */}
+            {unassigned.length > 0 && unassigned[0].schools.length > 0 && (
+              <div>
+                <div className="flex items-center gap-3 mb-4 px-1">
+                  <div className="w-1 h-6 rounded-full bg-gray-300" />
+                  <h2 className="text-base font-bold text-gray-900">미배정</h2>
+                  <span className="text-xs text-gray-400">{unassigned[0].schools.length}교</span>
+                </div>
+                <div className="space-y-3">
+                  {renderTeamCard("미배정", unassigned[0].schools)}
+                </div>
+              </div>
+            )}
+
+            {teamGroups.length === 0 && individualGroups.length === 0 && <p className="text-center text-gray-400 py-16 text-sm">학교가 없습니다</p>}
           </div>
         );
       })()}
