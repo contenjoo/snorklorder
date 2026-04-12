@@ -68,6 +68,7 @@ export default function SchoolsPage() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [filterRegion, setFilterRegion] = useState("all");
   const [filterTeam, setFilterTeam] = useState("all");
+  const [filterStatus, setFilterStatus] = useState<"all" | "confirmed" | "pending">("all");
   const [search, setSearch] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
@@ -118,6 +119,14 @@ export default function SchoolsPage() {
         if (filterTeam === "none" && s.team) return false;
         if (filterTeam !== "none" && s.team !== filterTeam) return false;
       }
+      if (filterStatus === "confirmed") {
+        // Show only schools where at least one teacher is upgraded/sent/individual (not all pending)
+        const hasConfirmed = s.teachers.some((t) => t.status === "upgraded" || t.status === "sent" || t.status === "individual");
+        if (!hasConfirmed) return false;
+      } else if (filterStatus === "pending") {
+        const hasPending = s.teachers.some((t) => t.status === "pending");
+        if (!hasPending) return false;
+      }
       if (search) {
         const q = search.toLowerCase();
         const matchSchool = s.name.toLowerCase().includes(q) || (s.nameEn || "").toLowerCase().includes(q) || s.code.toLowerCase().includes(q);
@@ -134,7 +143,7 @@ export default function SchoolsPage() {
     });
     else result.sort((a, b) => (a.nameEn || a.name).localeCompare(b.nameEn || b.name));
     return result;
-  }, [schools, filterRegion, filterTeam, search, sortBy]);
+  }, [schools, filterRegion, filterTeam, filterStatus, search, sortBy]);
 
   const allTeams = useMemo(() => {
     const t = new Set<string>();
@@ -349,8 +358,18 @@ export default function SchoolsPage() {
             <SelectItem value="none">미배정</SelectItem>
           </SelectContent>
         </Select>
+        <div className="flex items-center rounded-lg border bg-white p-0.5 gap-0.5 ml-auto">
+          {([["all", "전체"], ["confirmed", "확정"], ["pending", "대기"]] as const).map(([val, label]) => (
+            <button key={val} onClick={() => setFilterStatus(val as typeof filterStatus)}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${filterStatus === val
+                ? val === "confirmed" ? "bg-emerald-50 text-emerald-700" : val === "pending" ? "bg-amber-50 text-amber-700" : "bg-gray-100 text-gray-900"
+                : "text-gray-400 hover:text-gray-700"}`}>
+              {label}
+            </button>
+          ))}
+        </div>
         <button onClick={() => setGroupByTeam(!groupByTeam)}
-          className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ml-auto ${groupByTeam ? "bg-indigo-50 text-indigo-700 border-indigo-200" : "bg-white text-gray-500 border-gray-200 hover:bg-gray-50"}`}>
+          className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${groupByTeam ? "bg-indigo-50 text-indigo-700 border-indigo-200" : "bg-white text-gray-500 border-gray-200 hover:bg-gray-50"}`}>
           {groupByTeam ? "👥 팀별" : "📋 전체"}
         </button>
         <div className="flex items-center rounded-lg border bg-white p-0.5 gap-0.5">
