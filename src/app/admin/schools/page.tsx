@@ -272,94 +272,122 @@ export default function SchoolsPage() {
     await fetch(`/api/schools?id=${id}`, { method: "DELETE" }); load();
   }
 
+  // Compute stats for hero cards
+  const upgradedTeachers = filtered.reduce((s, sc) => s + sc.teachers.filter(t => t.status === "upgraded" || t.status === "individual").length, 0);
+  const pendingTeachers = filtered.reduce((s, sc) => s + sc.teachers.filter(t => t.status === "pending").length, 0);
+  const upgradeRate = totalTeachers > 0 ? Math.round((upgradedTeachers / totalTeachers) * 100) : 0;
+  const teamCount = allTeams.filter(t => !t.includes("개별")).length;
+
   return (
-    <div className="space-y-5">
-      {/* Header with stats ribbon */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">학교 관리</h1>
-          <div className="flex items-center gap-3 mt-1.5">
-            <span className="text-sm text-gray-500"><b className="text-gray-900">{filtered.length}</b>교</span>
-            <span className="w-1 h-1 rounded-full bg-gray-300" />
-            <span className="text-sm text-gray-500"><b className="text-gray-900">{totalTeachers}</b>명</span>
-            {regionStats.length > 0 && (
-              <>
-                <span className="w-1 h-1 rounded-full bg-gray-300" />
-                <div className="flex gap-1.5">
-                  {regionStats.slice(0, 5).map(([r, c]) => (
-                    <button key={r} onClick={() => setFilterRegion(filterRegion === r ? "all" : r)}
-                      className={`text-xs px-2 py-0.5 rounded-full transition-all ${filterRegion === r ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
-                      {r} {c}
-                    </button>
-                  ))}
+    <div className="space-y-6">
+      {/* Hero Header */}
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6 text-white">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(59,130,246,0.15),_transparent_50%)]" />
+        <div className="relative flex items-start justify-between">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">학교 관리</h1>
+            <p className="text-slate-400 text-sm mt-1">Snorkl 파트너 학교 현황</p>
+          </div>
+          <Dialog open={open} onOpenChange={(v) => { if (!v) closeDialog(); else setOpen(true); }}>
+            <DialogTrigger render={
+              <Button className="bg-white/10 hover:bg-white/20 text-white border-white/20 shadow-none backdrop-blur-sm" onClick={openAddDialog}>
+                <svg className="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" /></svg>
+                학교 추가
+              </Button>
+            } />
+            <DialogContent>
+              <DialogHeader><DialogTitle>{editingSchool ? "학교 수정" : "학교 추가"}</DialogTitle></DialogHeader>
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label>학교명 (한국어) *</Label>
+                    <Input placeholder="예: 효명고등학교" value={fname} onChange={(e) => setFname(e.target.value)} onBlur={() => { if (fname && !fnameEn) translateName(fname); }} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>영문명 {translating && <span className="text-xs text-blue-500">(번역 중...)</span>}</Label>
+                    <Input placeholder="자동 번역됨" value={fnameEn} onChange={(e) => setFnameEn(e.target.value)} />
+                  </div>
                 </div>
-              </>
-            )}
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <Label>코드 *</Label>
+                    <Input placeholder="HYOMYEONG" value={fcode} onChange={(e) => setFcode(e.target.value.toUpperCase())} className="font-mono" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>지역</Label>
+                    <Select value={fregion} onValueChange={(v) => setFregion(v ?? "")}>
+                      <SelectTrigger><SelectValue placeholder="선택" /></SelectTrigger>
+                      <SelectContent>{REGIONS.map((r) => (<SelectItem key={r} value={r}>{r}</SelectItem>))}</SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label>팀</Label>
+                    <Input placeholder="서울1팀" value={fteam} onChange={(e) => setFteam(e.target.value)} />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <Label>도메인 (선택)</Label>
+                  <Input placeholder="hmh.or.kr" value={fdomain} onChange={(e) => setFdomain(e.target.value)} />
+                </div>
+                {ferror && <p className="text-sm text-red-600">{ferror}</p>}
+                <Button onClick={saveSchool} className="w-full">{editingSchool ? "저장" : "추가"}</Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </div>
+
+        {/* Stats row */}
+        <div className="relative grid grid-cols-4 gap-4 mt-5">
+          <div className="bg-white/5 backdrop-blur-sm rounded-xl p-4 border border-white/10">
+            <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">학교</p>
+            <p className="text-2xl font-bold mt-1">{filtered.length}</p>
+            <div className="flex gap-1.5 mt-2">
+              {regionStats.slice(0, 3).map(([r, c]) => (
+                <button key={r} onClick={() => setFilterRegion(filterRegion === r ? "all" : r)}
+                  className={`text-[10px] px-1.5 py-0.5 rounded-full transition-all ${filterRegion === r ? "bg-white/30 text-white" : "bg-white/10 text-slate-400 hover:bg-white/20"}`}>
+                  {r} {c}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="bg-white/5 backdrop-blur-sm rounded-xl p-4 border border-white/10">
+            <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">교사</p>
+            <p className="text-2xl font-bold mt-1">{totalTeachers}</p>
+            <div className="flex items-center gap-2 mt-2">
+              <span className="text-[10px] text-emerald-400">{upgradedTeachers} 확정</span>
+              {pendingTeachers > 0 && <span className="text-[10px] text-amber-400">{pendingTeachers} 대기</span>}
+            </div>
+          </div>
+          <div className="bg-white/5 backdrop-blur-sm rounded-xl p-4 border border-white/10">
+            <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">확정률</p>
+            <p className="text-2xl font-bold mt-1">{upgradeRate}%</p>
+            <div className="h-1.5 w-full rounded-full bg-white/10 overflow-hidden mt-2">
+              <div className="h-full bg-emerald-400 rounded-full transition-all" style={{ width: `${upgradeRate}%` }} />
+            </div>
+          </div>
+          <div className="bg-white/5 backdrop-blur-sm rounded-xl p-4 border border-white/10">
+            <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">공동구매팀</p>
+            <p className="text-2xl font-bold mt-1">{teamCount}</p>
+            <p className="text-[10px] text-slate-400 mt-2">팀 · 총 25교</p>
           </div>
         </div>
-        <Dialog open={open} onOpenChange={(v) => { if (!v) closeDialog(); else setOpen(true); }}>
-          <DialogTrigger render={
-            <Button className="shadow-sm" onClick={openAddDialog}>
-              <svg className="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" /></svg>
-              학교 추가
-            </Button>
-          } />
-          <DialogContent>
-            <DialogHeader><DialogTitle>{editingSchool ? "학교 수정" : "학교 추가"}</DialogTitle></DialogHeader>
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label>학교명 (한국어) *</Label>
-                  <Input placeholder="예: 효명고등학교" value={fname} onChange={(e) => setFname(e.target.value)} onBlur={() => { if (fname && !fnameEn) translateName(fname); }} />
-                </div>
-                <div className="space-y-1">
-                  <Label>영문명 {translating && <span className="text-xs text-blue-500">(번역 중...)</span>}</Label>
-                  <Input placeholder="자동 번역됨" value={fnameEn} onChange={(e) => setFnameEn(e.target.value)} />
-                </div>
-              </div>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="space-y-1">
-                  <Label>코드 *</Label>
-                  <Input placeholder="HYOMYEONG" value={fcode} onChange={(e) => setFcode(e.target.value.toUpperCase())} className="font-mono" />
-                </div>
-                <div className="space-y-1">
-                  <Label>지역</Label>
-                  <Select value={fregion} onValueChange={(v) => setFregion(v ?? "")}>
-                    <SelectTrigger><SelectValue placeholder="선택" /></SelectTrigger>
-                    <SelectContent>{REGIONS.map((r) => (<SelectItem key={r} value={r}>{r}</SelectItem>))}</SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1">
-                  <Label>팀</Label>
-                  <Input placeholder="서울1팀" value={fteam} onChange={(e) => setFteam(e.target.value)} />
-                </div>
-              </div>
-              <div className="space-y-1">
-                <Label>도메인 (선택)</Label>
-                <Input placeholder="hmh.or.kr" value={fdomain} onChange={(e) => setFdomain(e.target.value)} />
-              </div>
-              {ferror && <p className="text-sm text-red-600">{ferror}</p>}
-              <Button onClick={saveSchool} className="w-full">{editingSchool ? "저장" : "추가"}</Button>
-            </div>
-          </DialogContent>
-        </Dialog>
       </div>
 
-      {/* Toolbar */}
-      <div className="flex items-center gap-2 flex-wrap">
+      {/* Toolbar - compact single row */}
+      <div className="flex items-center gap-2">
         <div className="relative flex-1 max-w-xs">
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
-          <Input placeholder="학교명, 코드, 교사 검색..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
+          <Input placeholder="검색..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9 h-9" />
         </div>
         <Select value={filterTeam} onValueChange={(v) => setFilterTeam(v ?? "all")}>
-          <SelectTrigger className="w-36"><SelectValue placeholder="전체 팀" /></SelectTrigger>
+          <SelectTrigger className="w-32 h-9"><SelectValue placeholder="전체 팀" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">전체 팀</SelectItem>
             {allTeams.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
             <SelectItem value="none">미배정</SelectItem>
           </SelectContent>
         </Select>
-        <div className="flex items-center rounded-lg border bg-white p-0.5 gap-0.5 ml-auto">
+        <div className="flex items-center rounded-lg border bg-white p-0.5 gap-0.5">
           {([["all", "전체"], ["confirmed", "확정"], ["pending", "대기"]] as const).map(([val, label]) => (
             <button key={val} onClick={() => setFilterStatus(val as typeof filterStatus)}
               className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${filterStatus === val
@@ -369,15 +397,16 @@ export default function SchoolsPage() {
             </button>
           ))}
         </div>
+        <div className="flex-1" />
         <button onClick={() => setGroupByTeam(!groupByTeam)}
           className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${groupByTeam ? "bg-indigo-50 text-indigo-700 border-indigo-200" : "bg-white text-gray-500 border-gray-200 hover:bg-gray-50"}`}>
-          {groupByTeam ? "👥 팀별" : "📋 전체"}
+          {groupByTeam ? "팀별" : "전체"}
         </button>
         <div className="flex items-center rounded-lg border bg-white p-0.5 gap-0.5">
           {(["teachers", "name", "recent"] as const).map(s => (
             <button key={s} onClick={() => setSortBy(s)}
-              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${sortBy === s ? "bg-gray-100 text-gray-900" : "text-gray-400 hover:text-gray-700"}`}>
-              {s === "teachers" ? "교사수순" : s === "name" ? "가나다순" : "최근순"}
+              className={`px-2 py-1 rounded-md text-xs font-medium transition-all ${sortBy === s ? "bg-gray-100 text-gray-900" : "text-gray-400 hover:text-gray-700"}`}>
+              {s === "teachers" ? "교사수" : s === "name" ? "이름" : "최근"}
             </button>
           ))}
         </div>
@@ -468,17 +497,55 @@ export default function SchoolsPage() {
                 <div className="border-t">
                   <div className="divide-y">
                     {teamSchools.map(school => {
-                      const teacher = school.teachers[0];
                       const upgC = school.teachers.filter(t => t.status === "upgraded" || t.status === "individual").length;
+                      const schoolOpen = expanded.has(school.id);
                       return (
-                        <div key={school.id} className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50/80 transition-colors">
-                          <span className={`w-2 h-2 rounded-full shrink-0 ${upgC === school.teachers.length && school.teachers.length > 0 ? "bg-emerald-400" : school.teachers.length > 0 ? "bg-amber-400" : "bg-gray-300"}`} />
-                          <div className="flex-1 min-w-0">
-                            <span className="text-sm font-medium text-gray-900">{school.name}</span>
-                            {school.nameEn && <span className="text-xs text-gray-400 ml-2">{school.nameEn}</span>}
+                        <div key={school.id}>
+                          <div className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50/80 transition-colors cursor-pointer" onClick={() => toggleExpand(school.id)}>
+                            <span className={`w-2 h-2 rounded-full shrink-0 ${upgC === school.teachers.length && school.teachers.length > 0 ? "bg-emerald-400" : school.teachers.length > 0 ? "bg-amber-400" : "bg-gray-300"}`} />
+                            <div className="flex-1 min-w-0">
+                              <span className="text-sm font-medium text-gray-900">{school.name}</span>
+                              {school.nameEn && <span className="text-xs text-gray-400 ml-2">{school.nameEn}</span>}
+                            </div>
+                            <span className="text-[10px] font-mono text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{school.code}</span>
+                            <span className="text-xs text-gray-500 font-medium">{school.teachers.length}명</span>
+                            <svg className={`w-4 h-4 text-gray-300 transition-transform ${schoolOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
                           </div>
-                          {teacher && <span className="text-xs text-gray-500">{teacher.name}</span>}
-                          <span className="text-xs text-gray-400 font-mono">{school.teachers.length}명</span>
+                          {/* School's teachers */}
+                          {schoolOpen && school.teachers.length > 0 && (
+                            <div className="bg-slate-50/80 border-t border-dashed">
+                              {school.teachers.map(t => (
+                                <div key={t.id} className="flex items-center gap-2.5 px-5 pl-10 py-2 text-xs hover:bg-slate-100/80 transition-colors">
+                                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${t.status === "upgraded" ? "bg-emerald-400" : t.status === "sent" ? "bg-blue-400" : t.status === "individual" ? "bg-purple-400" : "bg-amber-400"}`} />
+                                  <span className="text-gray-700 w-16 truncate font-medium">{t.name}</span>
+                                  <span className="text-gray-500 font-mono truncate flex-1">{t.email}</span>
+                                  <span className={`uppercase tracking-wider font-semibold ${t.status === "upgraded" ? "text-emerald-500" : t.status === "sent" ? "text-blue-500" : t.status === "individual" ? "text-purple-500" : "text-amber-500"}`}>
+                                    {t.status === "upgraded" ? "확정" : t.status === "sent" ? "발송" : t.status === "individual" ? "개별" : "대기"}
+                                  </span>
+                                </div>
+                              ))}
+                              <div className="flex items-center gap-2 px-5 pl-10 py-2 border-t border-dashed">
+                                <button onClick={(e) => { e.stopPropagation(); openEditDialog(school); }} className="text-[10px] text-gray-400 hover:text-blue-600 transition-colors">수정</button>
+                                <span className="text-gray-200">|</span>
+                                <button onClick={(e) => {
+                                  e.stopPropagation();
+                                  const emails = school.teachers.map(t => t.email).join("\n");
+                                  navigator.clipboard.writeText(emails);
+                                  setCopied("school-" + school.id);
+                                  setTimeout(() => setCopied(null), 2000);
+                                }} className="text-[10px] text-gray-400 hover:text-blue-600 transition-colors">
+                                  {copied === "school-" + school.id ? "복사됨!" : "이메일 복사"}
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                          {schoolOpen && school.teachers.length === 0 && (
+                            <div className="bg-slate-50/80 border-t border-dashed px-5 pl-10 py-3">
+                              <span className="text-xs text-gray-400">등록된 교사 없음</span>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
