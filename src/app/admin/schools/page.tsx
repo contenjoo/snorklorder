@@ -60,7 +60,7 @@ const teamColorMap: Record<string, { bg: string; text: string; dot: string }> = 
   "경남 (개별)": { bg: "bg-teal-50", text: "text-teal-700", dot: "bg-teal-500" },
 };
 
-type ViewMode = "grid" | "table";
+type ViewMode = "grid" | "table" | "teams";
 
 export default function SchoolsPage() {
   const { schools, refresh: load } = useSchoolData();
@@ -73,7 +73,7 @@ export default function SchoolsPage() {
   const [copied, setCopied] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState("");
-  const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  const [viewMode, setViewMode] = useState<ViewMode>("teams");
   const [sortBy, setSortBy] = useState<"name" | "teachers" | "recent">("teachers");
 
   // Add/Edit school form
@@ -162,6 +162,7 @@ export default function SchoolsPage() {
   }, [filtered]);
 
   const [groupByTeam, setGroupByTeam] = useState(true);
+  const [expandedTeams, setExpandedTeams] = useState<Set<string>>(new Set());
 
   const groupedByTeam = useMemo(() => {
     if (!groupByTeam) return [{ team: null, schools: filtered }];
@@ -381,10 +382,13 @@ export default function SchoolsPage() {
           ))}
         </div>
         <div className="flex items-center rounded-lg border bg-white p-0.5 gap-0.5">
-          <button onClick={() => setViewMode("grid")} className={`p-1.5 rounded-md transition-all ${viewMode === "grid" ? "bg-gray-100" : "hover:bg-gray-50"}`}>
+          <button onClick={() => setViewMode("teams")} className={`p-1.5 rounded-md transition-all ${viewMode === "teams" ? "bg-gray-100" : "hover:bg-gray-50"}`} title="팀 카드">
+            <svg className="w-4 h-4 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" /></svg>
+          </button>
+          <button onClick={() => setViewMode("grid")} className={`p-1.5 rounded-md transition-all ${viewMode === "grid" ? "bg-gray-100" : "hover:bg-gray-50"}`} title="카드">
             <svg className="w-4 h-4 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" /></svg>
           </button>
-          <button onClick={() => setViewMode("table")} className={`p-1.5 rounded-md transition-all ${viewMode === "table" ? "bg-gray-100" : "hover:bg-gray-50"}`}>
+          <button onClick={() => setViewMode("table")} className={`p-1.5 rounded-md transition-all ${viewMode === "table" ? "bg-gray-100" : "hover:bg-gray-50"}`} title="테이블">
             <svg className="w-4 h-4 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z" /></svg>
           </button>
         </div>
@@ -406,6 +410,126 @@ export default function SchoolsPage() {
           {message && <span className="text-sm text-green-300">{message}</span>}
         </div>
       )}
+
+      {/* Teams View - each team as a card */}
+      {viewMode === "teams" && (() => {
+        // Only show actual teams (not 미배정 or 개별)
+        const teamGroups = groupedByTeam.filter(g => g.team && g.team !== "미배정" && !g.team.includes("개별"));
+        return (
+          <div className="space-y-3">
+            {teamGroups.map(({ team: teamName, schools: teamSchools }) => {
+              const tc = teamColorMap[teamName || ""] || { bg: "bg-gray-50", text: "text-gray-600", dot: "bg-gray-400" };
+              const isOpen = expandedTeams.has(teamName!);
+              const teamTeacherCount = teamSchools.reduce((s, sc) => s + sc.teachers.length, 0);
+              const upgradedCount = teamSchools.reduce((s, sc) => s + sc.teachers.filter(t => t.status === "upgraded" || t.status === "individual").length, 0);
+              const allConfirmed = teamTeacherCount > 0 && upgradedCount === teamTeacherCount;
+              const rate = teamTeacherCount > 0 ? Math.round((upgradedCount / teamTeacherCount) * 100) : 0;
+              const firstDate = teamSchools.reduce((min, sc) => {
+                const d = sc.teachers.length > 0 ? Math.min(...sc.teachers.map(t => new Date(t.createdAt).getTime())) : Infinity;
+                return Math.min(min, d);
+              }, Infinity);
+
+              return (
+                <div key={teamName} className={`bg-white rounded-xl border transition-all ${isOpen ? "ring-2 ring-blue-200 shadow-md" : "hover:shadow-md"}`}>
+                  {/* Team card header */}
+                  <div className="p-5 cursor-pointer flex items-center gap-4" onClick={() => {
+                    setExpandedTeams(prev => {
+                      const next = new Set(prev);
+                      if (next.has(teamName!)) next.delete(teamName!); else next.add(teamName!);
+                      return next;
+                    });
+                  }}>
+                    <div className={`w-3 h-3 rounded-full ${tc.dot}`} />
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-lg font-bold text-gray-900">{teamName}</h3>
+                      <p className="text-sm text-gray-400 mt-0.5">
+                        {teamSchools.length}개교
+                        {firstDate !== Infinity && ` · ${new Date(firstDate).toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" })}`}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {/* Progress */}
+                      <div className="text-right mr-2">
+                        <span className="text-sm font-semibold text-gray-700">{upgradedCount}/{teamTeacherCount}명</span>
+                        <div className="h-1.5 w-20 rounded-full bg-gray-100 overflow-hidden mt-1">
+                          <div className="h-full bg-emerald-400 rounded-full transition-all" style={{ width: `${rate}%` }} />
+                        </div>
+                      </div>
+                      {allConfirmed ? (
+                        <span className="text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1.5 rounded-lg">팀 완성</span>
+                      ) : (
+                        <span className="text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 px-3 py-1.5 rounded-lg">진행중</span>
+                      )}
+                      <svg className={`w-5 h-5 text-gray-400 transition-transform ${isOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </div>
+                  </div>
+
+                  {/* Expanded: school list */}
+                  {isOpen && (
+                    <div className="border-t">
+                      <div className="divide-y">
+                        {teamSchools.map(school => {
+                          const teacher = school.teachers[0];
+                          const upgC = school.teachers.filter(t => t.status === "upgraded" || t.status === "individual").length;
+                          return (
+                            <div key={school.id} className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50/80 transition-colors">
+                              <span className={`w-2 h-2 rounded-full shrink-0 ${upgC === school.teachers.length && school.teachers.length > 0 ? "bg-emerald-400" : school.teachers.length > 0 ? "bg-amber-400" : "bg-gray-300"}`} />
+                              <div className="flex-1 min-w-0">
+                                <span className="text-sm font-medium text-gray-900">{school.name}</span>
+                                {school.nameEn && <span className="text-xs text-gray-400 ml-2">{school.nameEn}</span>}
+                              </div>
+                              {teacher && (
+                                <span className="text-xs text-gray-500">{teacher.name}</span>
+                              )}
+                              <span className="text-xs text-gray-400 font-mono">{school.teachers.length}명</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {/* Team actions */}
+                      <div className="flex items-center gap-2 px-5 py-3 bg-gray-50/80 border-t">
+                        <button onClick={() => {
+                          const emails = teamSchools.flatMap(s => s.teachers.map(t => t.email));
+                          navigator.clipboard.writeText(emails.join("\n"));
+                          setCopied(teamName!);
+                          setTimeout(() => setCopied(null), 2000);
+                        }} className="text-xs text-gray-600 hover:text-blue-600 bg-white border rounded-lg px-3 py-1.5 transition-colors">
+                          {copied === teamName ? "복사됨!" : "이메일 복사"}
+                        </button>
+                        <button onClick={() => {
+                          const contacts = teamSchools.map(s => {
+                            const t = s.teachers[0];
+                            return t ? `${s.name}\t${t.name}\t${t.email}` : s.name;
+                          });
+                          navigator.clipboard.writeText(contacts.join("\n"));
+                          setCopied(teamName + "-contacts");
+                          setTimeout(() => setCopied(null), 2000);
+                        }} className="text-xs text-gray-600 hover:text-blue-600 bg-white border rounded-lg px-3 py-1.5 transition-colors">
+                          {copied === teamName + "-contacts" ? "복사됨!" : "연락처 복사"}
+                        </button>
+                        <button onClick={() => {
+                          const all = teamSchools.map(s => {
+                            const teacherList = s.teachers.map(t => `${t.name}\t${t.email}\t${t.status}`).join("\n");
+                            return `${s.name} (${s.code})\n${teacherList}`;
+                          });
+                          navigator.clipboard.writeText(all.join("\n\n"));
+                          setCopied(teamName + "-all");
+                          setTimeout(() => setCopied(null), 2000);
+                        }} className="text-xs text-gray-600 hover:text-blue-600 bg-white border rounded-lg px-3 py-1.5 transition-colors">
+                          {copied === teamName + "-all" ? "복사됨!" : "전체 복사"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {teamGroups.length === 0 && <p className="text-center text-gray-400 py-16 text-sm">팀 배정된 학교가 없습니다</p>}
+          </div>
+        );
+      })()}
 
       {/* Grid View */}
       {viewMode === "grid" && groupedByTeam.map(({ team: groupTeam, schools: groupSchools }) => {
