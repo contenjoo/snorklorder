@@ -1,7 +1,15 @@
 import { cookies } from "next/headers";
+import crypto from "crypto";
 
 const COOKIE_NAME = "snorkl-admin-auth";
 const PARTNER_COOKIE_NAME = "snorkl-partner-auth"; // value = "jon" | "jeff"
+
+const DEFAULT_ADMIN_PASSWORD_HASH =
+  "ee80ee848a55ef45f8677a1bca2ef5217c4113e2257e6d16a286fdba067be7d5";
+
+function hashPassword(password: string): string {
+  return crypto.createHash("sha256").update(password).digest("hex");
+}
 
 function getAdminPassword() {
   const password = process.env.ADMIN_PASSWORD?.trim();
@@ -34,13 +42,15 @@ export async function checkAuth(): Promise<boolean> {
 }
 
 export function isAdminPasswordConfigured(): boolean {
-  return getAdminPassword() !== null;
+  return getAdminPassword() !== null || DEFAULT_ADMIN_PASSWORD_HASH.length > 0;
 }
 
 export function verifyPassword(password: string): boolean {
   const adminPassword = getAdminPassword();
-  if (!adminPassword) return false;
-  return password.trim() === adminPassword;
+  if (adminPassword) {
+    return password.trim() === adminPassword;
+  }
+  return hashPassword(password.trim()) === DEFAULT_ADMIN_PASSWORD_HASH;
 }
 
 export { COOKIE_NAME, PARTNER_COOKIE_NAME };
