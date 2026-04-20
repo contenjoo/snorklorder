@@ -72,6 +72,7 @@ export async function POST(req: NextRequest) {
       .insert(accountRequests)
       .values({
         channel: isAuthenticated ? data.channel || "company" : "company",
+        applicantType: isAuthenticated ? (data.applicantType === "individual" ? "individual" : "school") : "school",
         type: isAuthenticated ? data.type || "upgrade" : "upgrade",
         schoolName: normalizedSchoolName,
         schoolNameEn: data.schoolNameEn || null,
@@ -94,7 +95,7 @@ export async function POST(req: NextRequest) {
 
   if (action === "update" && id) {
     const updates: Record<string, unknown> = { updatedAt: new Date() };
-    const fields = ["channel", "type", "schoolName", "schoolNameEn", "emails", "accountType", "quantity", "oldEmail",
+    const fields = ["channel", "applicantType", "type", "schoolName", "schoolNameEn", "emails", "accountType", "quantity", "oldEmail",
       "fromType", "extensionDate", "notes", "status", "invoiceNumber", "invoiceAmount",
       "invoiceDueDate", "paymentLink", "paymentDate", "paymentMethod"];
     for (const f of fields) {

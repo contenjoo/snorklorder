@@ -15,6 +15,7 @@ import {
 interface AccountRequest {
   id: number;
   channel: string;
+  applicantType: string;
   type: string;
   schoolName: string;
   schoolNameEn: string | null;
@@ -46,6 +47,11 @@ const TYPES = [
 const CHANNELS = [
   { value: "company", label: "회사몰", icon: "🏢" },
   { value: "school_store", label: "학교장터", icon: "🏫" },
+];
+
+const APPLICANT_TYPES = [
+  { value: "school", label: "학교", icon: "🏫" },
+  { value: "individual", label: "개인", icon: "👤" },
 ];
 
 const STATUSES = [
@@ -92,6 +98,7 @@ export default function AccountsPage() {
   const [requests, setRequests] = useState<AccountRequest[]>([]);
   const [filter, setFilter] = useState("all");
   const [filterChannel, setFilterChannel] = useState("all");
+  const [filterApplicant, setFilterApplicant] = useState("all");
   const [filterType, setFilterType] = useState("all");
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
@@ -102,6 +109,7 @@ export default function AccountsPage() {
 
   // Form
   const [fChannel, setFChannel] = useState("company");
+  const [fApplicant, setFApplicant] = useState("school");
   const [fType, setFType] = useState("upgrade");
   const [fSchool, setFSchool] = useState("");
   const [fSchoolEn, setFSchoolEn] = useState("");
@@ -147,7 +155,7 @@ export default function AccountsPage() {
   }
 
   function resetForm() {
-    setFChannel("company"); setFType("upgrade"); setFSchool(""); setFSchoolEn(""); setFEmails(""); setFAccType("teacher");
+    setFChannel("company"); setFApplicant("school"); setFType("upgrade"); setFSchool(""); setFSchoolEn(""); setFEmails(""); setFAccType("teacher");
     setFQty(1); setFOldEmail(""); setFFromType("teacher"); setFExtDate("");
     setFNotes(""); setFInvNum(""); setFInvAmt(""); setFInvDue("");
     setFPayLink(""); setFPayDate(""); setFPayMethod(""); setEditing(null);
@@ -155,7 +163,7 @@ export default function AccountsPage() {
 
   function openEdit(r: AccountRequest) {
     setEditing(r);
-    setFChannel(r.channel || "company"); setFType(r.type); setFSchool(r.schoolName); setFSchoolEn(r.schoolNameEn || ""); setFEmails(r.emails);
+    setFChannel(r.channel || "company"); setFApplicant(r.applicantType || "school"); setFType(r.type); setFSchool(r.schoolName); setFSchoolEn(r.schoolNameEn || ""); setFEmails(r.emails);
     setFAccType(r.accountType || "teacher"); setFQty(r.quantity || 1);
     setFOldEmail(r.oldEmail || ""); setFFromType(r.fromType || "teacher");
     setFExtDate(r.extensionDate || ""); setFNotes(r.notes || "");
@@ -167,7 +175,7 @@ export default function AccountsPage() {
 
   async function save() {
     const data = {
-      channel: fChannel, type: fType, schoolName: fSchool, schoolNameEn: fSchoolEn || null, emails: fEmails, accountType: fAccType,
+      channel: fChannel, applicantType: fApplicant, type: fType, schoolName: fSchool, schoolNameEn: fSchoolEn || null, emails: fEmails, accountType: fAccType,
       quantity: fQty, oldEmail: fOldEmail || null, fromType: fFromType || null,
       extensionDate: fExtDate || null, notes: fNotes || null,
       invoiceNumber: fInvNum || null, invoiceAmount: fInvAmt || null,
@@ -254,6 +262,7 @@ export default function AccountsPage() {
   const filtered = requests.filter((r) => {
     if (filter !== "all" && r.status !== filter) return false;
     if (filterChannel !== "all" && (r.channel || "company") !== filterChannel) return false;
+    if (filterApplicant !== "all" && (r.applicantType || "school") !== filterApplicant) return false;
     if (filterType !== "all" && r.type !== filterType) return false;
     if (search) {
       const q = search.toLowerCase();
@@ -266,38 +275,58 @@ export default function AccountsPage() {
   const emailCount = requests.reduce((s, r) => s + r.emails.split(/[,;\n]+/).filter((e) => e.trim() && e.includes("@")).length, 0);
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 pb-20 md:pb-0">
       {/* Compact header */}
-      <div className="flex items-center justify-between gap-2 flex-wrap">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
         <div className="flex items-center gap-3">
-          <h2 className="text-lg font-bold">계정요청</h2>
-          <span className="text-xs text-gray-400">{requests.length}건 · {emailCount}명</span>
+          <h1 className="text-lg font-bold text-gray-900">정산</h1>
+          <div className="flex items-center gap-2 text-xs text-gray-500">
+            <span><strong className="text-gray-900 text-sm">{requests.length}</strong> 건</span>
+            <span className="text-gray-200">|</span>
+            <span><strong className="text-gray-900 text-sm">{emailCount}</strong> 명</span>
+          </div>
         </div>
-        <div className="flex items-center gap-1.5">
-          <Input placeholder="검색..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-36 h-7 text-xs" />
-          <Select value={filterChannel} onValueChange={(v) => setFilterChannel(v ?? "all")}>
-            <SelectTrigger className="w-24 h-7 text-[11px]"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">구매처</SelectItem>
-              {CHANNELS.map((c) => <SelectItem key={c.value} value={c.value}>{c.icon} {c.label}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <Select value={filterType} onValueChange={(v) => setFilterType(v ?? "all")}>
-            <SelectTrigger className="w-24 h-7 text-[11px]"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">유형</SelectItem>
-              {TYPES.map((t) => <SelectItem key={t.value} value={t.value}>{t.icon} {t.label}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) resetForm(); }}>
-            <DialogTrigger className="inline-flex items-center justify-center rounded-md text-xs font-semibold bg-blue-600 text-white h-7 px-3 hover:bg-blue-700 cursor-pointer">
-              + 새 요청
-            </DialogTrigger>
+        <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:ml-auto w-full sm:w-auto">
+          <Input placeholder="검색..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full sm:w-36 h-7 text-xs" />
+          <div className="flex items-center gap-1.5">
+            <Select value={filterApplicant} onValueChange={(v) => setFilterApplicant(v ?? "all")}>
+              <SelectTrigger className="w-24 h-7 text-[11px]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">신청주체</SelectItem>
+                {APPLICANT_TYPES.map((a) => <SelectItem key={a.value} value={a.value}>{a.icon} {a.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={filterChannel} onValueChange={(v) => setFilterChannel(v ?? "all")}>
+              <SelectTrigger className="w-24 h-7 text-[11px]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">구매처</SelectItem>
+                {CHANNELS.map((c) => <SelectItem key={c.value} value={c.value}>{c.icon} {c.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={filterType} onValueChange={(v) => setFilterType(v ?? "all")}>
+              <SelectTrigger className="w-24 h-7 text-[11px]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">유형</SelectItem>
+                {TYPES.map((t) => <SelectItem key={t.value} value={t.value}>{t.icon} {t.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) resetForm(); }}>
+              <DialogTrigger className="inline-flex items-center justify-center rounded-md text-xs font-semibold bg-gray-900 text-white h-7 px-3 hover:bg-gray-800 cursor-pointer whitespace-nowrap">
+                + 새 요청
+              </DialogTrigger>
             <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>{editing ? "요청 수정" : "새 요청"}</DialogTitle>
               </DialogHeader>
               <div className="space-y-3">
+                <div className="flex gap-1">
+                  {APPLICANT_TYPES.map((a) => (
+                    <button key={a.value} onClick={() => setFApplicant(a.value)}
+                      className={`flex-1 py-2 rounded-lg text-xs text-center transition-colors ${fApplicant === a.value ? "bg-purple-100 ring-1 ring-purple-400 font-semibold" : "bg-gray-50 hover:bg-gray-100"}`}>
+                      {a.icon} {a.label}
+                    </button>
+                  ))}
+                </div>
                 <div className="flex gap-1">
                   {CHANNELS.map((c) => (
                     <button key={c.value} onClick={() => setFChannel(c.value)}
@@ -315,12 +344,12 @@ export default function AccountsPage() {
                   ))}
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs">학교명 *</Label>
-                  <Input value={fSchool} onChange={(e) => setFSchool(e.target.value)} onBlur={() => !fSchoolEn && translateSchool(fSchool)} placeholder="한국어 학교명" className="h-8 text-sm" />
+                  <Label className="text-xs">{fApplicant === "individual" ? "이름 *" : "학교명 *"}</Label>
+                  <Input value={fSchool} onChange={(e) => setFSchool(e.target.value)} onBlur={() => fApplicant !== "individual" && !fSchoolEn && translateSchool(fSchool)} placeholder={fApplicant === "individual" ? "이름" : "한국어 학교명"} className="h-8 text-sm" />
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs">영문 학교명 {translating && <span className="text-blue-500 animate-pulse">번역 중...</span>}</Label>
-                  <Input value={fSchoolEn} onChange={(e) => setFSchoolEn(e.target.value)} placeholder="English School Name (자동 번역)" className="h-8 text-sm" />
+                  <Label className="text-xs">{fApplicant === "individual" ? "영문 이름 (선택)" : "영문 학교명"} {translating && <span className="text-blue-500 animate-pulse">번역 중...</span>}</Label>
+                  <Input value={fSchoolEn} onChange={(e) => setFSchoolEn(e.target.value)} placeholder={fApplicant === "individual" ? "English Name" : "English School Name (자동 번역)"} className="h-8 text-sm" />
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">이메일 *</Label>
@@ -387,7 +416,8 @@ export default function AccountsPage() {
                 <Button onClick={save} className="w-full h-9">{editing ? "수정" : "생성"}</Button>
               </div>
             </DialogContent>
-          </Dialog>
+            </Dialog>
+          </div>
         </div>
       </div>
 
@@ -405,10 +435,10 @@ export default function AccountsPage() {
         ))}
       </div>
 
-      {/* Request list - compact table style */}
-      <div className="bg-white rounded-lg border shadow-sm overflow-hidden">
-        {/* Header */}
-        <div className="grid grid-cols-[auto_1fr_auto_auto_auto] gap-2 px-3 py-1.5 bg-gray-50 border-b text-[10px] text-gray-400 font-medium uppercase tracking-wider">
+      {/* Request list */}
+      <div className="bg-white rounded-xl border overflow-hidden">
+        {/* Desktop header */}
+        <div className="hidden md:grid grid-cols-[auto_1fr_auto_auto_auto] gap-2 px-3 py-1.5 bg-gray-50 border-b text-[10px] text-gray-400 font-medium uppercase tracking-wider">
           <span className="w-5"></span>
           <span>학교 / 이메일</span>
           <span className="w-20 text-center">상태</span>
@@ -418,71 +448,76 @@ export default function AccountsPage() {
 
         {filtered.map((r) => {
           const typeInfo = TYPES.find((t) => t.value === r.type);
-          const channelInfo = CHANNELS.find((c) => c.value === (r.channel || "company"));
           const statusInfo = STATUSES.find((s) => s.value === r.status);
           const emails = r.emails.split(/[,;\n]+/).map((e) => e.trim()).filter(Boolean);
 
           return (
-            <div key={r.id} className="grid grid-cols-[auto_1fr_auto_auto_auto] gap-2 px-3 py-2 border-b last:border-b-0 hover:bg-gray-50/50 items-center">
-              {/* Type icon */}
-              <span className="text-sm w-5 text-center" title={typeInfo?.label}>{typeInfo?.icon}</span>
-
-              {/* School + emails */}
-              <div className="min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <span className="font-semibold text-sm text-gray-900 truncate">{r.schoolName}</span>
-                  {r.schoolNameEn && <span className="text-[10px] text-gray-400 truncate">({r.schoolNameEn})</span>}
-                  {(r.channel || "company") === "school_store" && (
-                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-medium whitespace-nowrap">학교장터</span>
-                  )}
-                  <span className="text-[10px] text-gray-400">{emails.length > 1 ? `${emails.length}명` : ""}</span>
+            <div key={r.id} className="border-b last:border-b-0 hover:bg-gray-50/50">
+              {/* Desktop row */}
+              <div className="hidden md:grid grid-cols-[auto_1fr_auto_auto_auto] gap-2 px-3 py-2 items-center">
+                <span className="text-sm w-5 text-center" title={typeInfo?.label}>{typeInfo?.icon}</span>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-medium text-sm text-gray-900 truncate">{r.schoolName}</span>
+                    {r.schoolNameEn && <span className="text-[10px] text-gray-400 truncate hidden lg:inline">({r.schoolNameEn})</span>}
+                    {(r.applicantType || "school") === "individual" && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-purple-50 text-purple-700 font-medium">개인</span>
+                    )}
+                    {(r.channel || "company") === "school_store" && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-medium">학교장터</span>
+                    )}
+                    <span className="text-[10px] text-gray-400">{emails.length > 1 ? `${emails.length}명` : ""}</span>
+                  </div>
+                  <div className="text-[11px] font-mono text-gray-500 truncate">
+                    {emails.length <= 2 ? emails.join(", ") : `${emails[0]} +${emails.length - 1}`}
+                  </div>
                 </div>
-                <div className="text-[11px] font-mono text-gray-500 truncate">
+                <div className="w-20">
+                  <select value={r.status} onChange={(e) => updateStatus(r.id, e.target.value)}
+                    className={`w-full text-[10px] font-medium rounded-full px-2 py-0.5 border-0 cursor-pointer ${statusInfo?.color || "bg-gray-100"}`}>
+                    {STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+                  </select>
+                </div>
+                <div className="w-24 text-center">
+                  {r.invoiceAmount ? (
+                    <div className="text-[11px]">
+                      <span className="font-semibold text-gray-700">{r.invoiceAmount}</span>
+                      {r.paymentDate && <span className="text-emerald-600 ml-1">✓</span>}
+                    </div>
+                  ) : <span className="text-[10px] text-gray-300">—</span>}
+                  {r.invoiceNumber && <div className="text-[9px] text-gray-400">{r.invoiceNumber}</div>}
+                </div>
+                <div className="w-28 flex items-center justify-end gap-0.5">
+                  <button onClick={() => setEmailPreview(r)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-blue-50 text-gray-400 hover:text-blue-600" title="미리보기">📧</button>
+                  <button onClick={() => openGmail(r)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-gray-100 text-gray-400 hover:text-gray-600" title="Gmail">📨</button>
+                  <button onClick={() => copyEmail(r)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-gray-100 text-gray-400 hover:text-gray-600" title="복사">📋</button>
+                  <button onClick={() => openEdit(r)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-gray-100 text-gray-400 hover:text-gray-600" title="수정">✎</button>
+                  <button onClick={() => deleteRequest(r.id)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-red-50 text-gray-300 hover:text-red-500" title="삭제">✕</button>
+                </div>
+              </div>
+
+              {/* Mobile row */}
+              <div className="md:hidden px-3 py-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm">{typeInfo?.icon}</span>
+                  <span className="font-medium text-sm text-gray-900 truncate flex-1">
+                    {(r.applicantType || "school") === "individual" && <span className="text-[9px] px-1 py-0.5 rounded bg-purple-50 text-purple-700 font-medium mr-1">개인</span>}
+                    {r.schoolName}
+                  </span>
+                  <select value={r.status} onChange={(e) => updateStatus(r.id, e.target.value)}
+                    className={`text-[10px] font-medium rounded-full px-2 py-0.5 border-0 ${statusInfo?.color || "bg-gray-100"}`}>
+                    {STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+                  </select>
+                </div>
+                <div className="text-[11px] font-mono text-gray-500 truncate mt-0.5 ml-6">
                   {emails.length <= 2 ? emails.join(", ") : `${emails[0]} +${emails.length - 1}`}
                 </div>
-                {r.notes && !r.notes.startsWith("snorkl-manager") && (
-                  <div className="text-[10px] text-gray-400 truncate">{r.notes}</div>
-                )}
-              </div>
-
-              {/* Status - clickable dropdown */}
-              <div className="w-20">
-                <select
-                  value={r.status}
-                  onChange={(e) => updateStatus(r.id, e.target.value)}
-                  className={`w-full text-[10px] font-medium rounded-full px-2 py-0.5 border-0 cursor-pointer ${statusInfo?.color || "bg-gray-100"}`}
-                >
-                  {STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-                </select>
-              </div>
-
-              {/* Payment info */}
-              <div className="w-24 text-center">
-                {r.invoiceAmount ? (
-                  <div className="text-[11px]">
-                    <span className="font-semibold text-gray-700">{r.invoiceAmount}</span>
-                    {r.paymentDate && <span className="text-green-600 ml-1">✓</span>}
-                  </div>
-                ) : (
-                  <span className="text-[10px] text-gray-300">—</span>
-                )}
-                {r.invoiceNumber && (
-                  <div className="text-[9px] text-gray-400">{r.invoiceNumber}</div>
-                )}
-              </div>
-
-              {/* Actions */}
-              <div className="w-28 flex items-center justify-end gap-0.5">
-                <button onClick={() => setEmailPreview(r)} title="이메일 미리보기"
-                  className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-blue-50 text-gray-400 hover:text-blue-600">📧</button>
-                <button onClick={() => openGmail(r)} title="Gmail에서 보내기"
-                  className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-gray-100 text-gray-400 hover:text-gray-600">📨</button>
-                <button onClick={() => copyEmail(r)} title="이메일 복사"
-                  className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-gray-100 text-gray-400 hover:text-gray-600">📋</button>
-                <button onClick={() => openEdit(r)} title="수정"
-                  className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-gray-100 text-gray-400 hover:text-gray-600">✎</button>
-                <button onClick={() => deleteRequest(r.id)} title="삭제"
-                  className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-red-50 text-gray-300 hover:text-red-500">✕</button>
+                <div className="flex items-center gap-1.5 mt-1.5 ml-6">
+                  <button onClick={() => setEmailPreview(r)} className="text-[11px] text-gray-400 hover:text-blue-600 px-2 py-1 rounded bg-gray-50 min-h-[28px]">미리보기</button>
+                  <button onClick={() => copyEmail(r)} className="text-[11px] text-gray-400 hover:text-blue-600 px-2 py-1 rounded bg-gray-50 min-h-[28px]">복사</button>
+                  <button onClick={() => openEdit(r)} className="text-[11px] text-gray-400 hover:text-blue-600 px-2 py-1 rounded bg-gray-50 min-h-[28px]">수정</button>
+                  {r.invoiceAmount && <span className="text-[10px] font-semibold text-gray-700 ml-auto">{r.invoiceAmount}{r.paymentDate && " ✓"}</span>}
+                </div>
               </div>
             </div>
           );

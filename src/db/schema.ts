@@ -42,6 +42,7 @@ export const schoolRequests = pgTable("school_requests", {
 export const accountRequests = pgTable("account_requests", {
   id: serial("id").primaryKey(),
   channel: text("channel").notNull().default("company"), // company | school_store
+  applicantType: text("applicant_type").notNull().default("school"), // school | individual
   type: text("type").notNull().default("upgrade"), // upgrade | email_change | type_change | extension
   schoolName: text("school_name").notNull(),
   schoolNameEn: text("school_name_en"),
