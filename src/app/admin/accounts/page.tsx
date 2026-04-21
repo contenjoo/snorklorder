@@ -110,6 +110,8 @@ export default function AccountsPage() {
   // Form
   const [fChannel, setFChannel] = useState("company");
   const [fApplicant, setFApplicant] = useState("school");
+  const [fBulk, setFBulk] = useState(false);
+  const [fBulkText, setFBulkText] = useState("");
   const [fType, setFType] = useState("upgrade");
   const [fSchool, setFSchool] = useState("");
   const [fSchoolEn, setFSchoolEn] = useState("");
@@ -155,7 +157,7 @@ export default function AccountsPage() {
   }
 
   function resetForm() {
-    setFChannel("company"); setFApplicant("school"); setFType("upgrade"); setFSchool(""); setFSchoolEn(""); setFEmails(""); setFAccType("teacher");
+    setFChannel("company"); setFApplicant("school"); setFBulk(false); setFBulkText(""); setFType("upgrade"); setFSchool(""); setFSchoolEn(""); setFEmails(""); setFAccType("teacher");
     setFQty(1); setFOldEmail(""); setFFromType("teacher"); setFExtDate("");
     setFNotes(""); setFInvNum(""); setFInvAmt(""); setFInvDue("");
     setFPayLink(""); setFPayDate(""); setFPayMethod(""); setEditing(null);
@@ -173,7 +175,50 @@ export default function AccountsPage() {
     setOpen(true);
   }
 
+  // 일괄 입력 파싱: 한 줄당 "이름, email" 또는 "email" 허용. 쉼표/탭/공백 구분 허용.
+  function parseBulk(text: string): { name: string; email: string }[] {
+    const out: { name: string; email: string }[] = [];
+    for (const rawLine of text.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      const emailMatch = line.match(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/);
+      if (!emailMatch) continue;
+      const email = emailMatch[0].toLowerCase();
+      const rest = line.replace(email, "").replace(/[,;\t]+/g, " ").trim();
+      const name = rest || email.split("@")[0];
+      out.push({ name, email });
+    }
+    return out;
+  }
+
   async function save() {
+    // 일괄 생성 (개인 모드 + 신규 생성일 때만)
+    if (!editing && fBulk) {
+      const entries = parseBulk(fBulkText);
+      if (entries.length === 0) {
+        setSendMsg("유효한 이메일이 없습니다");
+        return;
+      }
+      let ok = 0, fail = 0;
+      for (const e of entries) {
+        const data = {
+          channel: fChannel, applicantType: "individual", type: fType,
+          schoolName: e.name, schoolNameEn: null, emails: e.email,
+          accountType: fAccType, quantity: 1,
+          oldEmail: null, fromType: null, extensionDate: fExtDate || null,
+          notes: fNotes || null,
+        };
+        const res = await fetch("/api/account-requests", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "create", ...data }),
+        });
+        if (res.ok) ok++; else fail++;
+      }
+      setSendMsg(fail === 0 ? `✓ ${ok}건 생성 완료` : `${ok}건 생성, ${fail}건 실패`);
+      resetForm(); setOpen(false); load();
+      return;
+    }
+
     const data = {
       channel: fChannel, applicantType: fApplicant, type: fType, schoolName: fSchool, schoolNameEn: fSchoolEn || null, emails: fEmails, accountType: fAccType,
       quantity: fQty, oldEmail: fOldEmail || null, fromType: fFromType || null,
@@ -321,12 +366,24 @@ export default function AccountsPage() {
               <div className="space-y-3">
                 <div className="flex gap-1">
                   {APPLICANT_TYPES.map((a) => (
-                    <button key={a.value} onClick={() => setFApplicant(a.value)}
+                    <button key={a.value} onClick={() => { setFApplicant(a.value); if (a.value !== "individual") setFBulk(false); }}
                       className={`flex-1 py-2 rounded-lg text-xs text-center transition-colors ${fApplicant === a.value ? "bg-purple-100 ring-1 ring-purple-400 font-semibold" : "bg-gray-50 hover:bg-gray-100"}`}>
                       {a.icon} {a.label}
                     </button>
                   ))}
                 </div>
+                {!editing && fApplicant === "individual" && (
+                  <div className="flex gap-1">
+                    <button onClick={() => setFBulk(false)}
+                      className={`flex-1 py-1.5 rounded-lg text-xs text-center transition-colors ${!fBulk ? "bg-indigo-100 ring-1 ring-indigo-400 font-semibold" : "bg-gray-50 hover:bg-gray-100"}`}>
+                      👤 한 명
+                    </button>
+                    <button onClick={() => setFBulk(true)}
+                      className={`flex-1 py-1.5 rounded-lg text-xs text-center transition-colors ${fBulk ? "bg-indigo-100 ring-1 ring-indigo-400 font-semibold" : "bg-gray-50 hover:bg-gray-100"}`}>
+                      👥 여러 명 일괄
+                    </button>
+                  </div>
+                )}
                 <div className="flex gap-1">
                   {CHANNELS.map((c) => (
                     <button key={c.value} onClick={() => setFChannel(c.value)}
@@ -343,19 +400,45 @@ export default function AccountsPage() {
                     </button>
                   ))}
                 </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">{fApplicant === "individual" ? "이름 *" : "학교명 *"}</Label>
-                  <Input value={fSchool} onChange={(e) => setFSchool(e.target.value)} onBlur={() => fApplicant !== "individual" && !fSchoolEn && translateSchool(fSchool)} placeholder={fApplicant === "individual" ? "이름" : "한국어 학교명"} className="h-8 text-sm" />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">{fApplicant === "individual" ? "영문 이름 (선택)" : "영문 학교명"} {translating && <span className="text-blue-500 animate-pulse">번역 중...</span>}</Label>
-                  <Input value={fSchoolEn} onChange={(e) => setFSchoolEn(e.target.value)} placeholder={fApplicant === "individual" ? "English Name" : "English School Name (자동 번역)"} className="h-8 text-sm" />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">이메일 *</Label>
-                  <Textarea value={fEmails} onChange={(e) => setFEmails(e.target.value)} placeholder="이메일 (여러 개는 쉼표/줄바꿈)" rows={2} className="text-sm" />
-                </div>
-                {fType === "upgrade" && (
+                {fBulk ? (
+                  <div className="space-y-1">
+                    <Label className="text-xs">이름 + 이메일 목록 *</Label>
+                    <Textarea value={fBulkText} onChange={(e) => setFBulkText(e.target.value)}
+                      placeholder={"한 줄에 한 명씩:\n홍길동, gil@example.com\n김철수 chul@example.com\nsimple@example.com  (이름 생략 시 이메일 앞부분 사용)"}
+                      rows={8} className="text-xs font-mono" />
+                    <div className="text-[10px] text-gray-400">
+                      {parseBulk(fBulkText).length}명 인식됨 — 저장 시 각각 별도 요청으로 생성됩니다
+                    </div>
+                    {fType === "upgrade" && (
+                      <div className="space-y-1">
+                        <Label className="text-xs">계정 타입 (전체 공통)</Label>
+                        <Select value={fAccType} onValueChange={(v) => setFAccType(v ?? "teacher")}>
+                          <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="teacher">Teacher</SelectItem>
+                            <SelectItem value="student">Student</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    <div className="space-y-1">
+                      <Label className="text-xs">{fApplicant === "individual" ? "이름 *" : "학교명 *"}</Label>
+                      <Input value={fSchool} onChange={(e) => setFSchool(e.target.value)} onBlur={() => fApplicant !== "individual" && !fSchoolEn && translateSchool(fSchool)} placeholder={fApplicant === "individual" ? "이름" : "한국어 학교명"} className="h-8 text-sm" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">{fApplicant === "individual" ? "영문 이름 (선택)" : "영문 학교명"} {translating && <span className="text-blue-500 animate-pulse">번역 중...</span>}</Label>
+                      <Input value={fSchoolEn} onChange={(e) => setFSchoolEn(e.target.value)} placeholder={fApplicant === "individual" ? "English Name" : "English School Name (자동 번역)"} className="h-8 text-sm" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">이메일 *</Label>
+                      <Textarea value={fEmails} onChange={(e) => setFEmails(e.target.value)} placeholder="이메일 (여러 개는 쉼표/줄바꿈)" rows={2} className="text-sm" />
+                    </div>
+                  </>
+                )}
+                {fType === "upgrade" && !fBulk && (
                   <div className="grid grid-cols-2 gap-2">
                     <div className="space-y-1">
                       <Label className="text-xs">계정 타입</Label>
