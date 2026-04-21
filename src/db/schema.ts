@@ -60,6 +60,8 @@ export const accountRequests = pgTable("account_requests", {
   paymentLink: text("payment_link"),
   paymentDate: text("payment_date"),
   paymentMethod: text("payment_method"),
+  confirmToken: text("confirm_token").unique(),
+  confirmedAt: timestamp("confirmed_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
