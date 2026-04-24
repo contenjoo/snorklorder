@@ -2,14 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
 
 interface SchoolRequest {
   id: number;
   name: string;
   nameEn: string | null;
   region: string | null;
+  domain: string | null;
   contactName: string;
   contactEmail: string;
   status: string;
@@ -18,10 +17,22 @@ interface SchoolRequest {
   reviewedAt: string | null;
 }
 
-const statusBadge: Record<string, string> = {
-  pending: "bg-yellow-100 text-yellow-800",
-  approved: "bg-green-100 text-green-800",
-  rejected: "bg-red-100 text-red-800",
+const statusLabel: Record<string, string> = {
+  pending: "대기",
+  approved: "승인",
+  rejected: "거절",
+};
+
+const statusColor: Record<string, string> = {
+  pending: "text-amber-600 bg-amber-50",
+  approved: "text-emerald-600 bg-emerald-50",
+  rejected: "text-red-600 bg-red-50",
+};
+
+const statusDot: Record<string, string> = {
+  pending: "bg-amber-400",
+  approved: "bg-emerald-400",
+  rejected: "bg-red-400",
 };
 
 export default function RequestsPage() {
@@ -72,52 +83,69 @@ export default function RequestsPage() {
   const processed = requests.filter((r) => r.status !== "pending");
 
   return (
-    <div className="space-y-6">
-      <h2 className="text-xl font-bold">
-        학교 등록 요청
-        {pending.length > 0 && (
-          <Badge className="ml-2 bg-yellow-100 text-yellow-800">{pending.length} 대기</Badge>
-        )}
-      </h2>
+    <div className="space-y-4 pb-20 md:pb-0">
+      {/* Header */}
+      <div className="flex items-center gap-3">
+        <h1 className="text-lg font-bold text-gray-900">요청</h1>
+        <div className="flex items-center gap-2 text-xs text-gray-500">
+          <span><strong className="text-gray-900 text-sm">{requests.length}</strong> 건</span>
+          {pending.length > 0 && (
+            <>
+              <span className="text-gray-200">|</span>
+              <span className="text-amber-600 font-medium">{pending.length} 대기</span>
+            </>
+          )}
+        </div>
+      </div>
 
+      {/* Status message */}
       {message && (
-        <div className={`p-3 rounded-lg text-sm ${message.includes("완료") ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>
+        <div className={`px-4 py-2.5 rounded-xl text-sm ${message.includes("완료") ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
           {message}
         </div>
       )}
 
-      {/* Pending */}
+      {/* Pending requests */}
       {pending.length > 0 && (
-        <div className="space-y-3">
-          <h3 className="text-sm font-semibold text-gray-500">승인 대기</h3>
-          {pending.map((r) => (
-            <Card key={r.id} className="border-yellow-200 bg-yellow-50/30">
-              <CardContent className="py-4 px-5">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <p className="font-semibold">{r.name}</p>
-                    {r.nameEn && <p className="text-xs text-gray-400">{r.nameEn}</p>}
-                    <div className="flex gap-3 mt-2 text-sm text-gray-600">
-                      <span>지역: {r.region || "-"}</span>
-                      <span>담당자: {r.contactName}</span>
-                      <span>{r.contactEmail}</span>
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-1 h-5 rounded-full bg-amber-400" />
+            <h2 className="text-sm font-bold text-gray-900">승인 대기</h2>
+            <span className="text-xs text-gray-400">{pending.length}건</span>
+          </div>
+          <div className="space-y-2">
+            {pending.map((r) => (
+              <div key={r.id} className="bg-white rounded-xl border border-amber-200/60 overflow-hidden">
+                <div className="px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
+                      <span className="font-medium text-gray-900">{r.name}</span>
+                      {r.nameEn && <span className="text-xs text-gray-400">{r.nameEn}</span>}
+                      {r.region && <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{r.region}</span>}
+                      {r.domain && <span className="text-[10px] font-mono text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">@{r.domain}</span>}
                     </div>
-                    <p className="text-xs text-gray-400 mt-1">
-                      {new Date(r.createdAt).toLocaleString("ko-KR")}
-                    </p>
+                    <div className="flex items-center gap-3 mt-1.5 text-xs text-gray-500 ml-4">
+                      <span>{r.contactName}</span>
+                      <span className="font-mono text-gray-400">{r.contactEmail}</span>
+                      <span className="text-gray-300">
+                        {new Date(r.createdAt).toLocaleDateString("ko-KR", { month: "short", day: "numeric" })}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex gap-2 shrink-0">
+                  <div className="flex items-center gap-2 shrink-0 ml-4 sm:ml-0">
                     <Button
                       size="sm"
                       onClick={() => handleAction(r.id, "approve")}
                       disabled={processing === r.id}
+                      className="h-7 text-xs bg-gray-900 hover:bg-gray-800"
                     >
-                      {processing === r.id ? "처리 중..." : "승인"}
+                      {processing === r.id ? "처리중..." : "승인"}
                     </Button>
                     <Button
                       size="sm"
                       variant="outline"
-                      className="text-red-600"
+                      className="h-7 text-xs text-red-500 hover:text-red-700 hover:bg-red-50"
                       onClick={() => handleAction(r.id, "reject")}
                       disabled={processing === r.id}
                     >
@@ -125,30 +153,37 @@ export default function RequestsPage() {
                     </Button>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
-          ))}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
       {pending.length === 0 && (
-        <p className="text-center text-gray-400 py-8">대기 중인 요청이 없습니다</p>
+        <div className="text-center py-12">
+          <p className="text-gray-400 text-sm">대기 중인 요청이 없습니다</p>
+        </div>
       )}
 
-      {/* Processed */}
+      {/* Processed requests */}
       {processed.length > 0 && (
-        <div className="space-y-3">
-          <h3 className="text-sm font-semibold text-gray-500">처리 완료 ({processed.length})</h3>
-          <div className="space-y-2">
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-1 h-5 rounded-full bg-gray-300" />
+            <h2 className="text-sm font-bold text-gray-900">처리 완료</h2>
+            <span className="text-xs text-gray-400">{processed.length}건</span>
+          </div>
+          <div className="bg-white rounded-xl border overflow-hidden divide-y divide-gray-50">
             {processed.map((r) => (
-              <div key={r.id} className="flex items-center justify-between px-4 py-2 bg-gray-50 rounded-lg">
-                <div className="flex items-center gap-3">
-                  <Badge className={statusBadge[r.status]}>{r.status}</Badge>
-                  <span className="text-sm font-medium">{r.name}</span>
-                  <span className="text-xs text-gray-400">{r.contactEmail}</span>
-                </div>
-                <span className="text-xs text-gray-400">
-                  {r.reviewedAt && new Date(r.reviewedAt).toLocaleDateString("ko-KR")}
+              <div key={r.id} className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5">
+                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusDot[r.status] || "bg-gray-300"}`} />
+                <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded shrink-0 ${statusColor[r.status] || "text-gray-500 bg-gray-50"}`}>
+                  {statusLabel[r.status] || r.status}
+                </span>
+                <span className="text-sm font-medium text-gray-900 truncate">{r.name}</span>
+                <span className="text-xs text-gray-400 truncate hidden sm:inline">{r.contactEmail}</span>
+                <span className="text-[10px] text-gray-300 ml-auto shrink-0">
+                  {r.reviewedAt && new Date(r.reviewedAt).toLocaleDateString("ko-KR", { month: "short", day: "numeric" })}
                 </span>
               </div>
             ))}

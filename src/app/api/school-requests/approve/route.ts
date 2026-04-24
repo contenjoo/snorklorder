@@ -73,6 +73,7 @@ export async function POST(req: NextRequest) {
         nameEn: request.nameEn,
         code,
         region: request.region,
+        domain: request.domain,
       })
       .returning();
 

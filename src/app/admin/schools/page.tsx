@@ -5,7 +5,6 @@ import { useSchoolData } from "@/lib/use-data";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
@@ -45,36 +44,44 @@ interface School {
 
 const REGIONS = ["서울", "부산", "대구", "인천", "광주", "대전", "울산", "세종", "경기", "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주"];
 
-const teamColorMap: Record<string, { bg: string; text: string; dot: string }> = {
-  "서울1팀": { bg: "bg-blue-50", text: "text-blue-700", dot: "bg-blue-500" },
-  "서울4팀": { bg: "bg-blue-50", text: "text-blue-600", dot: "bg-blue-400" },
-  "서울 (개별)": { bg: "bg-sky-50", text: "text-sky-700", dot: "bg-sky-500" },
-  "경기2팀": { bg: "bg-emerald-50", text: "text-emerald-700", dot: "bg-emerald-500" },
-  "경기3팀": { bg: "bg-green-50", text: "text-green-700", dot: "bg-green-500" },
-  "경기5팀": { bg: "bg-teal-50", text: "text-teal-700", dot: "bg-teal-500" },
-  "경기 (개별)": { bg: "bg-lime-50", text: "text-lime-700", dot: "bg-lime-500" },
-  "인천 (개별)": { bg: "bg-violet-50", text: "text-violet-700", dot: "bg-violet-500" },
-  "대전 (개별)": { bg: "bg-orange-50", text: "text-orange-700", dot: "bg-orange-500" },
-  "부산 (개별)": { bg: "bg-rose-50", text: "text-rose-700", dot: "bg-rose-500" },
-  "울산 (개별)": { bg: "bg-amber-50", text: "text-amber-700", dot: "bg-amber-500" },
-  "경남 (개별)": { bg: "bg-teal-50", text: "text-teal-700", dot: "bg-teal-500" },
+const teamColors: Record<string, string> = {
+  "서울1팀": "#3b82f6",
+  "서울4팀": "#6366f1",
+  "경기2팀": "#10b981",
+  "경기3팀": "#22c55e",
+  "경기5팀": "#14b8a6",
 };
 
-type ViewMode = "grid" | "table" | "teams";
+const statusLabel: Record<string, string> = {
+  upgraded: "확정",
+  individual: "개별",
+  sent: "발송",
+  pending: "대기",
+};
+
+const statusColor: Record<string, string> = {
+  upgraded: "text-emerald-600",
+  individual: "text-violet-600",
+  sent: "text-blue-500",
+  pending: "text-amber-500",
+};
+
+const statusDot: Record<string, string> = {
+  upgraded: "bg-emerald-400",
+  individual: "bg-violet-400",
+  sent: "bg-blue-400",
+  pending: "bg-amber-400",
+};
 
 export default function SchoolsPage() {
   const { schools, refresh: load } = useSchoolData();
-  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [expandedSchool, setExpandedSchool] = useState<number | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [filterRegion, setFilterRegion] = useState("all");
-  const [filterTeam, setFilterTeam] = useState("all");
-  const [filterStatus, setFilterStatus] = useState<"all" | "confirmed" | "pending">("all");
   const [search, setSearch] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState("");
-  const [viewMode, setViewMode] = useState<ViewMode>("teams");
-  const [sortBy, setSortBy] = useState<"name" | "teachers" | "recent">("teachers");
+  const [showSection, setShowSection] = useState<"all" | "teams" | "individual">("all");
 
   // Add/Edit school form
   const [open, setOpen] = useState(false);
@@ -88,154 +95,72 @@ export default function SchoolsPage() {
   const [ferror, setFerror] = useState("");
   const [translating, setTranslating] = useState(false);
 
+  // Computed data
+  const { teamGroups, individualSchools, totalTeachers, confirmedCount, pendingCount } = useMemo(() => {
+    const teamMap = new Map<string, School[]>();
+    const indivList: School[] = [];
+
+    for (const s of schools) {
+      if (search) {
+        const q = search.toLowerCase();
+        const match = s.name.toLowerCase().includes(q) || (s.nameEn || "").toLowerCase().includes(q) ||
+          s.code.toLowerCase().includes(q) || s.teachers.some(t => t.name.toLowerCase().includes(q) || t.email.toLowerCase().includes(q));
+        if (!match) continue;
+      }
+      if (s.team && !s.team.includes("개별") && s.team !== "미배정") {
+        if (!teamMap.has(s.team)) teamMap.set(s.team, []);
+        teamMap.get(s.team)!.push(s);
+      } else {
+        indivList.push(s);
+      }
+    }
+
+    const groups = Array.from(teamMap.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([name, ss]) => ({
+        name,
+        schools: ss.sort((a, b) => b.teachers.length - a.teachers.length),
+        teacherCount: ss.reduce((s, sc) => s + sc.teachers.length, 0),
+        confirmedCount: ss.reduce((s, sc) => s + sc.teachers.filter(t => t.status === "upgraded" || t.status === "individual").length, 0),
+      }));
+
+    const allTeachers = schools.flatMap(s => s.teachers);
+    return {
+      teamGroups: groups,
+      individualSchools: indivList.sort((a, b) => b.teachers.length - a.teachers.length),
+      totalTeachers: allTeachers.length,
+      confirmedCount: allTeachers.filter(t => t.status === "upgraded" || t.status === "individual").length,
+      pendingCount: allTeachers.filter(t => t.status === "pending").length,
+    };
+  }, [schools, search]);
+
+  const rate = totalTeachers > 0 ? Math.round((confirmedCount / totalTeachers) * 100) : 0;
+  const teamSchoolCount = teamGroups.reduce((s, g) => s + g.schools.length, 0);
+
+  // Functions
   function openEditDialog(school: School) {
     setEditingSchool(school);
-    setFname(school.name);
-    setFnameEn(school.nameEn || "");
-    setFcode(school.code);
-    setFdomain(school.domain || "");
-    setFregion(school.region || "");
-    setFteam(school.team || "");
-    setFerror("");
+    setFname(school.name); setFnameEn(school.nameEn || ""); setFcode(school.code);
+    setFdomain(school.domain || ""); setFregion(school.region || ""); setFteam(school.team || ""); setFerror("");
     setOpen(true);
   }
-
   function openAddDialog() {
     setEditingSchool(null);
     setFname(""); setFnameEn(""); setFcode(""); setFdomain(""); setFregion(""); setFteam(""); setFerror("");
     setOpen(true);
   }
-
   function closeDialog() {
-    setOpen(false);
-    setEditingSchool(null);
+    setOpen(false); setEditingSchool(null);
     setFname(""); setFnameEn(""); setFcode(""); setFdomain(""); setFregion(""); setFteam(""); setFerror("");
-  }
-
-  const filtered = useMemo(() => {
-    let result = schools.filter((s) => {
-      if (filterRegion !== "all" && s.region !== filterRegion) return false;
-      if (filterTeam !== "all") {
-        if (filterTeam === "none" && s.team) return false;
-        if (filterTeam !== "none" && s.team !== filterTeam) return false;
-      }
-      if (filterStatus === "confirmed") {
-        // Show only schools where at least one teacher is upgraded/sent/individual (not all pending)
-        const hasConfirmed = s.teachers.some((t) => t.status === "upgraded" || t.status === "sent" || t.status === "individual");
-        if (!hasConfirmed) return false;
-      } else if (filterStatus === "pending") {
-        const hasPending = s.teachers.some((t) => t.status === "pending");
-        if (!hasPending) return false;
-      }
-      if (search) {
-        const q = search.toLowerCase();
-        const matchSchool = s.name.toLowerCase().includes(q) || (s.nameEn || "").toLowerCase().includes(q) || s.code.toLowerCase().includes(q);
-        const matchTeacher = s.teachers.some((t) => t.name.toLowerCase().includes(q) || t.email.toLowerCase().includes(q));
-        if (!matchSchool && !matchTeacher) return false;
-      }
-      return true;
-    });
-    if (sortBy === "teachers") result.sort((a, b) => b.teachers.length - a.teachers.length);
-    else if (sortBy === "recent") result.sort((a, b) => {
-      const aMax = Math.max(...a.teachers.map(t => new Date(t.createdAt).getTime()), 0);
-      const bMax = Math.max(...b.teachers.map(t => new Date(t.createdAt).getTime()), 0);
-      return bMax - aMax;
-    });
-    else result.sort((a, b) => (a.nameEn || a.name).localeCompare(b.nameEn || b.name));
-    return result;
-  }, [schools, filterRegion, filterTeam, filterStatus, search, sortBy]);
-
-  const allTeams = useMemo(() => {
-    const t = new Set<string>();
-    schools.forEach((s) => { if (s.team) t.add(s.team); });
-    return Array.from(t).sort();
-  }, [schools]);
-
-  const totalTeachers = filtered.reduce((s, sc) => s + sc.teachers.length, 0);
-  const regionStats = useMemo(() => {
-    const map = new Map<string, number>();
-    filtered.forEach(s => {
-      const r = s.region || "기타";
-      map.set(r, (map.get(r) || 0) + 1);
-    });
-    return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
-  }, [filtered]);
-
-  const [groupByTeam, setGroupByTeam] = useState(true);
-  const [expandedTeams, setExpandedTeams] = useState<Set<string>>(new Set());
-
-  const groupedByTeam = useMemo(() => {
-    if (!groupByTeam) return [{ team: null, schools: filtered }];
-    const map = new Map<string, School[]>();
-    for (const s of filtered) {
-      const key = s.team || "미배정";
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(s);
-    }
-    // Sort teams: named teams first (alphabetical), 미배정 last
-    const entries = Array.from(map.entries()).sort((a, b) => {
-      if (a[0] === "미배정") return 1;
-      if (b[0] === "미배정") return -1;
-      return a[0].localeCompare(b[0]);
-    });
-    return entries.map(([team, schools]) => ({ team, schools }));
-  }, [filtered, groupByTeam]);
-
-  function toggleExpand(id: number) {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  }
-  function toggleTeacher(id: number) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  }
-  function toggleSchoolTeachers(school: School) {
-    const ids = school.teachers.map((t) => t.id);
-    const allSelected = ids.every((id) => selected.has(id));
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (allSelected) ids.forEach((id) => next.delete(id));
-      else ids.forEach((id) => next.add(id));
-      return next;
-    });
-  }
-  function copyCode(code: string) {
-    navigator.clipboard.writeText(code);
-    setCopied(code);
-    setTimeout(() => setCopied(null), 2000);
-  }
-  async function sendSelected() {
-    if (selected.size === 0) return;
-    setSending(true); setMessage("");
-    try {
-      const res = await fetch("/api/send-email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teacherIds: Array.from(selected) }) });
-      const data = await res.json();
-      if (data.success) { setMessage(`${selected.size}명 이메일 발송 완료`); setSelected(new Set()); load(); }
-      else setMessage("발송 실패: " + (data.error || ""));
-    } catch { setMessage("연결 오류"); } finally { setSending(false); }
-  }
-  async function markUpgraded() {
-    if (selected.size === 0) return;
-    await fetch("/api/teachers", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: Array.from(selected), status: "upgraded" }) });
-    setSelected(new Set()); load();
   }
   async function saveSchool() {
     setFerror("");
     if (!fname.trim() || !fcode.trim()) { setFerror("Name and code required"); return; }
     const payload = { name: fname.trim(), nameEn: fnameEn.trim() || null, code: fcode.trim().toUpperCase(), domain: fdomain.trim() || null, region: fregion || null, team: fteam.trim() || null };
-
     if (editingSchool) {
-      // Update existing
       const res = await fetch("/api/schools", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: editingSchool.id, ...payload }) });
       if (!res.ok) { const d = await res.json(); setFerror(d.error || "Failed"); return; }
     } else {
-      // Create new
       const res = await fetch("/api/schools", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       if (!res.ok) { const d = await res.json(); setFerror(d.error || "Failed"); return; }
     }
@@ -245,592 +170,378 @@ export default function SchoolsPage() {
     if (!korean.trim()) return;
     setTranslating(true);
     try {
-      const res = await fetch("/api/translate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: korean.trim() }),
-      });
+      const res = await fetch("/api/translate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: korean.trim() }) });
       const data = await res.json();
       if (data.translated) {
         setFnameEn(data.translated);
-        // Auto-generate code from English name
-        const code = data.translated
-          .replace(/\b(elementary|middle|high|school|university|college)\b/gi, "")
-          .trim()
-          .split(/\s+/)
-          .map((w: string) => w.toUpperCase())
-          .join("")
-          .replace(/[^A-Z]/g, "")
-          .slice(0, 12);
+        const code = data.translated.replace(/\b(elementary|middle|high|school|university|college)\b/gi, "").trim().split(/\s+/).map((w: string) => w.toUpperCase()).join("").replace(/[^A-Z]/g, "").slice(0, 12);
         if (code && !fcode) setFcode(code);
       }
     } catch {} finally { setTranslating(false); }
   }
-
   async function deleteSchool(id: number) {
     if (!confirm("이 학교와 소속 교사를 모두 삭제할까요?")) return;
     await fetch(`/api/schools?id=${id}`, { method: "DELETE" }); load();
   }
+  function toggleTeacher(id: number) {
+    setSelected(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  }
+  function copyEmails(emails: string[], label: string) {
+    navigator.clipboard.writeText(emails.join("\n"));
+    setCopied(label);
+    setTimeout(() => setCopied(null), 2000);
+  }
+  async function sendTeachers(ids: number[], label?: string) {
+    if (ids.length === 0) return;
+    setSending(true); setMessage("");
+    try {
+      const res = await fetch("/api/send-email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teacherIds: ids }) });
+      const data = await res.json();
+      if (data.success) {
+        setMessage(`${label ? label + " " : ""}${ids.length}명 이메일 발송 완료`);
+        setSelected(new Set());
+        load();
+      } else {
+        setMessage("발송 실패: " + (data.error || ""));
+      }
+    } catch { setMessage("연결 오류"); } finally { setSending(false); }
+  }
+  async function sendSelected() {
+    await sendTeachers(Array.from(selected));
+  }
+  // Pending = not yet upgraded/individual (includes sent so they can be re-sent)
+  const pendingIds = (ts: { id: number; status: string }[]) =>
+    ts.filter(t => t.status !== "upgraded" && t.status !== "individual").map(t => t.id);
+  async function confirmSend(label: string, ids: number[]) {
+    if (ids.length === 0) { setMessage(`${label}: 발송할 대기 교사 없음`); return; }
+    if (!confirm(`${label}: ${ids.length}명에게 Jon 발송 메일을 보낼까요?`)) return;
+    await sendTeachers(ids, label);
+  }
+  async function markUpgraded() {
+    if (selected.size === 0) return;
+    await fetch("/api/teachers", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: Array.from(selected), status: "upgraded" }) });
+    setSelected(new Set()); load();
+  }
 
-  // Compute stats for hero cards
-  const upgradedTeachers = filtered.reduce((s, sc) => s + sc.teachers.filter(t => t.status === "upgraded" || t.status === "individual").length, 0);
-  const pendingTeachers = filtered.reduce((s, sc) => s + sc.teachers.filter(t => t.status === "pending").length, 0);
-  const upgradeRate = totalTeachers > 0 ? Math.round((upgradedTeachers / totalTeachers) * 100) : 0;
-  const teamCount = allTeams.filter(t => !t.includes("개별")).length;
+  // Render school row (reused in teams and individual sections)
+  function renderSchoolRow(school: School, indent = false) {
+    const isOpen = expandedSchool === school.id;
+    const conf = school.teachers.filter(t => t.status === "upgraded" || t.status === "individual").length;
+    const pend = school.teachers.filter(t => t.status === "pending" || t.status === "sent").length;
+
+    return (
+      <div key={school.id} className={indent ? "" : ""}>
+        <div
+          className={`flex items-center gap-3 px-3 sm:px-4 py-2.5 cursor-pointer transition-colors group ${isOpen ? "bg-blue-50/60" : "hover:bg-gray-50"}`}
+          onClick={() => setExpandedSchool(isOpen ? null : school.id)}
+        >
+          {/* Status indicator */}
+          <div className={`w-2 h-2 rounded-full shrink-0 ${pend > 0 ? "bg-amber-400" : school.teachers.length > 0 ? "bg-emerald-400" : "bg-gray-200"}`} />
+
+          {/* School name */}
+          <div className="flex-1 min-w-0">
+            <span className="text-sm font-medium text-gray-900">{school.name}</span>
+            {school.nameEn && <span className="text-xs text-gray-400 ml-2 hidden sm:inline">{school.nameEn}</span>}
+          </div>
+
+          {/* Teacher count + status */}
+          <div className="flex items-center gap-2 shrink-0">
+            {pend > 0 && <span className="text-[10px] font-medium text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">{pend}대기</span>}
+            <span className="text-xs font-semibold text-gray-600 tabular-nums w-8 text-right">{school.teachers.length}명</span>
+            {school.teachers.length > 0 && (
+              <div className="w-12 h-1 rounded-full bg-gray-100 overflow-hidden">
+                <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${(conf / school.teachers.length) * 100}%` }} />
+              </div>
+            )}
+          </div>
+
+          {/* Actions (visible on hover) */}
+          <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shrink-0">
+            <button onClick={(e) => { e.stopPropagation(); openEditDialog(school); }}
+              className="p-1 rounded text-gray-300 hover:text-blue-600 hover:bg-blue-50" title="수정">
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" /></svg>
+            </button>
+            <button onClick={(e) => { e.stopPropagation(); copyEmails(school.teachers.map(t => t.email), `s-${school.id}`); }}
+              className="p-1 rounded text-gray-300 hover:text-blue-600 hover:bg-blue-50" title="이메일 복사">
+              {copied === `s-${school.id}` ? (
+                <svg className="w-3.5 h-3.5 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.5 12.75l6 6 9-13.5" /></svg>
+              ) : (
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" /></svg>
+              )}
+            </button>
+            {pendingIds(school.teachers).length > 0 && (
+              <button onClick={(e) => { e.stopPropagation(); confirmSend(`${school.name}`, pendingIds(school.teachers)); }}
+                disabled={sending}
+                className="p-1 rounded text-gray-300 hover:text-emerald-600 hover:bg-emerald-50 disabled:opacity-40" title={`${school.name} 대기 ${pendingIds(school.teachers).length}명 Jon 발송`}>
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 12L3.269 3.125A59.769 59.769 0 0121.485 12 59.768 59.768 0 013.27 20.875L5.999 12zm0 0h7.5" /></svg>
+              </button>
+            )}
+          </div>
+
+          <svg className={`w-4 h-4 text-gray-300 transition-transform shrink-0 ${isOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </div>
+
+        {/* Teacher details */}
+        {isOpen && (
+          <div className="bg-slate-50 border-t border-b border-slate-100">
+            {school.teachers.length === 0 ? (
+              <p className="text-center text-gray-400 text-xs py-4">등록된 교사 없음</p>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {school.teachers.map(t => (
+                  <label key={t.id} className={`flex items-center gap-2 px-3 sm:px-4 pl-6 sm:pl-8 py-1.5 text-xs cursor-pointer transition-colors ${selected.has(t.id) ? "bg-blue-50" : "hover:bg-white"}`}>
+                    <input type="checkbox" checked={selected.has(t.id)} onChange={() => toggleTeacher(t.id)} className="rounded w-3 h-3" />
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusDot[t.status] || "bg-gray-300"}`} />
+                    <span className="text-gray-700 w-14 truncate">{t.name}</span>
+                    <span className="text-gray-400 font-mono truncate flex-1">{t.email}</span>
+                    <span className={`font-medium ${statusColor[t.status] || "text-gray-400"}`}>{statusLabel[t.status] || t.status}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-6">
-      {/* Hero Header */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6 text-white">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(59,130,246,0.15),_transparent_50%)]" />
-        <div className="relative flex items-start justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">학교 관리</h1>
-            <p className="text-slate-400 text-sm mt-1">Snorkl 파트너 학교 현황</p>
+    <div className="space-y-4 pb-20 md:pb-0">
+      {/* Compact header bar */}
+      <div className="space-y-2">
+        {/* Row 1: Title + stats */}
+        <div className="flex items-center gap-4">
+          <h1 className="text-lg font-bold text-gray-900 whitespace-nowrap">학교 관리</h1>
+
+          {/* Mini stats */}
+          <div className="flex items-center gap-3 text-xs text-gray-500 whitespace-nowrap">
+            <span><strong className="text-gray-900 text-sm">{schools.length}</strong> 학교</span>
+            <span className="text-gray-200">|</span>
+            <span><strong className="text-gray-900 text-sm">{totalTeachers}</strong> 교사</span>
+            <span className="text-gray-200">|</span>
+            <span className="text-emerald-600 font-medium">{rate}% 확정</span>
+            {pendingCount > 0 && (
+              <>
+                <span className="text-gray-200">|</span>
+                <span className="text-amber-600 font-medium">{pendingCount} 대기</span>
+              </>
+            )}
           </div>
+        </div>
+
+        {/* Row 2: Search + filter + add */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Search */}
+          <div className="relative shrink-0">
+            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
+            <Input placeholder="학교·교사 검색" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8 h-8 w-48 text-xs" />
+          </div>
+
+          {/* Section filter */}
+          <div className="flex items-center bg-gray-100 rounded-lg p-0.5 shrink-0">
+            {([["all", "전체"], ["teams", "공동구매"], ["individual", "개별"]] as const).map(([val, label]) => (
+              <button key={val} onClick={() => setShowSection(val)}
+                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${showSection === val ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex-1" />
+
+          {/* 전체 대기 → Jon 발송 */}
+          {(() => {
+            const allPending = pendingIds(schools.flatMap(s => s.teachers));
+            if (allPending.length === 0) return null;
+            return (
+              <Button size="sm" variant="outline" disabled={sending} onClick={() => confirmSend("전체 대기", allPending)}
+                className="h-8 text-xs border-emerald-300 text-emerald-700 hover:bg-emerald-50">
+                <svg className="w-3.5 h-3.5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 12L3.269 3.125A59.769 59.769 0 0121.485 12 59.768 59.768 0 013.27 20.875L5.999 12zm0 0h7.5" /></svg>
+                전체 Jon 발송 ({allPending.length})
+              </Button>
+            );
+          })()}
+
+          {/* Add school */}
           <Dialog open={open} onOpenChange={(v) => { if (!v) closeDialog(); else setOpen(true); }}>
             <DialogTrigger render={
-              <Button className="bg-white/10 hover:bg-white/20 text-white border-white/20 shadow-none backdrop-blur-sm" onClick={openAddDialog}>
-                <svg className="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" /></svg>
+              <Button size="sm" className="h-8 text-xs" onClick={openAddDialog}>
+                <svg className="w-3.5 h-3.5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" /></svg>
                 학교 추가
               </Button>
             } />
-            <DialogContent>
-              <DialogHeader><DialogTitle>{editingSchool ? "학교 수정" : "학교 추가"}</DialogTitle></DialogHeader>
-              <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <Label>학교명 (한국어) *</Label>
-                    <Input placeholder="예: 효명고등학교" value={fname} onChange={(e) => setFname(e.target.value)} onBlur={() => { if (fname && !fnameEn) translateName(fname); }} />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>영문명 {translating && <span className="text-xs text-blue-500">(번역 중...)</span>}</Label>
-                    <Input placeholder="자동 번역됨" value={fnameEn} onChange={(e) => setFnameEn(e.target.value)} />
-                  </div>
-                </div>
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="space-y-1">
-                    <Label>코드 *</Label>
-                    <Input placeholder="HYOMYEONG" value={fcode} onChange={(e) => setFcode(e.target.value.toUpperCase())} className="font-mono" />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>지역</Label>
-                    <Select value={fregion} onValueChange={(v) => setFregion(v ?? "")}>
-                      <SelectTrigger><SelectValue placeholder="선택" /></SelectTrigger>
-                      <SelectContent>{REGIONS.map((r) => (<SelectItem key={r} value={r}>{r}</SelectItem>))}</SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1">
-                    <Label>팀</Label>
-                    <Input placeholder="서울1팀" value={fteam} onChange={(e) => setFteam(e.target.value)} />
-                  </div>
+          <DialogContent>
+            <DialogHeader><DialogTitle>{editingSchool ? "학교 수정" : "학교 추가"}</DialogTitle></DialogHeader>
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label>학교명 (한국어) *</Label>
+                  <Input placeholder="예: 효명고등학교" value={fname} onChange={(e) => setFname(e.target.value)} onBlur={() => { if (fname && !fnameEn) translateName(fname); }} />
                 </div>
                 <div className="space-y-1">
-                  <Label>도메인 (선택)</Label>
-                  <Input placeholder="hmh.or.kr" value={fdomain} onChange={(e) => setFdomain(e.target.value)} />
+                  <Label>영문명 {translating && <span className="text-xs text-blue-500">(번역 중...)</span>}</Label>
+                  <Input placeholder="자동 번역됨" value={fnameEn} onChange={(e) => setFnameEn(e.target.value)} />
                 </div>
-                {ferror && <p className="text-sm text-red-600">{ferror}</p>}
-                <Button onClick={saveSchool} className="w-full">{editingSchool ? "저장" : "추가"}</Button>
               </div>
-            </DialogContent>
-          </Dialog>
-        </div>
-
-        {/* Stats row */}
-        <div className="relative grid grid-cols-4 gap-4 mt-5">
-          <div className="bg-white/5 backdrop-blur-sm rounded-xl p-4 border border-white/10">
-            <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">학교</p>
-            <p className="text-2xl font-bold mt-1">{filtered.length}</p>
-            <div className="flex gap-1.5 mt-2">
-              {regionStats.slice(0, 3).map(([r, c]) => (
-                <button key={r} onClick={() => setFilterRegion(filterRegion === r ? "all" : r)}
-                  className={`text-[10px] px-1.5 py-0.5 rounded-full transition-all ${filterRegion === r ? "bg-white/30 text-white" : "bg-white/10 text-slate-400 hover:bg-white/20"}`}>
-                  {r} {c}
-                </button>
-              ))}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <Label>코드 *</Label>
+                  <Input placeholder="HYOMYEONG" value={fcode} onChange={(e) => setFcode(e.target.value.toUpperCase())} className="font-mono" />
+                </div>
+                <div className="space-y-1">
+                  <Label>지역</Label>
+                  <Select value={fregion} onValueChange={(v) => setFregion(v ?? "")}>
+                    <SelectTrigger><SelectValue placeholder="선택" /></SelectTrigger>
+                    <SelectContent>{REGIONS.map((r) => (<SelectItem key={r} value={r}>{r}</SelectItem>))}</SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label>팀</Label>
+                  <Input placeholder="서울1팀" value={fteam} onChange={(e) => setFteam(e.target.value)} />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label>도메인 (선택)</Label>
+                <Input placeholder="hmh.or.kr" value={fdomain} onChange={(e) => setFdomain(e.target.value)} />
+              </div>
+              {ferror && <p className="text-sm text-red-600">{ferror}</p>}
+              <div className="flex gap-2">
+                <Button onClick={saveSchool} className="flex-1">{editingSchool ? "저장" : "추가"}</Button>
+                {editingSchool && (
+                  <Button variant="outline" className="text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => { closeDialog(); deleteSchool(editingSchool.id); }}>
+                    삭제
+                  </Button>
+                )}
+              </div>
             </div>
-          </div>
-          <div className="bg-white/5 backdrop-blur-sm rounded-xl p-4 border border-white/10">
-            <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">교사</p>
-            <p className="text-2xl font-bold mt-1">{totalTeachers}</p>
-            <div className="flex items-center gap-2 mt-2">
-              <span className="text-[10px] text-emerald-400">{upgradedTeachers} 확정</span>
-              {pendingTeachers > 0 && <span className="text-[10px] text-amber-400">{pendingTeachers} 대기</span>}
-            </div>
-          </div>
-          <div className="bg-white/5 backdrop-blur-sm rounded-xl p-4 border border-white/10">
-            <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">확정률</p>
-            <p className="text-2xl font-bold mt-1">{upgradeRate}%</p>
-            <div className="h-1.5 w-full rounded-full bg-white/10 overflow-hidden mt-2">
-              <div className="h-full bg-emerald-400 rounded-full transition-all" style={{ width: `${upgradeRate}%` }} />
-            </div>
-          </div>
-          <div className="bg-white/5 backdrop-blur-sm rounded-xl p-4 border border-white/10">
-            <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">공동구매팀</p>
-            <p className="text-2xl font-bold mt-1">{teamCount}</p>
-            <p className="text-[10px] text-slate-400 mt-2">팀 · 총 25교</p>
-          </div>
+          </DialogContent>
+        </Dialog>
         </div>
       </div>
 
-      {/* Toolbar - compact single row */}
-      <div className="flex items-center gap-2">
-        <div className="relative flex-1 max-w-xs">
-          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
-          <Input placeholder="검색..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9 h-9" />
+      {/* Toast message (visible when no selection bar shown) */}
+      {message && selected.size === 0 && (
+        <div className="fixed bottom-4 right-4 z-50 px-4 py-2.5 rounded-lg bg-gray-900 text-white text-sm shadow-lg animate-in fade-in slide-in-from-bottom-2">
+          {message}
+          <button onClick={() => setMessage("")} className="ml-3 text-gray-400 hover:text-white">×</button>
         </div>
-        <Select value={filterTeam} onValueChange={(v) => setFilterTeam(v ?? "all")}>
-          <SelectTrigger className="w-32 h-9"><SelectValue placeholder="전체 팀" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">전체 팀</SelectItem>
-            {allTeams.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-            <SelectItem value="none">미배정</SelectItem>
-          </SelectContent>
-        </Select>
-        <div className="flex items-center rounded-lg border bg-white p-0.5 gap-0.5">
-          {([["all", "전체"], ["confirmed", "확정"], ["pending", "대기"]] as const).map(([val, label]) => (
-            <button key={val} onClick={() => setFilterStatus(val as typeof filterStatus)}
-              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${filterStatus === val
-                ? val === "confirmed" ? "bg-emerald-50 text-emerald-700" : val === "pending" ? "bg-amber-50 text-amber-700" : "bg-gray-100 text-gray-900"
-                : "text-gray-400 hover:text-gray-700"}`}>
-              {label}
-            </button>
-          ))}
-        </div>
-        <div className="flex-1" />
-        <button onClick={() => setGroupByTeam(!groupByTeam)}
-          className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${groupByTeam ? "bg-indigo-50 text-indigo-700 border-indigo-200" : "bg-white text-gray-500 border-gray-200 hover:bg-gray-50"}`}>
-          {groupByTeam ? "팀별" : "전체"}
-        </button>
-        <div className="flex items-center rounded-lg border bg-white p-0.5 gap-0.5">
-          {(["teachers", "name", "recent"] as const).map(s => (
-            <button key={s} onClick={() => setSortBy(s)}
-              className={`px-2 py-1 rounded-md text-xs font-medium transition-all ${sortBy === s ? "bg-gray-100 text-gray-900" : "text-gray-400 hover:text-gray-700"}`}>
-              {s === "teachers" ? "교사수" : s === "name" ? "이름" : "최근"}
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center rounded-lg border bg-white p-0.5 gap-0.5">
-          <button onClick={() => setViewMode("teams")} className={`p-1.5 rounded-md transition-all ${viewMode === "teams" ? "bg-gray-100" : "hover:bg-gray-50"}`} title="팀 카드">
-            <svg className="w-4 h-4 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" /></svg>
-          </button>
-          <button onClick={() => setViewMode("grid")} className={`p-1.5 rounded-md transition-all ${viewMode === "grid" ? "bg-gray-100" : "hover:bg-gray-50"}`} title="카드">
-            <svg className="w-4 h-4 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" /></svg>
-          </button>
-          <button onClick={() => setViewMode("table")} className={`p-1.5 rounded-md transition-all ${viewMode === "table" ? "bg-gray-100" : "hover:bg-gray-50"}`} title="테이블">
-            <svg className="w-4 h-4 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z" /></svg>
-          </button>
-        </div>
-      </div>
+      )}
 
       {/* Selection bar */}
       {selected.size > 0 && (
-        <div className="flex items-center gap-3 px-4 py-3 bg-blue-600 text-white rounded-xl sticky top-16 z-10 shadow-lg">
+        <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 bg-blue-600 text-white rounded-xl sticky top-16 z-10 shadow-lg flex-wrap">
           <span className="font-bold">{selected.size}</span>
-          <span className="text-blue-200 text-sm">명 선택됨</span>
+          <span className="text-blue-200 text-[11px] sm:text-sm">명 선택됨</span>
           <div className="h-5 w-px bg-blue-400" />
-          <Button size="sm" onClick={sendSelected} disabled={sending} className="bg-white text-blue-700 hover:bg-blue-50 shadow-none">
+          <Button size="sm" onClick={sendSelected} disabled={sending} className="bg-white text-blue-700 hover:bg-blue-50 shadow-none h-7 text-[11px] sm:text-xs">
             {sending ? "발송 중..." : "Jon에게 발송"}
           </Button>
-          <Button size="sm" onClick={markUpgraded} className="bg-emerald-500 hover:bg-emerald-600 text-white shadow-none">
-            업그레이드 처리
+          <Button size="sm" onClick={markUpgraded} className="bg-emerald-500 hover:bg-emerald-600 text-white shadow-none h-7 text-[11px] sm:text-xs">
+            확정 처리
           </Button>
-          <button onClick={() => setSelected(new Set())} className="ml-auto text-blue-200 hover:text-white text-sm">취소</button>
+          <button onClick={() => setSelected(new Set())} className="ml-auto text-blue-200 hover:text-white text-[11px] sm:text-sm">취소</button>
           {message && <span className="text-sm text-green-300">{message}</span>}
         </div>
       )}
 
-      {/* Teams View - each team as a card */}
-      {viewMode === "teams" && (() => {
-        const teamGroups = groupedByTeam.filter(g => g.team && g.team !== "미배정" && !g.team.includes("개별"));
-        const individualGroups = groupedByTeam.filter(g => g.team && g.team.includes("개별"));
-        const unassigned = groupedByTeam.filter(g => !g.team || g.team === "미배정");
+      {/* Main content: two-column layout */}
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
 
-        const renderTeamCard = (teamName: string, teamSchools: School[]) => {
-          const tc = teamColorMap[teamName] || { bg: "bg-gray-50", text: "text-gray-600", dot: "bg-gray-400" };
-          const isOpen = expandedTeams.has(teamName);
-          const teamTeacherCount = teamSchools.reduce((s, sc) => s + sc.teachers.length, 0);
-          const upgradedCount = teamSchools.reduce((s, sc) => s + sc.teachers.filter(t => t.status === "upgraded" || t.status === "individual").length, 0);
-          const allConfirmed = teamTeacherCount > 0 && upgradedCount === teamTeacherCount;
-          const rate = teamTeacherCount > 0 ? Math.round((upgradedCount / teamTeacherCount) * 100) : 0;
-          const firstDate = teamSchools.reduce((min, sc) => {
-            const d = sc.teachers.length > 0 ? Math.min(...sc.teachers.map(t => new Date(t.createdAt).getTime())) : Infinity;
-            return Math.min(min, d);
-          }, Infinity);
-
-          return (
-            <div key={teamName} className={`bg-white rounded-xl border transition-all ${isOpen ? "ring-2 ring-blue-200 shadow-md" : "hover:shadow-md"}`}>
-              <div className="p-5 cursor-pointer flex items-center gap-4" onClick={() => {
-                setExpandedTeams(prev => {
-                  const next = new Set(prev);
-                  if (next.has(teamName)) next.delete(teamName); else next.add(teamName);
-                  return next;
-                });
-              }}>
-                <div className={`w-3 h-3 rounded-full ${tc.dot}`} />
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-lg font-bold text-gray-900">{teamName}</h3>
-                  <p className="text-sm text-gray-400 mt-0.5">
-                    {teamSchools.length}개교
-                    {firstDate !== Infinity && ` · ${new Date(firstDate).toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" })}`}
-                  </p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="text-right mr-2">
-                    <span className="text-sm font-semibold text-gray-700">{upgradedCount}/{teamTeacherCount}명</span>
-                    <div className="h-1.5 w-20 rounded-full bg-gray-100 overflow-hidden mt-1">
-                      <div className="h-full bg-emerald-400 rounded-full transition-all" style={{ width: `${rate}%` }} />
-                    </div>
-                  </div>
-                  {allConfirmed ? (
-                    <span className="text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1.5 rounded-lg">팀 완성</span>
-                  ) : (
-                    <span className="text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 px-3 py-1.5 rounded-lg">진행중</span>
-                  )}
-                  <svg className={`w-5 h-5 text-gray-400 transition-transform ${isOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </div>
-              </div>
-
-              {isOpen && (
-                <div className="border-t">
-                  <div className="divide-y">
-                    {teamSchools.map(school => {
-                      const upgC = school.teachers.filter(t => t.status === "upgraded" || t.status === "individual").length;
-                      const schoolOpen = expanded.has(school.id);
-                      return (
-                        <div key={school.id}>
-                          <div className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50/80 transition-colors cursor-pointer" onClick={() => toggleExpand(school.id)}>
-                            <span className={`w-2 h-2 rounded-full shrink-0 ${upgC === school.teachers.length && school.teachers.length > 0 ? "bg-emerald-400" : school.teachers.length > 0 ? "bg-amber-400" : "bg-gray-300"}`} />
-                            <div className="flex-1 min-w-0">
-                              <span className="text-sm font-medium text-gray-900">{school.name}</span>
-                              {school.nameEn && <span className="text-xs text-gray-400 ml-2">{school.nameEn}</span>}
-                            </div>
-                            <span className="text-[10px] font-mono text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{school.code}</span>
-                            <span className="text-xs text-gray-500 font-medium">{school.teachers.length}명</span>
-                            <svg className={`w-4 h-4 text-gray-300 transition-transform ${schoolOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                            </svg>
-                          </div>
-                          {/* School's teachers */}
-                          {schoolOpen && school.teachers.length > 0 && (
-                            <div className="bg-slate-50/80 border-t border-dashed">
-                              {school.teachers.map(t => (
-                                <div key={t.id} className="flex items-center gap-2.5 px-5 pl-10 py-2 text-xs hover:bg-slate-100/80 transition-colors">
-                                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${t.status === "upgraded" ? "bg-emerald-400" : t.status === "sent" ? "bg-blue-400" : t.status === "individual" ? "bg-purple-400" : "bg-amber-400"}`} />
-                                  <span className="text-gray-700 w-16 truncate font-medium">{t.name}</span>
-                                  <span className="text-gray-500 font-mono truncate flex-1">{t.email}</span>
-                                  <span className={`uppercase tracking-wider font-semibold ${t.status === "upgraded" ? "text-emerald-500" : t.status === "sent" ? "text-blue-500" : t.status === "individual" ? "text-purple-500" : "text-amber-500"}`}>
-                                    {t.status === "upgraded" ? "확정" : t.status === "sent" ? "발송" : t.status === "individual" ? "개별" : "대기"}
-                                  </span>
-                                </div>
-                              ))}
-                              <div className="flex items-center gap-2 px-5 pl-10 py-2 border-t border-dashed">
-                                <button onClick={(e) => { e.stopPropagation(); openEditDialog(school); }} className="text-[10px] text-gray-400 hover:text-blue-600 transition-colors">수정</button>
-                                <span className="text-gray-200">|</span>
-                                <button onClick={(e) => {
-                                  e.stopPropagation();
-                                  const emails = school.teachers.map(t => t.email).join("\n");
-                                  navigator.clipboard.writeText(emails);
-                                  setCopied("school-" + school.id);
-                                  setTimeout(() => setCopied(null), 2000);
-                                }} className="text-[10px] text-gray-400 hover:text-blue-600 transition-colors">
-                                  {copied === "school-" + school.id ? "복사됨!" : "이메일 복사"}
-                                </button>
-                              </div>
-                            </div>
-                          )}
-                          {schoolOpen && school.teachers.length === 0 && (
-                            <div className="bg-slate-50/80 border-t border-dashed px-5 pl-10 py-3">
-                              <span className="text-xs text-gray-400">등록된 교사 없음</span>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div className="flex items-center gap-2 px-5 py-3 bg-gray-50/80 border-t">
-                    <button onClick={() => {
-                      const emails = teamSchools.flatMap(s => s.teachers.map(t => t.email));
-                      navigator.clipboard.writeText(emails.join("\n"));
-                      setCopied(teamName);
-                      setTimeout(() => setCopied(null), 2000);
-                    }} className="text-xs text-gray-600 hover:text-blue-600 bg-white border rounded-lg px-3 py-1.5 transition-colors">
-                      {copied === teamName ? "복사됨!" : "이메일 복사"}
-                    </button>
-                    <button onClick={() => {
-                      const contacts = teamSchools.map(s => {
-                        const t = s.teachers[0];
-                        return t ? `${s.name}\t${t.name}\t${t.email}` : s.name;
-                      });
-                      navigator.clipboard.writeText(contacts.join("\n"));
-                      setCopied(teamName + "-contacts");
-                      setTimeout(() => setCopied(null), 2000);
-                    }} className="text-xs text-gray-600 hover:text-blue-600 bg-white border rounded-lg px-3 py-1.5 transition-colors">
-                      {copied === teamName + "-contacts" ? "복사됨!" : "연락처 복사"}
-                    </button>
-                    <button onClick={() => {
-                      const all = teamSchools.map(s => {
-                        const teacherList = s.teachers.map(t => `${t.name}\t${t.email}\t${t.status}`).join("\n");
-                        return `${s.name} (${s.code})\n${teacherList}`;
-                      });
-                      navigator.clipboard.writeText(all.join("\n\n"));
-                      setCopied(teamName + "-all");
-                      setTimeout(() => setCopied(null), 2000);
-                    }} className="text-xs text-gray-600 hover:text-blue-600 bg-white border rounded-lg px-3 py-1.5 transition-colors">
-                      {copied === teamName + "-all" ? "복사됨!" : "전체 복사"}
-                    </button>
-                  </div>
-                </div>
-              )}
+        {/* Left: 공동구매팀 (8 cols) */}
+        {(showSection === "all" || showSection === "teams") && (
+          <div className={showSection === "teams" ? "col-span-1 md:col-span-12" : "col-span-1 md:col-span-8"}>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-1 h-5 rounded-full bg-blue-500" />
+              <h2 className="text-sm font-bold text-gray-900">공동구매팀</h2>
+              <span className="text-xs text-gray-400">{teamGroups.length}팀 · {teamSchoolCount}교</span>
             </div>
-          );
-        };
 
-        const totalGroupTeachers = teamGroups.reduce((s, g) => s + g.schools.reduce((ss, sc) => ss + sc.teachers.length, 0), 0);
-        const totalIndivTeachers = individualGroups.reduce((s, g) => s + g.schools.reduce((ss, sc) => ss + sc.teachers.length, 0), 0);
-        const totalIndivSchools = individualGroups.reduce((s, g) => s + g.schools.length, 0);
+            <div className={showSection === "teams" ? "grid grid-cols-1 lg:grid-cols-2 gap-3" : "space-y-3"}>
+              {teamGroups.map(group => {
+                const color = teamColors[group.name] || "#6b7280";
+                const allConfirmed = group.teacherCount > 0 && group.confirmedCount === group.teacherCount;
+                const groupRate = group.teacherCount > 0 ? Math.round((group.confirmedCount / group.teacherCount) * 100) : 0;
 
-        return (
-          <div className="space-y-8">
-            {/* 공동구매팀 */}
-            {teamGroups.length > 0 && (
-              <div>
-                <div className="flex items-center gap-3 mb-4 px-1">
-                  <div className="w-1 h-6 rounded-full bg-blue-500" />
-                  <h2 className="text-base font-bold text-gray-900">공동구매팀</h2>
-                  <span className="text-xs text-gray-400">{teamGroups.length}팀 · {teamGroups.reduce((s, g) => s + g.schools.length, 0)}교 · {totalGroupTeachers}명</span>
-                </div>
-                <div className="space-y-3">
-                  {teamGroups.map(({ team: teamName, schools: teamSchools }) => renderTeamCard(teamName!, teamSchools))}
-                </div>
-              </div>
-            )}
-
-            {/* 일반 학교 (개별) */}
-            {individualGroups.length > 0 && (
-              <div>
-                <div className="flex items-center gap-3 mb-4 px-1">
-                  <div className="w-1 h-6 rounded-full bg-gray-400" />
-                  <h2 className="text-base font-bold text-gray-900">일반 학교</h2>
-                  <span className="text-xs text-gray-400">{totalIndivSchools}교 · {totalIndivTeachers}명</span>
-                </div>
-                <div className="space-y-3">
-                  {individualGroups.map(({ team: teamName, schools: teamSchools }) => renderTeamCard(teamName!, teamSchools))}
-                </div>
-              </div>
-            )}
-
-            {/* 미배정 */}
-            {unassigned.length > 0 && unassigned[0].schools.length > 0 && (
-              <div>
-                <div className="flex items-center gap-3 mb-4 px-1">
-                  <div className="w-1 h-6 rounded-full bg-gray-300" />
-                  <h2 className="text-base font-bold text-gray-900">미배정</h2>
-                  <span className="text-xs text-gray-400">{unassigned[0].schools.length}교</span>
-                </div>
-                <div className="space-y-3">
-                  {renderTeamCard("미배정", unassigned[0].schools)}
-                </div>
-              </div>
-            )}
-
-            {teamGroups.length === 0 && individualGroups.length === 0 && <p className="text-center text-gray-400 py-16 text-sm">학교가 없습니다</p>}
-          </div>
-        );
-      })()}
-
-      {/* Grid View */}
-      {viewMode === "grid" && groupedByTeam.map(({ team: groupTeam, schools: groupSchools }) => {
-        const groupTeacherCount = groupSchools.reduce((s, sc) => s + sc.teachers.length, 0);
-        const tc = teamColorMap[groupTeam || ""] || { bg: "bg-gray-50", text: "text-gray-600", dot: "bg-gray-400" };
-        return (
-        <div key={groupTeam || "all"} className="mb-6">
-          {groupByTeam && groupTeam && (
-            <div className="flex items-center gap-3 mb-3 px-1">
-              <div className={`w-2.5 h-2.5 rounded-full ${tc.dot}`} />
-              <h2 className="text-sm font-bold text-gray-800">{groupTeam}</h2>
-              <span className="text-xs text-gray-400">{groupSchools.length}교 · {groupTeacherCount}명</span>
-              <div className="flex-1 h-px bg-gray-200" />
-            </div>
-          )}
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {groupSchools.map((school) => {
-            const isOpen = expanded.has(school.id);
-            const tc = teamColorMap[school.team || ""] || { bg: "bg-gray-50", text: "text-gray-600", dot: "bg-gray-400" };
-            const pendingC = school.teachers.filter(t => t.status === "pending").length;
-            const upgC = school.teachers.filter(t => t.status === "upgraded").length;
-            const allChecked = school.teachers.length > 0 && school.teachers.every(t => selected.has(t.id));
-
-            return (
-              <div key={school.id} className={`group bg-white rounded-xl border transition-all ${isOpen ? "ring-2 ring-blue-200 shadow-md" : "hover:shadow-md"}`}>
-                {/* Card header */}
-                <div className="p-4 cursor-pointer" onClick={() => toggleExpand(school.id)}>
-                  <div className="flex items-start justify-between">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-semibold text-gray-900 truncate">{school.nameEn || school.name}</h3>
-                        {pendingC > 0 && <span className="shrink-0 w-2 h-2 rounded-full bg-amber-400 animate-pulse" />}
-                      </div>
-                      {school.nameEn && <p className="text-xs text-gray-400 mt-0.5 truncate">{school.name}</p>}
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0 ml-2">
-                      <button onClick={(e) => { e.stopPropagation(); openEditDialog(school); }}
-                        className="p-1 rounded-md text-gray-300 hover:text-blue-600 hover:bg-blue-50 transition-colors opacity-0 group-hover:opacity-100"
-                        title="학교 수정">
-                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" /></svg>
-                      </button>
-                      <span className="text-lg font-bold text-gray-900">{school.teachers.length}</span>
-                      <span className="text-xs text-gray-400">명</span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 mt-3">
-                    <button onClick={(e) => { e.stopPropagation(); copyCode(school.code); }}
-                      className="font-mono text-xs bg-gray-100 px-2 py-1 rounded-md hover:bg-gray-200 transition-colors">
-                      {school.code}
-                      {copied === school.code && <span className="ml-1 text-green-600">copied</span>}
-                    </button>
-                    {school.region && <span className="text-xs text-gray-400">{school.region}</span>}
-                    {school.team && (
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${tc.bg} ${tc.text}`}>{school.team}</span>
-                    )}
-                    <div className="flex-1" />
-                    {/* Mini progress bar */}
-                    {school.teachers.length > 0 && (
-                      <div className="flex h-1.5 w-16 rounded-full overflow-hidden bg-gray-100">
-                        {upgC > 0 && <div className="bg-emerald-400" style={{ width: `${(upgC / school.teachers.length) * 100}%` }} />}
-                        {pendingC > 0 && <div className="bg-amber-400" style={{ width: `${(pendingC / school.teachers.length) * 100}%` }} />}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Expanded teacher list */}
-                {isOpen && (
-                  <div className="border-t">
-                    {school.teachers.length === 0 ? (
-                      <p className="text-center text-gray-400 text-sm py-6">등록된 교사 없음</p>
-                    ) : (
-                      <>
-                        <div className="flex items-center gap-2 px-4 py-2 bg-gray-50/80">
-                          <input type="checkbox" checked={allChecked} onChange={() => toggleSchoolTeachers(school)} className="rounded" />
-                          <span className="text-xs text-gray-500">전체 선택 ({school.teachers.length}명)</span>
-                        </div>
-                        <div className="divide-y divide-gray-50 max-h-72 overflow-y-auto">
-                          {school.teachers.map((t) => (
-                            <label key={t.id} className={`flex items-center gap-2.5 px-4 py-2 cursor-pointer hover:bg-blue-50/40 transition-colors ${selected.has(t.id) ? "bg-blue-50/60" : ""}`}>
-                              <input type="checkbox" checked={selected.has(t.id)} onChange={() => toggleTeacher(t.id)} className="rounded" />
-                              <span className={`w-2 h-2 rounded-full shrink-0 ${t.status === "upgraded" ? "bg-emerald-400" : t.status === "pending" ? "bg-amber-400" : t.status === "sent" ? "bg-blue-400" : t.status === "individual" ? "bg-purple-400" : "bg-gray-300"}`} />
-                              <span className="text-sm text-gray-700 w-20 truncate">{t.name}</span>
-                              <span className="text-xs text-gray-500 font-mono truncate flex-1">{t.email}</span>
-                              <span className={`text-[10px] uppercase tracking-wider font-medium ${t.status === "upgraded" ? "text-emerald-500" : t.status === "pending" ? "text-amber-600" : t.status === "individual" ? "text-purple-500" : "text-gray-400"}`}>
-                                {t.status}
-                              </span>
-                            </label>
-                          ))}
-                        </div>
-                        <div className="flex items-center justify-between px-4 py-2 bg-gray-50/80 border-t">
-                          <button onClick={() => copyCode(school.code)} className="text-xs text-blue-600 hover:underline">코드 복사</button>
-                          <div className="flex items-center gap-3">
-                            <button onClick={(e) => { e.stopPropagation(); openEditDialog(school); }} className="text-xs text-gray-500 hover:text-blue-600">✏️ 수정</button>
-                            <button onClick={() => deleteSchool(school.id)} className="text-xs text-red-400 hover:text-red-600">학교 삭제</button>
-                          </div>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-        </div>
-        );
-      })}
-
-      {/* Table View */}
-      {viewMode === "table" && groupedByTeam.map(({ team: groupTeam, schools: groupSchools }) => {
-        const groupTeacherCount = groupSchools.reduce((s, sc) => s + sc.teachers.length, 0);
-        const tc = teamColorMap[groupTeam || ""] || { bg: "bg-gray-50", text: "text-gray-600", dot: "bg-gray-400" };
-        return (
-        <div key={groupTeam || "all"} className="mb-6">
-          {groupByTeam && groupTeam && (
-            <div className="flex items-center gap-3 mb-3 px-1">
-              <div className={`w-2.5 h-2.5 rounded-full ${tc.dot}`} />
-              <h2 className="text-sm font-bold text-gray-800">{groupTeam}</h2>
-              <span className="text-xs text-gray-400">{groupSchools.length}교 · {groupTeacherCount}명</span>
-              <div className="flex-1 h-px bg-gray-200" />
-            </div>
-          )}
-        <div className="bg-white rounded-xl border overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wider">
-                <th className="px-4 py-3 font-medium">학교</th>
-                <th className="px-4 py-3 font-medium">코드</th>
-                <th className="px-4 py-3 font-medium">지역</th>
-                {!groupByTeam && <th className="px-4 py-3 font-medium">팀</th>}
-                <th className="px-4 py-3 font-medium text-right">교사수</th>
-                <th className="px-4 py-3 font-medium text-right">상태</th>
-                <th className="px-4 py-3 font-medium w-10"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {groupSchools.map((school) => {
-                const stc = teamColorMap[school.team || ""] || { bg: "bg-gray-50", text: "text-gray-600", dot: "bg-gray-400" };
-                const pendingC = school.teachers.filter(t => t.status === "pending" || t.status === "sent").length;
                 return (
-                  <tr key={school.id} className="hover:bg-gray-50/80 cursor-pointer transition-colors" onClick={() => toggleExpand(school.id)}>
-                    <td className="px-4 py-3">
-                      <div>
-                        <p className="font-medium text-gray-900">{school.nameEn || school.name}</p>
-                        {school.nameEn && <p className="text-xs text-gray-400">{school.name}</p>}
+                  <div key={group.name} className="bg-white rounded-xl border overflow-hidden">
+                    {/* Team header - always visible */}
+                    <div className="px-3 sm:px-4 py-3 flex items-center gap-3" style={{ borderLeft: `3px solid ${color}` }}>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-sm font-bold text-gray-900">{group.name}</h3>
+                          {allConfirmed ? (
+                            <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">완성</span>
+                          ) : (
+                            <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">진행중</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-xs text-gray-400">{group.schools.length}교 · {group.confirmedCount}/{group.teacherCount}명</span>
+                          <div className="w-16 h-1 rounded-full bg-gray-100 overflow-hidden">
+                            <div className="h-full rounded-full transition-all" style={{ width: `${groupRate}%`, backgroundColor: color }} />
+                          </div>
+                          <span className="text-[10px] text-gray-400">{groupRate}%</span>
+                        </div>
                       </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <button onClick={(e) => { e.stopPropagation(); copyCode(school.code); }}
-                        className="font-mono text-xs bg-gray-100 px-2 py-1 rounded hover:bg-gray-200">
-                        {school.code}{copied === school.code && " ✓"}
-                      </button>
-                    </td>
-                    <td className="px-4 py-3 text-gray-600">{school.region || "-"}</td>
-                    {!groupByTeam && (
-                      <td className="px-4 py-3">
-                        {school.team ? (
-                          <span className={`text-xs px-2 py-0.5 rounded-full ${stc.bg} ${stc.text}`}>{school.team}</span>
-                        ) : <span className="text-gray-300">-</span>}
-                      </td>
-                    )}
-                    <td className="px-4 py-3 text-right font-semibold">{school.teachers.length}</td>
-                    <td className="px-4 py-3 text-right">
-                      {pendingC > 0 ? (
-                        <span className="text-xs font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">{pendingC} 대기</span>
-                      ) : school.teachers.length > 0 ? (
-                        <span className="text-xs text-emerald-500">완료</span>
-                      ) : (
-                        <span className="text-xs text-gray-300">교사 없음</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <button onClick={(e) => { e.stopPropagation(); openEditDialog(school); }}
-                        className="p-1 rounded-md text-gray-300 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-                        title="수정">
-                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" /></svg>
-                      </button>
-                    </td>
-                  </tr>
+
+                      {/* Quick actions */}
+                      <div className="flex items-center gap-1">
+                        <button onClick={() => copyEmails(group.schools.flatMap(s => s.teachers.map(t => t.email)), group.name)}
+                          className="text-[10px] text-gray-400 hover:text-blue-600 bg-gray-50 hover:bg-blue-50 px-2 py-1 rounded transition-colors">
+                          {copied === group.name ? "복사됨!" : "이메일"}
+                        </button>
+                        {(() => {
+                          const ids = pendingIds(group.schools.flatMap(s => s.teachers));
+                          if (ids.length === 0) return null;
+                          return (
+                            <button onClick={() => confirmSend(group.name, ids)} disabled={sending}
+                              className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2 py-1 rounded transition-colors disabled:opacity-40">
+                              Jon {ids.length}
+                            </button>
+                          );
+                        })()}
+                      </div>
+                    </div>
+
+                    {/* Schools list - always expanded */}
+                    <div className="border-t divide-y divide-gray-50">
+                      {group.schools.map(school => renderSchoolRow(school, true))}
+                    </div>
+                  </div>
                 );
               })}
-            </tbody>
-          </table>
-        </div>
-        </div>
-        );
-      })}
+            </div>
 
-      {filtered.length === 0 && <p className="text-center text-gray-400 py-16 text-sm">검색 결과 없음</p>}
+            {teamGroups.length === 0 && (
+              <p className="text-center text-gray-400 text-sm py-8">검색 결과 없음</p>
+            )}
+          </div>
+        )}
+
+        {/* Right: 개별 학교 (4 cols) */}
+        {(showSection === "all" || showSection === "individual") && (
+          <div className={showSection === "individual" ? "col-span-1 md:col-span-12" : "col-span-1 md:col-span-4"}>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-1 h-5 rounded-full bg-gray-400" />
+              <h2 className="text-sm font-bold text-gray-900">개별 학교</h2>
+              <span className="text-xs text-gray-400">{individualSchools.length}교</span>
+            </div>
+
+            <div className="bg-white rounded-xl border overflow-hidden">
+                <div className={`divide-y divide-gray-50 ${showSection === "all" ? "max-h-[calc(100vh-200px)] overflow-y-auto" : ""}`}>
+                {individualSchools.map(school => renderSchoolRow(school))}
+              </div>
+
+              {individualSchools.length === 0 && (
+                <p className="text-center text-gray-400 text-xs py-6">검색 결과 없음</p>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
     </div>
   );
 }

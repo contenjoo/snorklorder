@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
     return createRateLimitResponse("Too many school requests. Please try again later.", rateLimit.retryAfter);
   }
 
-  const { name, nameEn, region, contactName, contactEmail } = await req.json();
+  const { name, nameEn, region, domain, contactName, contactEmail } = await req.json();
 
   if (!name || !contactName || !contactEmail) {
     return NextResponse.json({ error: "학교명, 담당자 이름, 이메일은 필수입니다." }, { status: 400 });
@@ -28,11 +28,18 @@ export async function POST(req: NextRequest) {
   const normalizedName = normalizeText(name, 120);
   const normalizedNameEn = typeof nameEn === "string" ? normalizeText(nameEn, 120) : null;
   const normalizedRegion = typeof region === "string" ? normalizeText(region, 40) : null;
+  const normalizedDomain = typeof domain === "string"
+    ? normalizeText(domain, 120).toLowerCase().replace(/^https?:\/\//, "").replace(/^@/, "").replace(/\/$/, "") || null
+    : null;
   const normalizedContactName = normalizeText(contactName, 80);
   const normalizedContactEmail = normalizeText(contactEmail, 254).toLowerCase();
 
   if (!normalizedName || !normalizedContactName || !isValidEmail(normalizedContactEmail)) {
     return NextResponse.json({ error: "입력값이 올바르지 않습니다." }, { status: 400 });
+  }
+
+  if (normalizedDomain && !/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(normalizedDomain)) {
+    return NextResponse.json({ error: "도메인 형식이 올바르지 않습니다. (예: school.kr)" }, { status: 400 });
   }
 
   const [request] = await db
@@ -41,6 +48,7 @@ export async function POST(req: NextRequest) {
       name: normalizedName,
       nameEn: normalizedNameEn,
       region: normalizedRegion,
+      domain: normalizedDomain,
       contactName: normalizedContactName,
       contactEmail: normalizedContactEmail,
     })

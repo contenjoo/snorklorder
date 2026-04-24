@@ -31,6 +31,7 @@ export const schoolRequests = pgTable("school_requests", {
   name: text("name").notNull(),
   nameEn: text("name_en"),
   region: text("region"),
+  domain: text("domain"),
   contactName: text("contact_name").notNull(),
   contactEmail: text("contact_email").notNull(),
   status: text("status").notNull().default("pending"), // pending | approved | rejected

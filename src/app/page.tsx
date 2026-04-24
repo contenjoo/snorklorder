@@ -28,6 +28,7 @@ export default function TeacherRegistration() {
   const [reqName, setReqName] = useState("");
   const [reqNameEn, setReqNameEn] = useState("");
   const [reqRegion, setReqRegion] = useState("");
+  const [reqDomain, setReqDomain] = useState("");
   const [reqContactName, setReqContactName] = useState("");
   const [reqContactEmail, setReqContactEmail] = useState("");
   const [batchEmails, setBatchEmails] = useState("");
@@ -113,7 +114,7 @@ export default function TeacherRegistration() {
     try {
       const res = await fetch("/api/school-requests", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: reqName.trim(), nameEn: reqNameEn.trim() || null, region: reqRegion || null, contactName: reqContactName.trim(), contactEmail: reqContactEmail.trim() }),
+        body: JSON.stringify({ name: reqName.trim(), nameEn: reqNameEn.trim() || null, region: reqRegion || null, domain: reqDomain.trim() || null, contactName: reqContactName.trim(), contactEmail: reqContactEmail.trim() }),
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || "요청 실패"); return; }
@@ -125,6 +126,7 @@ export default function TeacherRegistration() {
     setStep("choose"); setSchoolCode(""); setSchoolName(""); setSchoolNameEn("");
     setSearchQuery(""); setSearchResults([]); setName(""); setEmail("");
     setSubject(""); setSchoolInput(""); setError(""); setBatchEmails(""); setBatchResult(null);
+    setReqName(""); setReqNameEn(""); setReqRegion(""); setReqDomain(""); setReqContactName(""); setReqContactEmail("");
   }
 
   // Shared input class
@@ -461,12 +463,27 @@ export default function TeacherRegistration() {
                 </select>
               </div>
               <div className="space-y-1.5">
+                <Label className={labelCls}>학교 이메일 도메인 <span className="text-gray-400 font-normal">(선택)</span></Label>
+                <Input placeholder="예: school.kr" value={reqDomain}
+                  onChange={(e) => setReqDomain(e.target.value.toLowerCase().replace(/^https?:\/\//, "").replace(/^@/, ""))}
+                  className={inputCls + " font-mono"} />
+                <p className="text-xs text-gray-400">학교 공식 이메일 도메인이 있으면 입력해주세요 (동료 교사 자동 인식에 사용됩니다)</p>
+              </div>
+              <div className="space-y-1.5">
                 <Label className={labelCls}>담당자 이름 *</Label>
                 <Input placeholder="홍길동" value={reqContactName} onChange={(e) => setReqContactName(e.target.value)} className={inputCls} />
               </div>
               <div className="space-y-1.5">
                 <Label className={labelCls}>담당자 이메일 *</Label>
-                <Input type="email" placeholder="example@school.kr" value={reqContactEmail} onChange={(e) => setReqContactEmail(e.target.value)} className={inputCls} />
+                <Input type="email" placeholder="example@school.kr" value={reqContactEmail}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setReqContactEmail(v);
+                    if (!reqDomain && v.includes("@")) {
+                      const d = v.split("@")[1]?.trim().toLowerCase();
+                      if (d && /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(d)) setReqDomain(d);
+                    }
+                  }} className={inputCls} />
               </div>
               {error && <p className="text-sm text-red-600 font-medium bg-red-50 p-3 rounded-xl">{error}</p>}
               <Button onClick={submitSchoolRequest} disabled={loading} className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-base font-bold rounded-xl">
