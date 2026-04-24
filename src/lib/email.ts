@@ -53,33 +53,117 @@ export async function sendTeacherNotification(schoolName: string, teacher: Teach
   });
 }
 
+// English labels for team names
+const TEAM_EN: Record<string, string> = {
+  "서울1팀": "Seoul Team 1",
+  "서울4팀": "Seoul Team 4",
+  "경기2팀": "Gyeonggi Team 2",
+  "경기3팀": "Gyeonggi Team 3",
+  "경기5팀": "Gyeonggi Team 5",
+};
+
+function teamLabelEn(team: string): string {
+  if (TEAM_EN[team]) return TEAM_EN[team];
+  if (team.includes("개별")) return "Individual";
+  return team;
+}
+
+function isGroupPurchaseTeam(team: string | null | undefined): boolean {
+  if (!team) return false;
+  return !team.includes("개별") && team !== "미배정";
+}
+
 // 선택 교사 일괄 발송 (Jon에게만 + 확인 링크 포함)
 export async function sendBatchNotification(
   groups: { schoolName: string; schoolNameEn?: string; team?: string; teachers: (TeacherInfo & { id?: number })[] }[],
-  confirmToken?: string
+  confirmToken?: string,
+  teamSchoolsMap?: Record<string, string[]>
 ) {
   const t = getTransporter();
   if (!t) return { success: false, error: "Gmail not configured" };
   const total = groups.reduce((s, g) => s + g.teachers.length, 0);
 
-  // Collect unique district/team names for subject
+  // Collect unique team names for subject line
   const teams = [...new Set(groups.map((g) => g.team).filter(Boolean))] as string[];
-  const districtLabel = teams.length > 0 ? ` [${teams.join(", ")}]` : "";
+  const teamLabels = teams.filter(t => isGroupPurchaseTeam(t)).map(t => teamLabelEn(t));
+  const districtLabel = teamLabels.length > 0 ? ` [${teamLabels.join(", ")}]` : "";
 
-  const body = groups.map((g) => {
-    const emailList = g.teachers.map((tc) =>
-      `<div style="padding:5px 0;font-size:14px;font-family:monospace">${safe(tc.email)}</div>`
-    ).join("");
-    const enName = g.schoolNameEn ? ` · ${safe(g.schoolNameEn)}` : "";
-    const teamBadge = g.team ? `<span style="display:inline-block;background:#e0e7ff;color:#4338ca;font-size:11px;padding:2px 8px;border-radius:10px;margin-left:6px;font-weight:normal">${safe(g.team)}</span>` : "";
+  // Group schools by team
+  const teamGroups = new Map<string, typeof groups>();
+  const individualSchools: typeof groups = [];
+
+  for (const g of groups) {
+    if (isGroupPurchaseTeam(g.team)) {
+      const key = g.team!;
+      if (!teamGroups.has(key)) teamGroups.set(key, []);
+      teamGroups.get(key)!.push(g);
+    } else {
+      individualSchools.push(g);
+    }
+  }
+
+  // Build team sections
+  const teamSections = Array.from(teamGroups.entries()).map(([teamKey, teamSchools]) => {
+    const teamTeacherCount = teamSchools.reduce((s, g) => s + g.teachers.length, 0);
+    const label = teamLabelEn(teamKey);
+
+    // Team member summary (all schools in this team, from teamSchoolsMap)
+    const allTeamMembers = teamSchoolsMap?.[teamKey] || [];
+    const memberSummary = allTeamMembers.length > 0
+      ? `<div style="background:#f0f4ff;border-left:3px solid #6366f1;padding:8px 12px;margin:0 0 16px;border-radius:0 6px 6px 0;font-size:12px;color:#4338ca">
+           <strong>Team members (${allTeamMembers.length} schools):</strong> ${allTeamMembers.map(n => safe(n)).join(", ")}
+         </div>`
+      : "";
+
+    // School blocks within this team
+    const schoolBlocks = teamSchools.map((g) => {
+      const emailList = g.teachers.map((tc) =>
+        `<div style="padding:4px 0;font-size:14px;font-family:monospace">${safe(tc.email)}</div>`
+      ).join("");
+      const enName = g.schoolNameEn ? ` · ${safe(g.schoolNameEn)}` : "";
+      return `
+        <div style="margin-bottom:16px">
+          <h4 style="color:#1e3a5f;margin:0 0 6px;font-size:14px">🏫 ${safe(g.schoolName)}${enName} <span style="color:#999;font-weight:normal">(${g.teachers.length})</span></h4>
+          <div style="background:#f8f9fa;border-radius:6px;padding:6px 14px">
+            ${emailList}
+          </div>
+        </div>`;
+    }).join("");
+
     return `
-      <div style="margin-bottom:24px">
-        <h3 style="color:#1e3a5f;margin:0 0 8px;font-size:16px">🏫 ${safe(g.schoolName)}${enName}${teamBadge} <span style="color:#999;font-weight:normal">(${g.teachers.length})</span></h3>
-        <div style="background:#f8f9fa;border-radius:8px;padding:8px 14px">
-          ${emailList}
+      <div style="margin-bottom:32px">
+        <div style="border-bottom:2px solid #6366f1;padding-bottom:8px;margin-bottom:12px">
+          <h3 style="color:#1e3a5f;margin:0;font-size:17px">📦 ${safe(label)}</h3>
+          <p style="margin:2px 0 0;color:#666;font-size:13px">${teamTeacherCount} teacher${teamTeacherCount !== 1 ? "s" : ""} from ${teamSchools.length} school${teamSchools.length !== 1 ? "s" : ""}</p>
         </div>
+        ${memberSummary}
+        ${schoolBlocks}
       </div>`;
   }).join("");
+
+  // Individual schools section
+  const individualSection = individualSchools.length > 0
+    ? `
+      <div style="margin-bottom:32px">
+        <div style="border-bottom:2px solid #94a3b8;padding-bottom:8px;margin-bottom:12px">
+          <h3 style="color:#1e3a5f;margin:0;font-size:17px">📋 Individual Schools</h3>
+          <p style="margin:2px 0 0;color:#666;font-size:13px">${individualSchools.reduce((s, g) => s + g.teachers.length, 0)} teacher${individualSchools.reduce((s, g) => s + g.teachers.length, 0) !== 1 ? "s" : ""} from ${individualSchools.length} school${individualSchools.length !== 1 ? "s" : ""}</p>
+        </div>
+        ${individualSchools.map((g) => {
+          const emailList = g.teachers.map((tc) =>
+            `<div style="padding:4px 0;font-size:14px;font-family:monospace">${safe(tc.email)}</div>`
+          ).join("");
+          const enName = g.schoolNameEn ? ` · ${safe(g.schoolNameEn)}` : "";
+          return `
+            <div style="margin-bottom:16px">
+              <h4 style="color:#1e3a5f;margin:0 0 6px;font-size:14px">🏫 ${safe(g.schoolName)}${enName} <span style="color:#999;font-weight:normal">(${g.teachers.length})</span></h4>
+              <div style="background:#f8f9fa;border-radius:6px;padding:6px 14px">
+                ${emailList}
+              </div>
+            </div>`;
+        }).join("")}
+      </div>`
+    : "";
 
   const confirmSection = confirmToken
     ? `
@@ -93,18 +177,25 @@ export async function sendBatchNotification(
       </div>`
     : "";
 
+  // Count teams for summary
+  const teamCount = teamGroups.size;
+  const summaryParts: string[] = [];
+  if (teamCount > 0) summaryParts.push(`${teamCount} group purchase team${teamCount !== 1 ? "s" : ""}`);
+  if (individualSchools.length > 0) summaryParts.push(`${individualSchools.length} individual school${individualSchools.length !== 1 ? "s" : ""}`);
+
   await t.sendMail({
     from: ADMIN_EMAIL,
     to: JON_EMAIL,
-    subject: `[Snorkl] Upgrade Request - ${total} teacher${total !== 1 ? "s" : ""}, ${groups.length} school(s)${districtLabel}`,
+    subject: `[Snorkl] Upgrade Request — ${total} teacher${total !== 1 ? "s" : ""}, ${groups.length} school(s)${districtLabel}`,
     html: `
       <div style="max-width:600px;margin:0 auto;font-family:-apple-system,sans-serif">
         <div style="background:#1e3a5f;color:white;padding:20px 24px;border-radius:12px 12px 0 0">
           <h2 style="margin:0;font-size:20px">🐳 Teacher Upgrade Request</h2>
-          <p style="margin:4px 0 0;opacity:0.8;font-size:14px">Total: ${total} teacher${total !== 1 ? "s" : ""} from ${groups.length} school(s)</p>
+          <p style="margin:4px 0 0;opacity:0.8;font-size:14px">${total} teacher${total !== 1 ? "s" : ""} from ${summaryParts.join(" + ")}</p>
         </div>
         <div style="background:white;padding:24px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px">
-          ${body}
+          ${teamSections}
+          ${individualSection}
           ${confirmSection}
           <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
           <p style="color:#999;font-size:11px;text-align:center">Sent from Snorkl 주문관리 · LearnToday</p>

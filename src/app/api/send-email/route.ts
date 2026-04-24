@@ -41,6 +41,21 @@ export async function POST(req: NextRequest) {
 
   const groups = Array.from(grouped.values());
 
+  // Fetch all schools in the same teams (for team summary in email)
+  const teamNames = [...new Set(groups.map(g => g.team).filter(Boolean))] as string[];
+  let teamSchoolsMap: Record<string, string[]> = {};
+  if (teamNames.length > 0) {
+    const allTeamSchools = await db
+      .select({ name: schools.name, nameEn: schools.nameEn, team: schools.team })
+      .from(schools)
+      .where(inArray(schools.team, teamNames));
+    for (const s of allTeamSchools) {
+      if (!s.team) continue;
+      if (!teamSchoolsMap[s.team]) teamSchoolsMap[s.team] = [];
+      teamSchoolsMap[s.team].push(s.nameEn || s.name);
+    }
+  }
+
   // 배치 토큰 생성
   const token = randomBytes(16).toString("hex");
   await db.insert(upgradeBatches).values({
@@ -48,8 +63,8 @@ export async function POST(req: NextRequest) {
     teacherIds: JSON.stringify(teacherIds),
   });
 
-  // Send batch email to Jon (with confirm link)
-  const result = await sendBatchNotification(groups, token);
+  // Send batch email to Jon (with confirm link + team school map)
+  const result = await sendBatchNotification(groups, token, teamSchoolsMap);
 
   if (result.success) {
     // Update status to 'sent'
