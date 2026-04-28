@@ -132,6 +132,21 @@ export default function TeacherRegistration() {
 
     setLoading(true); setError("");
     try {
+      // 학교명 영문 자동 번역 (실패해도 등록은 계속 진행)
+      let schoolNameEn: string | null = null;
+      try {
+        const tres = await fetch("/api/translate", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: purchaseSchoolName.trim() }),
+        });
+        if (tres.ok) {
+          const tdata = await tres.json();
+          if (tdata.translated && typeof tdata.translated === "string") {
+            schoolNameEn = tdata.translated.trim() || null;
+          }
+        }
+      } catch { /* 번역 실패는 무시 */ }
+
       const notes = [
         "[INDIVIDUAL_PURCHASE]",
         ...filled.map((t, i) => `Teacher ${i + 1}: ${t.name.trim()} <${t.email.trim()}>${t.subject.trim() ? ` · ${t.subject.trim()}` : ""}`),
@@ -142,6 +157,7 @@ export default function TeacherRegistration() {
           action: "create",
           type: "upgrade",
           schoolName: purchaseSchoolName.trim(),
+          schoolNameEn,
           emails: emails.join(", "),
           accountType: "teacher",
           quantity: filled.length,
