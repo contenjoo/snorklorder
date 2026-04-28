@@ -34,6 +34,8 @@ export default function TeacherRegistration() {
   const [batchResult, setBatchResult] = useState<{ registered: number; duplicates: number } | null>(null);
   const [purchaseSchoolName, setPurchaseSchoolName] = useState("");
   const [purchaseTeachers, setPurchaseTeachers] = useState<{ name: string; email: string; subject: string }[]>([{ name: "", email: "", subject: "" }]);
+  const [purchaseMode, setPurchaseMode] = useState<"individual" | "bulk">("individual");
+  const [purchaseBulkEmails, setPurchaseBulkEmails] = useState("");
 
   useEffect(() => {
     const trimmedQuery = searchQuery.trim();
@@ -116,19 +118,38 @@ export default function TeacherRegistration() {
     setSubject(""); setError(""); setBatchEmails(""); setBatchResult(null);
     setReqName(""); setReqNameEn(""); setReqRegion(""); setReqDomain(""); setReqContactName(""); setReqContactEmail("");
     setPurchaseSchoolName(""); setPurchaseTeachers([{ name: "", email: "", subject: "" }]);
+    setPurchaseMode("individual"); setPurchaseBulkEmails("");
   }
 
   async function submitPurchase() {
     if (!purchaseSchoolName.trim()) { setError("소속 학교/기관을 입력해주세요."); return; }
-    const filled = purchaseTeachers.filter((t) => t.name.trim() || t.email.trim());
-    if (filled.length === 0) { setError("최소 1명 이상의 교사 정보를 입력해주세요."); return; }
-    for (const t of filled) {
-      if (!t.name.trim() || !t.email.trim()) { setError("이름과 이메일을 모두 입력해주세요."); return; }
-      const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRe.test(t.email.trim())) { setError(`유효하지 않은 이메일: ${t.email}`); return; }
+    const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    let emails: string[];
+    let notesLines: string[];
+
+    if (purchaseMode === "bulk") {
+      const parsed = purchaseBulkEmails
+        .split(/[\n,;\s]+/).map((e) => e.trim().toLowerCase()).filter(Boolean);
+      const valid = parsed.filter((e) => emailRe.test(e));
+      const invalid = parsed.filter((e) => !emailRe.test(e));
+      if (invalid.length > 0) { setError(`유효하지 않은 이메일: ${invalid.slice(0,3).join(", ")}${invalid.length>3?" 외":""}`); return; }
+      const unique = [...new Set(valid)];
+      if (unique.length === 0) { setError("이메일을 1개 이상 입력해주세요."); return; }
+      if (unique.length > 10) { setError(`최대 10개까지 가능합니다 (현재 ${unique.length}개).`); return; }
+      emails = unique;
+      notesLines = ["[INDIVIDUAL_PURCHASE_BULK]", ...unique.map((e, i) => `Teacher ${i + 1}: <${e}>`)];
+    } else {
+      const filled = purchaseTeachers.filter((t) => t.name.trim() || t.email.trim());
+      if (filled.length === 0) { setError("최소 1명 이상의 교사 정보를 입력해주세요."); return; }
+      for (const t of filled) {
+        if (!t.name.trim() || !t.email.trim()) { setError("이름과 이메일을 모두 입력해주세요."); return; }
+        if (!emailRe.test(t.email.trim())) { setError(`유효하지 않은 이메일: ${t.email}`); return; }
+      }
+      emails = filled.map((t) => t.email.trim().toLowerCase());
+      if (new Set(emails).size !== emails.length) { setError("중복된 이메일이 있습니다."); return; }
+      notesLines = ["[INDIVIDUAL_PURCHASE]", ...filled.map((t, i) => `Teacher ${i + 1}: ${t.name.trim()} <${t.email.trim()}>${t.subject.trim() ? ` · ${t.subject.trim()}` : ""}`)];
     }
-    const emails = filled.map((t) => t.email.trim().toLowerCase());
-    if (new Set(emails).size !== emails.length) { setError("중복된 이메일이 있습니다."); return; }
 
     setLoading(true); setError("");
     try {
@@ -147,10 +168,7 @@ export default function TeacherRegistration() {
         }
       } catch { /* 번역 실패는 무시 */ }
 
-      const notes = [
-        "[INDIVIDUAL_PURCHASE]",
-        ...filled.map((t, i) => `Teacher ${i + 1}: ${t.name.trim()} <${t.email.trim()}>${t.subject.trim() ? ` · ${t.subject.trim()}` : ""}`),
-      ].join("\n");
+      const notes = notesLines.join("\n");
       const res = await fetch("/api/account-requests", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -160,7 +178,7 @@ export default function TeacherRegistration() {
           schoolNameEn,
           emails: emails.join(", "),
           accountType: "teacher",
-          quantity: filled.length,
+          quantity: emails.length,
           notes,
         }),
       });
@@ -537,6 +555,41 @@ export default function TeacherRegistration() {
                 <Input id="purchase-school-name" placeholder="예: 서울 OO고등학교" value={purchaseSchoolName} onChange={(e) => setPurchaseSchoolName(e.target.value)} autoFocus className={inputCls} />
               </div>
 
+              {/* 입력 모드 토글 */}
+              <div className="flex rounded-xl bg-gray-100 p-1">
+                <button
+                  type="button"
+                  onClick={() => { setPurchaseMode("individual"); setError(""); }}
+                  className={`flex-1 text-sm py-2.5 rounded-lg font-medium transition-all ${purchaseMode === "individual" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+                >개별 입력</button>
+                <button
+                  type="button"
+                  onClick={() => { setPurchaseMode("bulk"); setError(""); }}
+                  className={`flex-1 text-sm py-2.5 rounded-lg font-medium transition-all ${purchaseMode === "bulk" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+                >일괄 붙여넣기</button>
+              </div>
+
+              {purchaseMode === "bulk" ? (
+                <div className="space-y-1.5">
+                  <Label htmlFor="purchase-bulk-emails" className={labelCls}>이메일 목록 *</Label>
+                  <textarea
+                    id="purchase-bulk-emails"
+                    placeholder={"teacher1@school.kr\nteacher2@school.kr\nteacher3@school.kr"}
+                    value={purchaseBulkEmails}
+                    onChange={(e) => setPurchaseBulkEmails(e.target.value)}
+                    rows={8}
+                    className="w-full bg-white border-2 border-gray-200 text-gray-900 placeholder:text-gray-400 text-sm font-mono rounded-xl p-4 focus:border-emerald-500 focus:ring-emerald-500 outline-none resize-y"
+                  />
+                  <p className="text-xs text-gray-500">한 줄에 하나씩, 또는 쉼표(,) 구분. 이름 없이 이메일만으로 등록됩니다. 최대 10명.</p>
+                  {purchaseBulkEmails.trim() && (
+                    <div className="text-sm text-gray-600 bg-gray-50 rounded-xl p-3">
+                      인식된 이메일: <span className="font-bold text-emerald-600">
+                        {purchaseBulkEmails.split(/[\n,;\s]+/).map((e) => e.trim()).filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)).length}개
+                      </span>
+                    </div>
+                  )}
+                </div>
+              ) : (
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <Label className={labelCls}>교사 정보 ({purchaseTeachers.length}명)</Label>
@@ -598,6 +651,7 @@ export default function TeacherRegistration() {
                   </button>
                 )}
               </div>
+              )}
 
               {error && <p role="alert" aria-live="polite" className="text-sm text-red-600 font-medium bg-red-50 p-3 rounded-xl">{error}</p>}
               <Button type="submit" disabled={loading} className="w-full h-12 bg-emerald-600 hover:bg-emerald-700 text-base font-bold rounded-xl">
