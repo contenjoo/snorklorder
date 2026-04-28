@@ -1,3 +1,4 @@
+// TODO(security): code field is enumeration-sensitive. Consider returning only {id, name, nameEn} and require auth or a per-session token for the code lookup. See QC report L2.
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
@@ -7,7 +8,7 @@ import { sql } from "drizzle-orm";
 export async function GET(req: NextRequest) {
   const q = req.nextUrl.searchParams.get("q")?.trim();
 
-  if (!q || q.length < 1) {
+  if (!q || q.length < 2) {
     return NextResponse.json([]);
   }
 

@@ -1,6 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { checkRateLimit, createRateLimitResponse } from '@/lib/security';
 
 export async function POST(req: NextRequest) {
+  const rateLimit = checkRateLimit({
+    request: req,
+    key: 'translate',
+    limit: 30,
+    windowMs: 60_000,
+  });
+
+  if (!rateLimit.ok) {
+    return createRateLimitResponse('Too many translation requests. Please try again later.', rateLimit.retryAfter);
+  }
+
   try {
     const { text } = await req.json();
 

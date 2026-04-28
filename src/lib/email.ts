@@ -5,6 +5,12 @@ const DIGEST_RECIPIENTS = ["jon@snorkl.app", "jeff@snorkl.app"];
 const ADMIN_EMAIL = process.env.GMAIL_USER || "";
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || "https://snorkl-teacher-reg.vercel.app";
 
+export interface EmailResult {
+  success: boolean;
+  skipped?: boolean;
+  error?: string;
+}
+
 function escapeHtml(value: string) {
   return value
     .replace(/&/g, "&amp;")
@@ -19,10 +25,18 @@ function safe(value: string | null | undefined, fallback = "") {
   return escapeHtml(value);
 }
 
+let _warnedMissingEnv = false;
 function getTransporter() {
   const user = process.env.GMAIL_USER;
   const pass = process.env.GMAIL_APP_PASSWORD;
-  if (!user || !pass) return null;
+  if (!user || !pass) {
+    // M5: warn once per process when env vars are absent
+    if (!_warnedMissingEnv) {
+      console.warn("[email] GMAIL_USER/GMAIL_APP_PASSWORD not configured — email skipped");
+      _warnedMissingEnv = true;
+    }
+    return null;
+  }
   return nodemailer.createTransport({ service: "gmail", auth: { user, pass } });
 }
 
@@ -33,24 +47,84 @@ interface TeacherInfo {
 }
 
 // 교사 등록 시 Jon에게 즉시 알림
-export async function sendTeacherNotification(schoolName: string, teacher: TeacherInfo) {
+export async function sendTeacherNotification(schoolName: string, teacher: TeacherInfo): Promise<EmailResult> {
   const t = getTransporter();
-  if (!t) return;
+  if (!t) return { success: false, skipped: true };
   const safeSchoolName = safe(schoolName);
   const safeTeacherName = safe(teacher.name);
   const safeTeacherEmail = safe(teacher.email);
   const safeTeacherSubject = safe(teacher.subject, "N/A");
-  await t.sendMail({
-    from: ADMIN_EMAIL,
-    to: JON_EMAIL,
-    subject: `[Snorkl] New Teacher - ${schoolName.replace(/[\r\n]/g, " ").trim()}`,
-    html: `
-      <h3>New Teacher Registration</h3>
-      <p><b>School:</b> ${safeSchoolName}</p>
-      <p><b>Name:</b> ${safeTeacherName} | <b>Email:</b> ${safeTeacherEmail} | <b>Subject:</b> ${safeTeacherSubject}</p>
-      <p style="color:#666;font-size:12px">Please upgrade this teacher in Snorkl.</p>
-    `,
-  });
+  try {
+    await t.sendMail({
+      from: ADMIN_EMAIL,
+      to: JON_EMAIL,
+      subject: `[Snorkl] New Teacher - ${schoolName.replace(/[\r\n]/g, " ").trim()}`,
+      html: `
+        <h3>New Teacher Registration</h3>
+        <p><b>School:</b> ${safeSchoolName}</p>
+        <p><b>Name:</b> ${safeTeacherName} | <b>Email:</b> ${safeTeacherEmail} | <b>Subject:</b> ${safeTeacherSubject}</p>
+        <p style="color:#666;font-size:12px">Please upgrade this teacher in Snorkl.</p>
+      `,
+    });
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+// H1: Account request 생성 시 Jon에게 즉시 알림
+export async function sendAccountRequestNotification(requestData: {
+  applicantType?: string | null;
+  schoolName: string;
+  schoolNameEn?: string | null;
+  type?: string | null;
+  accountType?: string | null;
+  quantity?: number | null;
+  emails?: string | null;
+  notes?: string | null;
+}): Promise<EmailResult> {
+  const t = getTransporter();
+  if (!t) return { success: false, skipped: true };
+  const { schoolName, schoolNameEn, applicantType, type, accountType, quantity, emails, notes } = requestData;
+  const enName = schoolNameEn ? ` (${safe(schoolNameEn)})` : "";
+  const qty = quantity ?? 1;
+  const emailLines = emails
+    ? emails.split(/,\s*/).map((e) => `<div style="padding:2px 0;font-size:14px;font-family:monospace">${safe(e.trim())}</div>`).join("")
+    : "<em>none</em>";
+  try {
+    await t.sendMail({
+      from: ADMIN_EMAIL,
+      to: JON_EMAIL,
+      subject: `[Snorkl] Account Request — ${schoolName.replace(/[\r\n]/g, " ").trim()} (${qty}명)`,
+      html: `
+        <div style="max-width:600px;margin:0 auto;font-family:-apple-system,sans-serif">
+          <div style="background:#1e3a5f;color:white;padding:20px 24px;border-radius:12px 12px 0 0">
+            <h2 style="margin:0;font-size:20px">Account Request</h2>
+            <p style="margin:4px 0 0;opacity:0.8;font-size:14px">${safe(schoolName)}${enName}</p>
+          </div>
+          <div style="background:white;padding:24px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px">
+            <table style="border-collapse:collapse;width:100%;font-size:14px">
+              <tr><td style="padding:6px 12px 6px 0;color:#666;white-space:nowrap"><b>Applicant Type</b></td><td style="padding:6px 0">${safe(applicantType, "—")}</td></tr>
+              <tr><td style="padding:6px 12px 6px 0;color:#666;white-space:nowrap"><b>School</b></td><td style="padding:6px 0">${safe(schoolName)}${enName}</td></tr>
+              <tr><td style="padding:6px 12px 6px 0;color:#666;white-space:nowrap"><b>Request Type</b></td><td style="padding:6px 0">${safe(type, "—")}</td></tr>
+              <tr><td style="padding:6px 12px 6px 0;color:#666;white-space:nowrap"><b>Account Type</b></td><td style="padding:6px 0">${safe(accountType, "—")}</td></tr>
+              <tr><td style="padding:6px 12px 6px 0;color:#666;white-space:nowrap"><b>Quantity</b></td><td style="padding:6px 0">${qty}명</td></tr>
+            </table>
+            <div style="margin:16px 0">
+              <p style="margin:0 0 6px;color:#666;font-size:13px;font-weight:bold">Emails</p>
+              <div style="background:#f8f9fa;border-radius:6px;padding:6px 14px">${emailLines}</div>
+            </div>
+            ${notes ? `<div style="margin:16px 0"><p style="margin:0 0 6px;color:#666;font-size:13px;font-weight:bold">Notes</p><div style="background:#fffbea;border-left:3px solid #f59e0b;padding:10px 14px;border-radius:0 6px 6px 0;font-size:14px;white-space:pre-wrap">${safe(notes)}</div></div>` : ""}
+            <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
+            <p style="color:#999;font-size:11px;text-align:center">Sent from Snorkl 주문관리 · LearnToday</p>
+          </div>
+        </div>
+      `,
+    });
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
 }
 
 // English labels for team names
@@ -207,53 +281,63 @@ export async function sendBatchNotification(
 }
 
 // 학교 등록 요청 시 관리자에게 알림
-export async function sendAdminNotification(request: { name: string; contactName: string; contactEmail: string; region: string | null }) {
+export async function sendAdminNotification(request: { name: string; contactName: string; contactEmail: string; region: string | null }): Promise<EmailResult> {
   const t = getTransporter();
-  if (!t) return;
-  await t.sendMail({
-    from: ADMIN_EMAIL,
-    to: ADMIN_EMAIL,
-    subject: `[Snorkl] 새 학교 등록 요청 - ${request.name.replace(/[\r\n]/g, " ").trim()}`,
-    html: `
-      <h3>학교 등록 요청</h3>
-      <p><b>학교명:</b> ${safe(request.name)}</p>
-      <p><b>지역:</b> ${safe(request.region, "미입력")}</p>
-      <p><b>담당자:</b> ${safe(request.contactName)} (${safe(request.contactEmail)})</p>
-      <p><a href="https://snorkl-teacher-reg.vercel.app/admin/requests">승인하러 가기 →</a></p>
-    `,
-  });
+  if (!t) return { success: false, skipped: true };
+  try {
+    await t.sendMail({
+      from: ADMIN_EMAIL,
+      to: ADMIN_EMAIL,
+      subject: `[Snorkl] 새 학교 등록 요청 - ${request.name.replace(/[\r\n]/g, " ").trim()}`,
+      html: `
+        <h3>학교 등록 요청</h3>
+        <p><b>학교명:</b> ${safe(request.name)}</p>
+        <p><b>지역:</b> ${safe(request.region, "미입력")}</p>
+        <p><b>담당자:</b> ${safe(request.contactName)} (${safe(request.contactEmail)})</p>
+        <p><a href="https://snorkl-teacher-reg.vercel.app/admin/requests">승인하러 가기 →</a></p>
+      `,
+    });
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
 }
 
 // 승인 후 담당자에게 학교 코드 이메일 발송
-export async function sendSchoolCodeEmail(email: string, name: string, schoolName: string, code: string) {
+export async function sendSchoolCodeEmail(email: string, name: string, schoolName: string, code: string): Promise<EmailResult> {
   const t = getTransporter();
-  if (!t) return;
-  await t.sendMail({
-    from: ADMIN_EMAIL,
-    to: email,
-    subject: `[Snorkl] ${schoolName.replace(/[\r\n]/g, " ").trim()} 학교 코드가 발급되었습니다`,
-    html: `
-      <div style="max-width:480px;margin:0 auto;font-family:sans-serif">
-        <h2 style="color:#1e3a5f">${safe(schoolName)}</h2>
-        <p>${safe(name)} 선생님, 학교 등록이 승인되었습니다!</p>
-        <div style="background:#f0f7ff;border-radius:12px;padding:20px;text-align:center;margin:20px 0">
-          <p style="color:#666;margin:0 0 8px">학교 코드</p>
-          <p style="font-size:32px;font-weight:bold;color:#1e3a5f;letter-spacing:4px;margin:0">${safe(code)}</p>
+  if (!t) return { success: false, skipped: true };
+  try {
+    await t.sendMail({
+      from: ADMIN_EMAIL,
+      to: email,
+      subject: `[Snorkl] ${schoolName.replace(/[\r\n]/g, " ").trim()} 학교 코드가 발급되었습니다`,
+      html: `
+        <div style="max-width:480px;margin:0 auto;font-family:sans-serif">
+          <h2 style="color:#1e3a5f">${safe(schoolName)}</h2>
+          <p>${safe(name)} 선생님, 학교 등록이 승인되었습니다!</p>
+          <div style="background:#f0f7ff;border-radius:12px;padding:20px;text-align:center;margin:20px 0">
+            <p style="color:#666;margin:0 0 8px">학교 코드</p>
+            <p style="font-size:32px;font-weight:bold;color:#1e3a5f;letter-spacing:4px;margin:0">${safe(code)}</p>
+          </div>
+          <p>아래 링크를 동료 선생님들에게 공유해주세요:</p>
+          <p><a href="https://snorkl-teacher-reg.vercel.app" style="color:#2563eb">https://snorkl-teacher-reg.vercel.app</a></p>
+          <p style="color:#666;font-size:13px">선생님들이 위 링크에서 학교 코드를 입력하고 Snorkl 프리미엄 등록을 하시면 됩니다.</p>
+          <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
+          <p style="color:#999;font-size:11px">이 메일은 Snorkl 주문관리 시스템에서 자동 발송되었습니다.</p>
         </div>
-        <p>아래 링크를 동료 선생님들에게 공유해주세요:</p>
-        <p><a href="https://snorkl-teacher-reg.vercel.app" style="color:#2563eb">https://snorkl-teacher-reg.vercel.app</a></p>
-        <p style="color:#666;font-size:13px">선생님들이 위 링크에서 학교 코드를 입력하고 Snorkl 프리미엄 등록을 하시면 됩니다.</p>
-        <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
-        <p style="color:#999;font-size:11px">이 메일은 Snorkl 주문관리 시스템에서 자동 발송되었습니다.</p>
-      </div>
-    `,
-  });
+      `,
+    });
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
 }
 
 // 매일 자동 digest
-export async function sendDailyDigest(teachers: { teacherName: string; teacherEmail: string; subject: string | null; schoolName: string; schoolCode: string }[]) {
+export async function sendDailyDigest(teachers: { teacherName: string; teacherEmail: string; subject: string | null; schoolName: string; schoolCode: string }[]): Promise<EmailResult> {
   const t = getTransporter();
-  if (!t) return;
+  if (!t) return { success: false, skipped: true };
   // Group by school
   const bySchool = new Map<string, typeof teachers>();
   for (const tc of teachers) {
@@ -266,15 +350,20 @@ export async function sendDailyDigest(teachers: { teacherName: string; teacherEm
       .join("<br>");
     return `<h3>${safe(school)} (${tcs.length})</h3><p>${lines}</p>`;
   }).join("<hr>");
-  await t.sendMail({
-    from: ADMIN_EMAIL,
-    to: DIGEST_RECIPIENTS.join(", "),
-    subject: `[Snorkl] Daily Digest - ${teachers.length} new teachers`,
-    html: `
-      <h2>Daily Teacher Registration Digest</h2>
-      <p>New registrations in the last 24 hours: <b>${teachers.length}</b></p>
-      <hr>${body}
-      <hr><p style="color:#666;font-size:12px">Auto-sent from Snorkl Teacher Registration Manager</p>
-    `,
-  });
+  try {
+    await t.sendMail({
+      from: ADMIN_EMAIL,
+      to: DIGEST_RECIPIENTS.join(", "),
+      subject: `[Snorkl] Daily Digest - ${teachers.length} new teachers`,
+      html: `
+        <h2>Daily Teacher Registration Digest</h2>
+        <p>New registrations in the last 24 hours: <b>${teachers.length}</b></p>
+        <hr>${body}
+        <hr><p style="color:#666;font-size:12px">Auto-sent from Snorkl Teacher Registration Manager</p>
+      `,
+    });
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
 }

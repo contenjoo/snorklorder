@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-type Step = "choose" | "schoolFind" | "schoolForm" | "batchForm" | "individualForm" | "success" | "batchSuccess" | "request" | "requestSent" | "purchaseForm";
+type Step = "choose" | "schoolFind" | "schoolForm" | "batchForm" | "success" | "batchSuccess" | "request" | "requestSent" | "purchaseForm";
 type FindMode = "search" | "code";
 
 interface SchoolResult { id: number; name: string; nameEn: string | null; code: string; }
@@ -21,7 +21,6 @@ export default function TeacherRegistration() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [subject, setSubject] = useState("");
-  const [schoolInput, setSchoolInput] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [searchTimer, setSearchTimer] = useState<NodeJS.Timeout | null>(null);
@@ -81,20 +80,6 @@ export default function TeacherRegistration() {
     } catch { setError("연결 오류입니다."); } finally { setLoading(false); }
   }
 
-  async function submitIndividual() {
-    if (!name.trim() || !email.trim() || !schoolInput.trim()) { setError("이름, 이메일, 소속학교는 필수입니다."); return; }
-    setLoading(true); setError("");
-    try {
-      const res = await fetch("/api/account-requests", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "create", type: "upgrade", schoolName: schoolInput.trim(), emails: email.trim(), accountType: "teacher", quantity: 1, notes: `개인 등록 | 이름: ${name.trim()} | 과목: ${subject.trim() || "N/A"}` }),
-      });
-      const data = await res.json();
-      if (!res.ok) { setError(data.error || "등록 실패"); return; }
-      setStep("success");
-    } catch { setError("연결 오류입니다."); } finally { setLoading(false); }
-  }
-
   async function submitBatch() {
     const emails = batchEmails.split(/[\n,;]+/).map((e) => e.trim()).filter((e) => e && e.includes("@"));
     if (emails.length === 0) { setError("유효한 이메일을 입력해주세요."); return; }
@@ -128,7 +113,7 @@ export default function TeacherRegistration() {
   function reset() {
     setStep("choose"); setSchoolCode(""); setSchoolName(""); setSchoolNameEn("");
     setSearchQuery(""); setSearchResults([]); setName(""); setEmail("");
-    setSubject(""); setSchoolInput(""); setError(""); setBatchEmails(""); setBatchResult(null);
+    setSubject(""); setError(""); setBatchEmails(""); setBatchResult(null);
     setReqName(""); setReqNameEn(""); setReqRegion(""); setReqDomain(""); setReqContactName(""); setReqContactEmail("");
     setPurchaseSchoolName(""); setPurchaseTeachers([{ name: "", email: "", subject: "" }]);
   }
@@ -139,7 +124,8 @@ export default function TeacherRegistration() {
     if (filled.length === 0) { setError("최소 1명 이상의 교사 정보를 입력해주세요."); return; }
     for (const t of filled) {
       if (!t.name.trim() || !t.email.trim()) { setError("이름과 이메일을 모두 입력해주세요."); return; }
-      if (!t.email.includes("@")) { setError(`유효하지 않은 이메일: ${t.email}`); return; }
+      const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRe.test(t.email.trim())) { setError(`유효하지 않은 이메일: ${t.email}`); return; }
     }
     const emails = filled.map((t) => t.email.trim().toLowerCase());
     if (new Set(emails).size !== emails.length) { setError("중복된 이메일이 있습니다."); return; }
@@ -226,7 +212,7 @@ export default function TeacherRegistration() {
                 </div>
               </button>
 
-              {/* 교사 개인구매 (이메일 링크) */}
+              {/* 교사 개인구매 */}
               <button
                 onClick={() => { setStep("purchaseForm"); setError(""); }}
                 className="w-full rounded-2xl border-2 border-gray-100 p-5 text-left hover:border-emerald-200 hover:bg-emerald-50/30 transition-all group"
@@ -235,7 +221,7 @@ export default function TeacherRegistration() {
                   <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center text-2xl group-hover:scale-105 transition-transform">👤</div>
                   <div className="flex-1">
                     <p className="font-bold text-gray-900">교사 개인구매</p>
-                    <p className="text-sm text-gray-500">1~3인 좌석 · 구매자 이메일로 등록 링크 발송</p>
+                    <p className="text-sm text-gray-500">최대 10명까지 한 번에 등록</p>
                   </div>
                   <svg className="w-5 h-5 text-gray-300 group-hover:text-emerald-400 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -291,12 +277,12 @@ export default function TeacherRegistration() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  <Input placeholder="예: HYOMYEONG" value={schoolCode}
+                  <Input id="school-code" aria-label="학교 코드" placeholder="예: HYOMYEONG" value={schoolCode}
                     onChange={(e) => setSchoolCode(e.target.value.toUpperCase())}
                     onKeyDown={(e) => e.key === "Enter" && lookupCode()}
                     autoFocus
                     className={inputCls + " font-mono tracking-widest"} />
-                  {error && <p className="text-sm text-red-600 font-medium">{error}</p>}
+                  {error && <p role="alert" aria-live="polite" className="text-sm text-red-600 font-medium">{error}</p>}
                   <Button onClick={lookupCode} disabled={loading} className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-base font-bold rounded-xl">
                     {loading ? "확인 중..." : "다음 →"}
                   </Button>
@@ -309,15 +295,15 @@ export default function TeacherRegistration() {
 
           {/* ===== 학교 소속 교사 폼 (1명) ===== */}
           {step === "schoolForm" && (
-            <div className="p-6 space-y-5">
+            <form onSubmit={(e) => { e.preventDefault(); submitSchoolTeacher(); }} className="p-6 space-y-5">
               <div className="text-center rounded-xl bg-blue-50 border border-blue-100 p-5">
                 <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center text-2xl mx-auto mb-2">🏫</div>
                 <p className="text-xl font-bold text-gray-900">{schoolName}</p>
                 {schoolNameEn && <p className="text-sm text-blue-600">{schoolNameEn}</p>}
                 <div className="flex items-center justify-center gap-3 mt-2">
-                  <button onClick={reset} className="text-sm text-blue-600 font-semibold underline">학교 변경</button>
+                  <button type="button" onClick={reset} className="text-sm text-blue-600 font-semibold underline">학교 변경</button>
                   <span className="text-gray-300">|</span>
-                  <button onClick={() => { setStep("batchForm"); setError(""); }} className="text-sm text-blue-600 font-semibold underline">일괄 등록으로 전환</button>
+                  <button type="button" onClick={() => { setStep("batchForm"); setError(""); }} className="text-sm text-blue-600 font-semibold underline">일괄 등록으로 전환</button>
                 </div>
               </div>
 
@@ -330,35 +316,35 @@ export default function TeacherRegistration() {
               </div>
 
               <div className="space-y-1.5">
-                <Label className={labelCls}>이름 *</Label>
-                <Input placeholder="홍길동" value={name} onChange={(e) => setName(e.target.value)} autoFocus className={inputCls} />
+                <Label htmlFor="school-name" className={labelCls}>이름 *</Label>
+                <Input id="school-name" autoComplete="name" placeholder="홍길동" value={name} onChange={(e) => setName(e.target.value)} autoFocus className={inputCls} />
               </div>
               <div className="space-y-1.5">
-                <Label className={labelCls}>이메일 * <span className="text-gray-400 font-normal">(Snorkl 가입 이메일)</span></Label>
-                <Input type="email" placeholder="example@school.kr" value={email} onChange={(e) => setEmail(e.target.value)} className={inputCls} />
+                <Label htmlFor="school-email" className={labelCls}>이메일 * <span className="text-gray-500 font-normal">(Snorkl 가입 이메일)</span></Label>
+                <Input id="school-email" type="email" autoComplete="email" placeholder="example@school.kr" value={email} onChange={(e) => setEmail(e.target.value)} className={inputCls} />
               </div>
               <div className="space-y-1.5">
-                <Label className={labelCls}>담당 과목 <span className="text-gray-400 font-normal">(선택)</span></Label>
-                <Input placeholder="예: 영어, 수학, 과학" value={subject} onChange={(e) => setSubject(e.target.value)} className={inputCls} />
+                <Label htmlFor="school-subject" className={labelCls}>담당 과목 <span className="text-gray-500 font-normal">(선택)</span></Label>
+                <Input id="school-subject" placeholder="예: 영어, 수학, 과학" value={subject} onChange={(e) => setSubject(e.target.value)} className={inputCls} />
               </div>
-              {error && <p className="text-sm text-red-600 font-medium bg-red-50 p-3 rounded-xl">{error}</p>}
-              <Button onClick={submitSchoolTeacher} disabled={loading} className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-base font-bold rounded-xl">
+              {error && <p role="alert" aria-live="polite" className="text-sm text-red-600 font-medium bg-red-50 p-3 rounded-xl">{error}</p>}
+              <Button type="submit" disabled={loading} className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-base font-bold rounded-xl">
                 {loading ? "등록 중..." : "등록하기"}
               </Button>
-            </div>
+            </form>
           )}
 
           {/* ===== 학교 일괄 등록 폼 ===== */}
           {step === "batchForm" && (
-            <div className="p-6 space-y-5">
+            <form onSubmit={(e) => { e.preventDefault(); submitBatch(); }} className="p-6 space-y-5">
               <div className="text-center rounded-xl bg-blue-50 border border-blue-100 p-5">
                 <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center text-2xl mx-auto mb-2">🏫</div>
                 <p className="text-xl font-bold text-gray-900">{schoolName}</p>
                 {schoolNameEn && <p className="text-sm text-blue-600">{schoolNameEn}</p>}
                 <div className="flex items-center justify-center gap-3 mt-2">
-                  <button onClick={reset} className="text-sm text-blue-600 font-semibold underline">학교 변경</button>
+                  <button type="button" onClick={reset} className="text-sm text-blue-600 font-semibold underline">학교 변경</button>
                   <span className="text-gray-300">|</span>
-                  <button onClick={() => { setStep("schoolForm"); setError(""); }} className="text-sm text-blue-600 font-semibold underline">1명 등록으로 전환</button>
+                  <button type="button" onClick={() => { setStep("schoolForm"); setError(""); }} className="text-sm text-blue-600 font-semibold underline">1명 등록으로 전환</button>
                 </div>
               </div>
 
@@ -370,8 +356,9 @@ export default function TeacherRegistration() {
               </div>
 
               <div className="space-y-1.5">
-                <Label className={labelCls}>이메일 목록 *</Label>
+                <Label htmlFor="batch-emails" className={labelCls}>이메일 목록 *</Label>
                 <textarea
+                  id="batch-emails"
                   placeholder={"teacher1@school.kr\nteacher2@school.kr\nteacher3@school.kr"}
                   value={batchEmails}
                   onChange={(e) => setBatchEmails(e.target.value)}
@@ -379,7 +366,7 @@ export default function TeacherRegistration() {
                   autoFocus
                   className="w-full bg-white border-2 border-gray-200 text-gray-900 placeholder:text-gray-400 text-sm font-mono rounded-xl p-4 focus:border-blue-500 focus:ring-blue-500 outline-none resize-y"
                 />
-                <p className="text-xs text-gray-400">한 줄에 하나씩, 또는 쉼표(,)로 구분해서 입력하세요</p>
+                <p className="text-xs text-gray-500">한 줄에 하나씩, 또는 쉼표(,)로 구분해서 입력하세요</p>
               </div>
 
               {batchEmails.trim() && (
@@ -390,12 +377,12 @@ export default function TeacherRegistration() {
                 </div>
               )}
 
-              {error && <p className="text-sm text-red-600 font-medium bg-red-50 p-3 rounded-xl">{error}</p>}
-              <Button onClick={submitBatch} disabled={loading} className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-base font-bold rounded-xl">
+              {error && <p role="alert" aria-live="polite" className="text-sm text-red-600 font-medium bg-red-50 p-3 rounded-xl">{error}</p>}
+              <Button type="submit" disabled={loading} className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-base font-bold rounded-xl">
                 {loading ? "등록 중..." : "일괄 등록하기"}
               </Button>
-              <button onClick={reset} className="w-full text-sm text-gray-400 font-medium hover:text-gray-600 transition-colors py-1">← 돌아가기</button>
-            </div>
+              <button type="button" onClick={reset} className="w-full text-sm text-gray-400 font-medium hover:text-gray-600 transition-colors py-1">← 돌아가기</button>
+            </form>
           )}
 
           {/* ===== 일괄 등록 완료 ===== */}
@@ -430,50 +417,6 @@ export default function TeacherRegistration() {
             </div>
           )}
 
-          {/* ===== 개인 교사 폼 ===== */}
-          {step === "individualForm" && (
-            <div className="p-6 space-y-5">
-              <div className="flex items-center gap-3 rounded-xl bg-violet-50 border border-violet-100 p-4">
-                <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center text-xl">👤</div>
-                <div>
-                  <p className="font-bold text-gray-900">개인 교사 등록</p>
-                  <p className="text-sm text-violet-600">프리미엄 업그레이드 요청이 관리자에게 전달됩니다</p>
-                </div>
-              </div>
-
-              <div className="flex items-start gap-2 rounded-xl bg-amber-50 border border-amber-200 p-3">
-                <span className="text-base">⚡</span>
-                <p className="text-sm text-amber-800 font-medium">
-                  <a href="https://snorkl.app" target="_blank" rel="noopener noreferrer" className="underline font-bold">snorkl.app</a>
-                  에서 가입한 이메일과 동일한 이메일을 입력해주세요.
-                </p>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label className={labelCls}>소속 학교 *</Label>
-                <Input placeholder="예: 서울 OO고등학교" value={schoolInput} onChange={(e) => setSchoolInput(e.target.value)} autoFocus className={inputCls} />
-                <p className="text-xs text-gray-400">같은 학교 동료가 있으면 동일하게 입력해주세요</p>
-              </div>
-              <div className="space-y-1.5">
-                <Label className={labelCls}>이름 *</Label>
-                <Input placeholder="홍길동" value={name} onChange={(e) => setName(e.target.value)} className={inputCls} />
-              </div>
-              <div className="space-y-1.5">
-                <Label className={labelCls}>이메일 * <span className="text-gray-400 font-normal">(Snorkl 가입 이메일)</span></Label>
-                <Input type="email" placeholder="example@gmail.com" value={email} onChange={(e) => setEmail(e.target.value)} className={inputCls} />
-              </div>
-              <div className="space-y-1.5">
-                <Label className={labelCls}>담당 과목 <span className="text-gray-400 font-normal">(선택)</span></Label>
-                <Input placeholder="예: 영어, 수학, 과학" value={subject} onChange={(e) => setSubject(e.target.value)} className={inputCls} />
-              </div>
-              {error && <p className="text-sm text-red-600 font-medium bg-red-50 p-3 rounded-xl">{error}</p>}
-              <Button onClick={submitIndividual} disabled={loading} className="w-full h-12 bg-violet-600 hover:bg-violet-700 text-base font-bold rounded-xl">
-                {loading ? "등록 중..." : "등록하기"}
-              </Button>
-              <button onClick={reset} className="w-full text-sm text-gray-400 font-medium hover:text-gray-600 transition-colors py-1">← 돌아가기</button>
-            </div>
-          )}
-
           {/* ===== 완료 ===== */}
           {step === "success" && (
             <div className="p-8 text-center space-y-5">
@@ -497,7 +440,7 @@ export default function TeacherRegistration() {
 
           {/* ===== 학교 등록 요청 ===== */}
           {step === "request" && (
-            <div className="p-6 space-y-5">
+            <form onSubmit={(e) => { e.preventDefault(); submitSchoolRequest(); }} className="p-6 space-y-5">
               <div className="flex items-center gap-3 rounded-xl bg-blue-50 border border-blue-100 p-4">
                 <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center text-xl">🏫</div>
                 <div>
@@ -506,16 +449,16 @@ export default function TeacherRegistration() {
                 </div>
               </div>
               <div className="space-y-1.5">
-                <Label className={labelCls}>학교명 (한국어) *</Label>
-                <Input placeholder="예: 효명고등학교" value={reqName} onChange={(e) => setReqName(e.target.value)} autoFocus className={inputCls} />
+                <Label htmlFor="req-name" className={labelCls}>학교명 (한국어) *</Label>
+                <Input id="req-name" placeholder="예: 효명고등학교" value={reqName} onChange={(e) => setReqName(e.target.value)} autoFocus className={inputCls} />
               </div>
               <div className="space-y-1.5">
-                <Label className={labelCls}>School Name (English)</Label>
-                <Input placeholder="e.g. Hyo-Myeong High School" value={reqNameEn} onChange={(e) => setReqNameEn(e.target.value)} className={inputCls} />
+                <Label htmlFor="req-name-en" className={labelCls}>School Name (English)</Label>
+                <Input id="req-name-en" placeholder="e.g. Hyo-Myeong High School" value={reqNameEn} onChange={(e) => setReqNameEn(e.target.value)} className={inputCls} />
               </div>
               <div className="space-y-1.5">
-                <Label className={labelCls}>지역</Label>
-                <select value={reqRegion} onChange={(e) => setReqRegion(e.target.value)}
+                <Label htmlFor="req-region" className={labelCls}>지역</Label>
+                <select id="req-region" value={reqRegion} onChange={(e) => setReqRegion(e.target.value)}
                   className="w-full rounded-xl bg-white border-2 border-gray-200 text-gray-900 px-4 py-3 text-base focus:border-blue-500 outline-none">
                   <option value="">선택하세요</option>
                   {["서울","부산","대구","인천","광주","대전","울산","세종","경기","강원","충북","충남","전북","전남","경북","경남","제주"].map((r) => (
@@ -524,19 +467,19 @@ export default function TeacherRegistration() {
                 </select>
               </div>
               <div className="space-y-1.5">
-                <Label className={labelCls}>학교 이메일 도메인 <span className="text-gray-400 font-normal">(선택)</span></Label>
-                <Input placeholder="예: school.kr" value={reqDomain}
+                <Label htmlFor="req-domain" className={labelCls}>학교 이메일 도메인 <span className="text-gray-500 font-normal">(선택)</span></Label>
+                <Input id="req-domain" placeholder="예: school.kr" value={reqDomain}
                   onChange={(e) => setReqDomain(e.target.value.toLowerCase().replace(/^https?:\/\//, "").replace(/^@/, ""))}
                   className={inputCls + " font-mono"} />
-                <p className="text-xs text-gray-400">학교 공식 이메일 도메인이 있으면 입력해주세요 (동료 교사 자동 인식에 사용됩니다)</p>
+                <p className="text-xs text-gray-500">학교 공식 이메일 도메인이 있으면 입력해주세요 (동료 교사 자동 인식에 사용됩니다)</p>
               </div>
               <div className="space-y-1.5">
-                <Label className={labelCls}>담당자 이름 *</Label>
-                <Input placeholder="홍길동" value={reqContactName} onChange={(e) => setReqContactName(e.target.value)} className={inputCls} />
+                <Label htmlFor="req-contact-name" className={labelCls}>담당자 이름 *</Label>
+                <Input id="req-contact-name" autoComplete="name" placeholder="홍길동" value={reqContactName} onChange={(e) => setReqContactName(e.target.value)} className={inputCls} />
               </div>
               <div className="space-y-1.5">
-                <Label className={labelCls}>담당자 이메일 *</Label>
-                <Input type="email" placeholder="example@school.kr" value={reqContactEmail}
+                <Label htmlFor="req-contact-email" className={labelCls}>담당자 이메일 *</Label>
+                <Input id="req-contact-email" type="email" autoComplete="email" placeholder="example@school.kr" value={reqContactEmail}
                   onChange={(e) => {
                     const v = e.target.value;
                     setReqContactEmail(v);
@@ -546,17 +489,17 @@ export default function TeacherRegistration() {
                     }
                   }} className={inputCls} />
               </div>
-              {error && <p className="text-sm text-red-600 font-medium bg-red-50 p-3 rounded-xl">{error}</p>}
-              <Button onClick={submitSchoolRequest} disabled={loading} className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-base font-bold rounded-xl">
+              {error && <p role="alert" aria-live="polite" className="text-sm text-red-600 font-medium bg-red-50 p-3 rounded-xl">{error}</p>}
+              <Button type="submit" disabled={loading} className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-base font-bold rounded-xl">
                 {loading ? "요청 중..." : "등록 요청하기"}
               </Button>
-              <button onClick={reset} className="w-full text-sm text-gray-400 font-medium hover:text-gray-600 transition-colors py-1">← 돌아가기</button>
-            </div>
+              <button type="button" onClick={reset} className="w-full text-sm text-gray-400 font-medium hover:text-gray-600 transition-colors py-1">← 돌아가기</button>
+            </form>
           )}
 
-          {/* ===== 교사 개인구매 (1~10인 직접 입력) ===== */}
+          {/* ===== 교사 개인구매 (최대 10인 직접 입력) ===== */}
           {step === "purchaseForm" && (
-            <div className="p-6 space-y-5">
+            <form onSubmit={(e) => { e.preventDefault(); submitPurchase(); }} className="p-6 space-y-5">
               <div className="flex items-center gap-3 rounded-xl bg-emerald-50 border border-emerald-100 p-4">
                 <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center text-xl">👤</div>
                 <div>
@@ -574,14 +517,14 @@ export default function TeacherRegistration() {
               </div>
 
               <div className="space-y-1.5">
-                <Label className={labelCls}>소속 학교 / 기관 *</Label>
-                <Input placeholder="예: 서울 OO고등학교" value={purchaseSchoolName} onChange={(e) => setPurchaseSchoolName(e.target.value)} autoFocus className={inputCls} />
+                <Label htmlFor="purchase-school-name" className={labelCls}>소속 학교 / 기관 *</Label>
+                <Input id="purchase-school-name" placeholder="예: 서울 OO고등학교" value={purchaseSchoolName} onChange={(e) => setPurchaseSchoolName(e.target.value)} autoFocus className={inputCls} />
               </div>
 
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <Label className={labelCls}>교사 정보 ({purchaseTeachers.length}명)</Label>
-                  <span className="text-xs text-gray-400">최대 10명</span>
+                  <span className="text-xs text-gray-500">최대 10명</span>
                 </div>
 
                 {purchaseTeachers.map((t, i) => (
@@ -600,19 +543,27 @@ export default function TeacherRegistration() {
                       )}
                     </div>
                     <Input
+                      id={`purchase-name-${i}`}
+                      aria-label={`교사 ${i + 1} 이름`}
+                      autoComplete="name"
                       placeholder="이름 *"
                       value={t.name}
                       onChange={(e) => setPurchaseTeachers((prev) => prev.map((row, idx) => idx === i ? { ...row, name: e.target.value } : row))}
                       className={inputCls}
                     />
                     <Input
+                      id={`purchase-email-${i}`}
+                      aria-label={`교사 ${i + 1} 이메일`}
                       type="email"
+                      autoComplete="email"
                       placeholder="이메일 * (Snorkl 가입 이메일)"
                       value={t.email}
                       onChange={(e) => setPurchaseTeachers((prev) => prev.map((row, idx) => idx === i ? { ...row, email: e.target.value } : row))}
                       className={inputCls}
                     />
                     <Input
+                      id={`purchase-subject-${i}`}
+                      aria-label={`교사 ${i + 1} 담당 과목`}
                       placeholder="담당 과목 (선택)"
                       value={t.subject}
                       onChange={(e) => setPurchaseTeachers((prev) => prev.map((row, idx) => idx === i ? { ...row, subject: e.target.value } : row))}
@@ -632,12 +583,12 @@ export default function TeacherRegistration() {
                 )}
               </div>
 
-              {error && <p className="text-sm text-red-600 font-medium bg-red-50 p-3 rounded-xl">{error}</p>}
-              <Button onClick={submitPurchase} disabled={loading} className="w-full h-12 bg-emerald-600 hover:bg-emerald-700 text-base font-bold rounded-xl">
+              {error && <p role="alert" aria-live="polite" className="text-sm text-red-600 font-medium bg-red-50 p-3 rounded-xl">{error}</p>}
+              <Button type="submit" disabled={loading} className="w-full h-12 bg-emerald-600 hover:bg-emerald-700 text-base font-bold rounded-xl">
                 {loading ? "등록 중..." : "등록하기"}
               </Button>
-              <button onClick={reset} className="w-full text-sm text-gray-400 font-medium hover:text-gray-600 transition-colors py-1">← 돌아가기</button>
-            </div>
+              <button type="button" onClick={reset} className="w-full text-sm text-gray-400 font-medium hover:text-gray-600 transition-colors py-1">← 돌아가기</button>
+            </form>
           )}
 
           {/* ===== 학교 요청 완료 ===== */}
@@ -661,8 +612,8 @@ export default function TeacherRegistration() {
         </div>
 
         {/* Footer */}
-        <p className="text-center text-xs text-gray-400 mt-6">
-          Powered by <span className="font-semibold">LearnToday</span> · <a href="https://snorkl.app" className="hover:text-gray-600">snorkl.app</a>
+        <p className="text-center text-xs text-gray-500 mt-6">
+          Powered by <span className="font-semibold">LearnToday</span> · <a href="https://snorkl.app" className="hover:text-gray-700">snorkl.app</a>
         </p>
       </div>
     </div>
