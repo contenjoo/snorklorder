@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-type Step = "choose" | "schoolFind" | "schoolForm" | "batchForm" | "individualForm" | "success" | "batchSuccess" | "request" | "requestSent" | "purchaseForm" | "purchaseSent";
+type Step = "choose" | "schoolFind" | "schoolForm" | "batchForm" | "individualForm" | "success" | "batchSuccess" | "request" | "requestSent" | "purchaseForm";
 type FindMode = "search" | "code";
 
 interface SchoolResult { id: number; name: string; nameEn: string | null; code: string; }
@@ -33,10 +33,8 @@ export default function TeacherRegistration() {
   const [reqContactEmail, setReqContactEmail] = useState("");
   const [batchEmails, setBatchEmails] = useState("");
   const [batchResult, setBatchResult] = useState<{ registered: number; duplicates: number } | null>(null);
-  const [purchaseQty, setPurchaseQty] = useState<1 | 2 | 3>(1);
-  const [purchaserEmail, setPurchaserEmail] = useState("");
   const [purchaseSchoolName, setPurchaseSchoolName] = useState("");
-  const [purchaseSchoolNameEn, setPurchaseSchoolNameEn] = useState("");
+  const [purchaseTeachers, setPurchaseTeachers] = useState<{ name: string; email: string; subject: string }[]>([{ name: "", email: "", subject: "" }]);
 
   useEffect(() => {
     const trimmedQuery = searchQuery.trim();
@@ -132,28 +130,41 @@ export default function TeacherRegistration() {
     setSearchQuery(""); setSearchResults([]); setName(""); setEmail("");
     setSubject(""); setSchoolInput(""); setError(""); setBatchEmails(""); setBatchResult(null);
     setReqName(""); setReqNameEn(""); setReqRegion(""); setReqDomain(""); setReqContactName(""); setReqContactEmail("");
-    setPurchaseQty(1); setPurchaserEmail(""); setPurchaseSchoolName(""); setPurchaseSchoolNameEn("");
+    setPurchaseSchoolName(""); setPurchaseTeachers([{ name: "", email: "", subject: "" }]);
   }
 
   async function submitPurchase() {
-    if (!purchaserEmail.trim() || !purchaseSchoolName.trim()) {
-      setError("이메일과 학교/소속명을 입력해주세요.");
-      return;
+    if (!purchaseSchoolName.trim()) { setError("소속 학교/기관을 입력해주세요."); return; }
+    const filled = purchaseTeachers.filter((t) => t.name.trim() || t.email.trim());
+    if (filled.length === 0) { setError("최소 1명 이상의 교사 정보를 입력해주세요."); return; }
+    for (const t of filled) {
+      if (!t.name.trim() || !t.email.trim()) { setError("이름과 이메일을 모두 입력해주세요."); return; }
+      if (!t.email.includes("@")) { setError(`유효하지 않은 이메일: ${t.email}`); return; }
     }
+    const emails = filled.map((t) => t.email.trim().toLowerCase());
+    if (new Set(emails).size !== emails.length) { setError("중복된 이메일이 있습니다."); return; }
+
     setLoading(true); setError("");
     try {
-      const res = await fetch("/api/seat-order", {
+      const notes = [
+        "[INDIVIDUAL_PURCHASE]",
+        ...filled.map((t, i) => `Teacher ${i + 1}: ${t.name.trim()} <${t.email.trim()}>${t.subject.trim() ? ` · ${t.subject.trim()}` : ""}`),
+      ].join("\n");
+      const res = await fetch("/api/account-requests", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          purchaserEmail: purchaserEmail.trim(),
+          action: "create",
+          type: "upgrade",
           schoolName: purchaseSchoolName.trim(),
-          schoolNameEn: purchaseSchoolNameEn.trim() || null,
-          quantity: purchaseQty,
+          emails: emails.join(", "),
+          accountType: "teacher",
+          quantity: filled.length,
+          notes,
         }),
       });
       const data = await res.json();
-      if (!res.ok) { setError(data.error || "요청에 실패했습니다."); return; }
-      setStep("purchaseSent");
+      if (!res.ok) { setError(data.error || "등록에 실패했습니다."); return; }
+      setStep("success");
     } catch { setError("연결 오류입니다."); } finally { setLoading(false); }
   }
 
@@ -543,72 +554,89 @@ export default function TeacherRegistration() {
             </div>
           )}
 
-          {/* ===== 1~3인 구매 폼 (이메일 링크 발송) ===== */}
+          {/* ===== 교사 개인구매 (1~10인 직접 입력) ===== */}
           {step === "purchaseForm" && (
             <div className="p-6 space-y-5">
               <div className="flex items-center gap-3 rounded-xl bg-emerald-50 border border-emerald-100 p-4">
-                <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center text-xl">✉️</div>
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center text-xl">👤</div>
                 <div>
-                  <p className="font-bold text-gray-900">교사 1~3인 구매</p>
-                  <p className="text-sm text-emerald-700">입력하신 이메일로 등록 링크가 발송됩니다</p>
+                  <p className="font-bold text-gray-900">교사 개인구매</p>
+                  <p className="text-sm text-emerald-700">최대 10명까지 한 번에 등록할 수 있습니다</p>
                 </div>
               </div>
 
-              <div className="space-y-1.5">
-                <Label className={labelCls}>좌석 수 *</Label>
-                <div className="grid grid-cols-3 gap-2">
-                  {([1, 2, 3] as const).map((n) => (
-                    <button
-                      key={n}
-                      type="button"
-                      onClick={() => setPurchaseQty(n)}
-                      className={`h-12 rounded-xl border-2 font-bold transition-all ${purchaseQty === n ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "border-gray-200 bg-white text-gray-600 hover:border-emerald-200"}`}
-                    >
-                      {n}인
-                    </button>
-                  ))}
-                </div>
+              <div className="flex items-start gap-2 rounded-xl bg-amber-50 border border-amber-200 p-3">
+                <span className="text-base">⚡</span>
+                <p className="text-sm text-amber-800 font-medium">
+                  <a href="https://snorkl.app" target="_blank" rel="noopener noreferrer" className="underline font-bold">snorkl.app</a>
+                  에서 가입한 이메일과 동일한 이메일을 입력해주세요.
+                </p>
               </div>
 
               <div className="space-y-1.5">
-                <Label className={labelCls}>학교 / 소속명 *</Label>
-                <Input placeholder="예: 서울 OO고등학교" value={purchaseSchoolName} onChange={(e) => setPurchaseSchoolName(e.target.value)} className={inputCls} />
+                <Label className={labelCls}>소속 학교 / 기관 *</Label>
+                <Input placeholder="예: 서울 OO고등학교" value={purchaseSchoolName} onChange={(e) => setPurchaseSchoolName(e.target.value)} autoFocus className={inputCls} />
               </div>
-              <div className="space-y-1.5">
-                <Label className={labelCls}>School Name (English) <span className="text-gray-400 font-normal">(선택)</span></Label>
-                <Input placeholder="e.g. Seoul OO High School" value={purchaseSchoolNameEn} onChange={(e) => setPurchaseSchoolNameEn(e.target.value)} className={inputCls} />
-              </div>
-              <div className="space-y-1.5">
-                <Label className={labelCls}>구매자 이메일 *</Label>
-                <Input type="email" placeholder="purchaser@school.kr" value={purchaserEmail} onChange={(e) => setPurchaserEmail(e.target.value)} className={inputCls} />
-                <p className="text-xs text-gray-400">이 이메일로 교사 등록 링크가 발송됩니다. 동료에게 전달해도 됩니다.</p>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label className={labelCls}>교사 정보 ({purchaseTeachers.length}명)</Label>
+                  <span className="text-xs text-gray-400">최대 10명</span>
+                </div>
+
+                {purchaseTeachers.map((t, i) => (
+                  <div key={i} className="rounded-2xl border-2 border-gray-100 p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-lg bg-emerald-50 flex items-center justify-center text-sm font-bold text-emerald-600">{i + 1}</div>
+                        <span className="text-sm font-semibold text-gray-700">교사 {i + 1}</span>
+                      </div>
+                      {purchaseTeachers.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => setPurchaseTeachers((prev) => prev.filter((_, idx) => idx !== i))}
+                          className="text-xs text-red-500 hover:text-red-700 font-medium"
+                        >삭제</button>
+                      )}
+                    </div>
+                    <Input
+                      placeholder="이름 *"
+                      value={t.name}
+                      onChange={(e) => setPurchaseTeachers((prev) => prev.map((row, idx) => idx === i ? { ...row, name: e.target.value } : row))}
+                      className={inputCls}
+                    />
+                    <Input
+                      type="email"
+                      placeholder="이메일 * (Snorkl 가입 이메일)"
+                      value={t.email}
+                      onChange={(e) => setPurchaseTeachers((prev) => prev.map((row, idx) => idx === i ? { ...row, email: e.target.value } : row))}
+                      className={inputCls}
+                    />
+                    <Input
+                      placeholder="담당 과목 (선택)"
+                      value={t.subject}
+                      onChange={(e) => setPurchaseTeachers((prev) => prev.map((row, idx) => idx === i ? { ...row, subject: e.target.value } : row))}
+                      className={inputCls}
+                    />
+                  </div>
+                ))}
+
+                {purchaseTeachers.length < 10 && (
+                  <button
+                    type="button"
+                    onClick={() => setPurchaseTeachers((prev) => [...prev, { name: "", email: "", subject: "" }])}
+                    className="w-full h-12 rounded-xl border-2 border-dashed border-emerald-200 text-emerald-600 font-semibold hover:bg-emerald-50/50 transition-colors"
+                  >
+                    + 교사 추가
+                  </button>
+                )}
               </div>
 
               {error && <p className="text-sm text-red-600 font-medium bg-red-50 p-3 rounded-xl">{error}</p>}
               <Button onClick={submitPurchase} disabled={loading} className="w-full h-12 bg-emerald-600 hover:bg-emerald-700 text-base font-bold rounded-xl">
-                {loading ? "발송 중..." : "등록 링크 받기"}
+                {loading ? "등록 중..." : "등록하기"}
               </Button>
               <button onClick={reset} className="w-full text-sm text-gray-400 font-medium hover:text-gray-600 transition-colors py-1">← 돌아가기</button>
-            </div>
-          )}
-
-          {/* ===== 1~3인 구매 - 이메일 발송 완료 ===== */}
-          {step === "purchaseSent" && (
-            <div className="p-8 text-center space-y-5">
-              <div className="mx-auto w-20 h-20 rounded-2xl bg-emerald-50 border-2 border-emerald-200 flex items-center justify-center">
-                <svg className="w-10 h-10 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                </svg>
-              </div>
-              <div>
-                <h3 className="text-2xl font-bold text-gray-900">이메일 발송 완료!</h3>
-                <p className="text-base text-gray-500 mt-2">
-                  <span className="font-semibold text-gray-700">{purchaserEmail}</span>로<br />
-                  교사 {purchaseQty}인 등록 링크를 보냈습니다.
-                  <br /><span className="text-sm">메일이 보이지 않으면 스팸함을 확인해주세요.</span>
-                </p>
-              </div>
-              <Button variant="outline" onClick={reset} className="border-2 border-gray-200 text-gray-700 font-semibold h-11 rounded-xl hover:bg-gray-50">처음으로</Button>
             </div>
           )}
 

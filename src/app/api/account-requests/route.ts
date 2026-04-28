@@ -57,8 +57,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "At least one valid email is required" }, { status: 400 });
     }
 
-    if (!isAuthenticated && uniqueValidEmails.length > 3) {
-      return NextResponse.json({ error: "Public requests can include up to 3 emails" }, { status: 400 });
+    if (!isAuthenticated && uniqueValidEmails.length > 10) {
+      return NextResponse.json({ error: "Public requests can include up to 10 emails" }, { status: 400 });
     }
 
     const normalizedSchoolName = normalizeText(String(data.schoolName), 120);

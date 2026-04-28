@@ -6,8 +6,6 @@ function isPublicApiRequest(request: NextRequest, pathname: string) {
   if (pathname.startsWith("/api/schools/lookup")) return true;
   if (pathname.startsWith("/api/schools/search")) return true;
   if (pathname.startsWith("/api/confirm/")) return true;
-  if (pathname.startsWith("/api/seat-order")) return true;
-  if (pathname.startsWith("/api/seat-register/")) return true;
   if (pathname.startsWith("/api/partner/auth")) return true;
   if (pathname.startsWith("/api/cron/")) return true;
   if (pathname.startsWith("/api/translate")) return true;
