@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-type Step = "choose" | "schoolForm" | "batchForm" | "individualForm" | "success" | "batchSuccess" | "request" | "requestSent" | "purchaseForm" | "purchaseSent";
+type Step = "choose" | "schoolFind" | "schoolForm" | "batchForm" | "individualForm" | "success" | "batchSuccess" | "request" | "requestSent" | "purchaseForm" | "purchaseSent";
 type FindMode = "search" | "code";
 
 interface SchoolResult { id: number; name: string; nameEn: string | null; code: string; }
@@ -181,7 +181,7 @@ export default function TeacherRegistration() {
 
           {/* ===== 선택 화면 ===== */}
           {step === "choose" && (
-            <div className="p-6 space-y-5">
+            <div className="p-6 space-y-4">
               {/* Snorkl 안내 */}
               <div className="flex items-start gap-3 rounded-xl bg-blue-50 border border-blue-100 p-4">
                 <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center shrink-0 mt-0.5">
@@ -198,96 +198,101 @@ export default function TeacherRegistration() {
 
               <p className="text-sm font-bold text-gray-900">등록 유형을 선택하세요</p>
 
-              {/* 학교 소속 */}
-              <div className="rounded-2xl border-2 border-gray-100 p-5 space-y-4 hover:border-blue-200 transition-colors">
+              {/* 학교 단체구매 */}
+              <button
+                onClick={() => { setStep("schoolFind"); setError(""); }}
+                className="w-full rounded-2xl border-2 border-gray-100 p-5 text-left hover:border-blue-200 hover:bg-blue-50/30 transition-all group"
+              >
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center text-2xl">🏫</div>
-                  <div>
-                    <p className="font-bold text-gray-900">학교 단체 구매</p>
+                  <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center text-2xl group-hover:scale-105 transition-transform">🏫</div>
+                  <div className="flex-1">
+                    <p className="font-bold text-gray-900">학교 단체구매</p>
                     <p className="text-sm text-gray-500">학교에서 단체로 구매한 경우</p>
                   </div>
+                  <svg className="w-5 h-5 text-gray-300 group-hover:text-blue-400 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
                 </div>
+              </button>
 
-                <div className="flex rounded-xl bg-gray-100 p-1">
-                  <button
-                    onClick={() => { setFindMode("search"); setError(""); }}
-                    className={`flex-1 text-sm py-2.5 rounded-lg font-medium transition-all ${findMode === "search" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
-                  >학교 검색</button>
-                  <button
-                    onClick={() => { setFindMode("code"); setError(""); }}
-                    className={`flex-1 text-sm py-2.5 rounded-lg font-medium transition-all ${findMode === "code" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
-                  >코드 입력</button>
-                </div>
-
-                {findMode === "search" ? (
-                  <div className="space-y-2">
-                    <Input placeholder="학교 이름을 입력하세요" value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)} className={inputCls} />
-                    {searchResults.length > 0 && (
-                      <div className="rounded-xl border-2 border-gray-100 divide-y divide-gray-100 max-h-48 overflow-y-auto">
-                        {searchResults.map((s) => (
-                          <button key={s.id} onClick={() => selectSchool(s)} className="w-full text-left px-4 py-3 hover:bg-blue-50 transition-colors">
-                            <p className="font-semibold text-gray-900">{s.name}</p>
-                            {s.nameEn && <p className="text-xs text-gray-400">{s.nameEn}</p>}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                    {searchQuery.length >= 2 && searchResults.length === 0 && (
-                      <div className="text-center py-4 bg-gray-50 rounded-xl">
-                        <p className="text-sm text-gray-500 font-medium">검색 결과가 없습니다</p>
-                        <button onClick={() => { setReqName(searchQuery); setStep("request"); setError(""); }}
-                          className="text-sm text-blue-600 font-bold underline mt-1">학교 등록 요청하기 →</button>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    <Input placeholder="예: HYOMYEONG" value={schoolCode}
-                      onChange={(e) => setSchoolCode(e.target.value.toUpperCase())}
-                      onKeyDown={(e) => e.key === "Enter" && lookupCode()}
-                      className={inputCls + " font-mono tracking-widest"} />
-                    {error && <p className="text-sm text-red-600 font-medium">{error}</p>}
-                    <Button onClick={lookupCode} disabled={loading} className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-base font-bold rounded-xl">
-                      {loading ? "확인 중..." : "다음 →"}
-                    </Button>
-                  </div>
-                )}
-              </div>
-
-              {/* 1~3인 구매 (이메일 링크) */}
+              {/* 교사 개인구매 (이메일 링크) */}
               <button
                 onClick={() => { setStep("purchaseForm"); setError(""); }}
                 className="w-full rounded-2xl border-2 border-gray-100 p-5 text-left hover:border-emerald-200 hover:bg-emerald-50/30 transition-all group"
               >
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center text-2xl group-hover:scale-105 transition-transform">✉️</div>
+                  <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center text-2xl group-hover:scale-105 transition-transform">👤</div>
                   <div className="flex-1">
-                    <p className="font-bold text-gray-900">교사 1~3인 구매 (이메일 링크)</p>
-                    <p className="text-sm text-gray-500">구매자 이메일로 등록 링크를 받아 직접 입력</p>
+                    <p className="font-bold text-gray-900">교사 개인구매</p>
+                    <p className="text-sm text-gray-500">1~3인 좌석 · 구매자 이메일로 등록 링크 발송</p>
                   </div>
                   <svg className="w-5 h-5 text-gray-300 group-hover:text-emerald-400 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                   </svg>
                 </div>
               </button>
+            </div>
+          )}
 
-              {/* 개인 교사 */}
-              <button
-                onClick={() => { setStep("individualForm"); setError(""); }}
-                className="w-full rounded-2xl border-2 border-gray-100 p-5 text-left hover:border-violet-200 hover:bg-violet-50/30 transition-all group"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-violet-50 flex items-center justify-center text-2xl group-hover:scale-105 transition-transform">👤</div>
-                  <div className="flex-1">
-                    <p className="font-bold text-gray-900">개인 구매</p>
-                    <p className="text-sm text-gray-500">개인적으로 프리미엄을 구매한 경우</p>
-                  </div>
-                  <svg className="w-5 h-5 text-gray-300 group-hover:text-violet-400 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
+          {/* ===== 학교 찾기 (검색 / 코드) ===== */}
+          {step === "schoolFind" && (
+            <div className="p-6 space-y-5">
+              <div className="flex items-center gap-3 rounded-xl bg-blue-50 border border-blue-100 p-4">
+                <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center text-xl">🏫</div>
+                <div>
+                  <p className="font-bold text-gray-900">학교 단체구매</p>
+                  <p className="text-sm text-blue-700">학교를 검색하거나 코드를 입력하세요</p>
                 </div>
-              </button>
+              </div>
+
+              <div className="flex rounded-xl bg-gray-100 p-1">
+                <button
+                  onClick={() => { setFindMode("search"); setError(""); }}
+                  className={`flex-1 text-sm py-2.5 rounded-lg font-medium transition-all ${findMode === "search" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+                >학교 검색</button>
+                <button
+                  onClick={() => { setFindMode("code"); setError(""); }}
+                  className={`flex-1 text-sm py-2.5 rounded-lg font-medium transition-all ${findMode === "code" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+                >코드 입력</button>
+              </div>
+
+              {findMode === "search" ? (
+                <div className="space-y-2">
+                  <Input placeholder="학교 이름을 입력하세요" value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)} autoFocus className={inputCls} />
+                  {searchResults.length > 0 && (
+                    <div className="rounded-xl border-2 border-gray-100 divide-y divide-gray-100 max-h-48 overflow-y-auto">
+                      {searchResults.map((s) => (
+                        <button key={s.id} onClick={() => selectSchool(s)} className="w-full text-left px-4 py-3 hover:bg-blue-50 transition-colors">
+                          <p className="font-semibold text-gray-900">{s.name}</p>
+                          {s.nameEn && <p className="text-xs text-gray-400">{s.nameEn}</p>}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {searchQuery.length >= 2 && searchResults.length === 0 && (
+                    <div className="text-center py-4 bg-gray-50 rounded-xl">
+                      <p className="text-sm text-gray-500 font-medium">검색 결과가 없습니다</p>
+                      <button onClick={() => { setReqName(searchQuery); setStep("request"); setError(""); }}
+                        className="text-sm text-blue-600 font-bold underline mt-1">학교 등록 요청하기 →</button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <Input placeholder="예: HYOMYEONG" value={schoolCode}
+                    onChange={(e) => setSchoolCode(e.target.value.toUpperCase())}
+                    onKeyDown={(e) => e.key === "Enter" && lookupCode()}
+                    autoFocus
+                    className={inputCls + " font-mono tracking-widest"} />
+                  {error && <p className="text-sm text-red-600 font-medium">{error}</p>}
+                  <Button onClick={lookupCode} disabled={loading} className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-base font-bold rounded-xl">
+                    {loading ? "확인 중..." : "다음 →"}
+                  </Button>
+                </div>
+              )}
+
+              <button onClick={reset} className="w-full text-sm text-gray-400 font-medium hover:text-gray-600 transition-colors py-1">← 돌아가기</button>
             </div>
           )}
 
