@@ -250,6 +250,47 @@ export async function sendSchoolCodeEmail(email: string, name: string, schoolNam
   });
 }
 
+// 구매자에게 셀프등록 링크 발송 (1~3인 좌석 주문)
+export async function sendSeatOrderLink(
+  purchaserEmail: string,
+  schoolName: string,
+  quantity: number,
+  token: string,
+) {
+  const t = getTransporter();
+  if (!t) return { success: false, error: "Gmail not configured" };
+  const link = `${BASE_URL}/seat-register/${encodeURIComponent(token)}`;
+  await t.sendMail({
+    from: ADMIN_EMAIL,
+    to: purchaserEmail,
+    subject: `[Snorkl] ${quantity}인 교사 등록 링크가 발송되었습니다`,
+    html: `
+      <div style="max-width:520px;margin:0 auto;font-family:-apple-system,sans-serif">
+        <div style="background:#1e3a5f;color:white;padding:20px 24px;border-radius:12px 12px 0 0">
+          <h2 style="margin:0;font-size:20px">🐳 Snorkl 프리미엄 교사 등록</h2>
+          <p style="margin:4px 0 0;opacity:0.85;font-size:14px">${safe(schoolName)} · ${quantity}인 좌석</p>
+        </div>
+        <div style="background:white;padding:24px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px">
+          <p>안녕하세요, Snorkl 프리미엄 구매에 감사드립니다.</p>
+          <p>아래 링크에서 <b>${quantity}명의 교사 정보</b>(이름·이메일)를 직접 입력하시면 등록 요청이 접수됩니다.</p>
+          <p>동료 선생님께 링크를 공유하셔도 됩니다.</p>
+          <div style="text-align:center;margin:28px 0;padding:24px;background:#f0f7ff;border-radius:12px">
+            <a href="${link}"
+               style="display:inline-block;background:#2563eb;color:white;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:16px">
+              교사 등록 페이지 열기
+            </a>
+            <p style="margin:12px 0 0;color:#999;font-size:12px;word-break:break-all">${safe(link)}</p>
+          </div>
+          <p style="color:#666;font-size:13px">등록 후 1~2 영업일 내 처리됩니다. 문의: jon@snorkl.app</p>
+          <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
+          <p style="color:#999;font-size:11px;text-align:center">Snorkl 주문관리 · LearnToday</p>
+        </div>
+      </div>
+    `,
+  });
+  return { success: true };
+}
+
 // 매일 자동 digest
 export async function sendDailyDigest(teachers: { teacherName: string; teacherEmail: string; subject: string | null; schoolName: string; schoolCode: string }[]) {
   const t = getTransporter();

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-type Step = "choose" | "schoolForm" | "batchForm" | "individualForm" | "success" | "batchSuccess" | "request" | "requestSent";
+type Step = "choose" | "schoolForm" | "batchForm" | "individualForm" | "success" | "batchSuccess" | "request" | "requestSent" | "purchaseForm" | "purchaseSent";
 type FindMode = "search" | "code";
 
 interface SchoolResult { id: number; name: string; nameEn: string | null; code: string; }
@@ -33,13 +33,18 @@ export default function TeacherRegistration() {
   const [reqContactEmail, setReqContactEmail] = useState("");
   const [batchEmails, setBatchEmails] = useState("");
   const [batchResult, setBatchResult] = useState<{ registered: number; duplicates: number } | null>(null);
+  const [purchaseQty, setPurchaseQty] = useState<1 | 2 | 3>(1);
+  const [purchaserEmail, setPurchaserEmail] = useState("");
+  const [purchaseSchoolName, setPurchaseSchoolName] = useState("");
+  const [purchaseSchoolNameEn, setPurchaseSchoolNameEn] = useState("");
 
   useEffect(() => {
-    if (searchQuery.length < 1) { setSearchResults([]); return; }
+    const trimmedQuery = searchQuery.trim();
+    if (trimmedQuery.length < 2) { setSearchResults([]); return; }
     if (searchTimer) clearTimeout(searchTimer);
     const t = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/schools/search?q=${encodeURIComponent(searchQuery)}`);
+        const res = await fetch(`/api/schools/search?q=${encodeURIComponent(trimmedQuery)}`);
         setSearchResults(await res.json());
       } catch { /* ignore */ }
     }, 300);
@@ -127,6 +132,29 @@ export default function TeacherRegistration() {
     setSearchQuery(""); setSearchResults([]); setName(""); setEmail("");
     setSubject(""); setSchoolInput(""); setError(""); setBatchEmails(""); setBatchResult(null);
     setReqName(""); setReqNameEn(""); setReqRegion(""); setReqDomain(""); setReqContactName(""); setReqContactEmail("");
+    setPurchaseQty(1); setPurchaserEmail(""); setPurchaseSchoolName(""); setPurchaseSchoolNameEn("");
+  }
+
+  async function submitPurchase() {
+    if (!purchaserEmail.trim() || !purchaseSchoolName.trim()) {
+      setError("이메일과 학교/소속명을 입력해주세요.");
+      return;
+    }
+    setLoading(true); setError("");
+    try {
+      const res = await fetch("/api/seat-order", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          purchaserEmail: purchaserEmail.trim(),
+          schoolName: purchaseSchoolName.trim(),
+          schoolNameEn: purchaseSchoolNameEn.trim() || null,
+          quantity: purchaseQty,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || "요청에 실패했습니다."); return; }
+      setStep("purchaseSent");
+    } catch { setError("연결 오류입니다."); } finally { setLoading(false); }
   }
 
   // Shared input class
@@ -226,6 +254,23 @@ export default function TeacherRegistration() {
                   </div>
                 )}
               </div>
+
+              {/* 1~3인 구매 (이메일 링크) */}
+              <button
+                onClick={() => { setStep("purchaseForm"); setError(""); }}
+                className="w-full rounded-2xl border-2 border-gray-100 p-5 text-left hover:border-emerald-200 hover:bg-emerald-50/30 transition-all group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center text-2xl group-hover:scale-105 transition-transform">✉️</div>
+                  <div className="flex-1">
+                    <p className="font-bold text-gray-900">교사 1~3인 구매 (이메일 링크)</p>
+                    <p className="text-sm text-gray-500">구매자 이메일로 등록 링크를 받아 직접 입력</p>
+                  </div>
+                  <svg className="w-5 h-5 text-gray-300 group-hover:text-emerald-400 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
+              </button>
 
               {/* 개인 교사 */}
               <button
@@ -490,6 +535,75 @@ export default function TeacherRegistration() {
                 {loading ? "요청 중..." : "등록 요청하기"}
               </Button>
               <button onClick={reset} className="w-full text-sm text-gray-400 font-medium hover:text-gray-600 transition-colors py-1">← 돌아가기</button>
+            </div>
+          )}
+
+          {/* ===== 1~3인 구매 폼 (이메일 링크 발송) ===== */}
+          {step === "purchaseForm" && (
+            <div className="p-6 space-y-5">
+              <div className="flex items-center gap-3 rounded-xl bg-emerald-50 border border-emerald-100 p-4">
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center text-xl">✉️</div>
+                <div>
+                  <p className="font-bold text-gray-900">교사 1~3인 구매</p>
+                  <p className="text-sm text-emerald-700">입력하신 이메일로 등록 링크가 발송됩니다</p>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className={labelCls}>좌석 수 *</Label>
+                <div className="grid grid-cols-3 gap-2">
+                  {([1, 2, 3] as const).map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => setPurchaseQty(n)}
+                      className={`h-12 rounded-xl border-2 font-bold transition-all ${purchaseQty === n ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "border-gray-200 bg-white text-gray-600 hover:border-emerald-200"}`}
+                    >
+                      {n}인
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className={labelCls}>학교 / 소속명 *</Label>
+                <Input placeholder="예: 서울 OO고등학교" value={purchaseSchoolName} onChange={(e) => setPurchaseSchoolName(e.target.value)} className={inputCls} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className={labelCls}>School Name (English) <span className="text-gray-400 font-normal">(선택)</span></Label>
+                <Input placeholder="e.g. Seoul OO High School" value={purchaseSchoolNameEn} onChange={(e) => setPurchaseSchoolNameEn(e.target.value)} className={inputCls} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className={labelCls}>구매자 이메일 *</Label>
+                <Input type="email" placeholder="purchaser@school.kr" value={purchaserEmail} onChange={(e) => setPurchaserEmail(e.target.value)} className={inputCls} />
+                <p className="text-xs text-gray-400">이 이메일로 교사 등록 링크가 발송됩니다. 동료에게 전달해도 됩니다.</p>
+              </div>
+
+              {error && <p className="text-sm text-red-600 font-medium bg-red-50 p-3 rounded-xl">{error}</p>}
+              <Button onClick={submitPurchase} disabled={loading} className="w-full h-12 bg-emerald-600 hover:bg-emerald-700 text-base font-bold rounded-xl">
+                {loading ? "발송 중..." : "등록 링크 받기"}
+              </Button>
+              <button onClick={reset} className="w-full text-sm text-gray-400 font-medium hover:text-gray-600 transition-colors py-1">← 돌아가기</button>
+            </div>
+          )}
+
+          {/* ===== 1~3인 구매 - 이메일 발송 완료 ===== */}
+          {step === "purchaseSent" && (
+            <div className="p-8 text-center space-y-5">
+              <div className="mx-auto w-20 h-20 rounded-2xl bg-emerald-50 border-2 border-emerald-200 flex items-center justify-center">
+                <svg className="w-10 h-10 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-2xl font-bold text-gray-900">이메일 발송 완료!</h3>
+                <p className="text-base text-gray-500 mt-2">
+                  <span className="font-semibold text-gray-700">{purchaserEmail}</span>로<br />
+                  교사 {purchaseQty}인 등록 링크를 보냈습니다.
+                  <br /><span className="text-sm">메일이 보이지 않으면 스팸함을 확인해주세요.</span>
+                </p>
+              </div>
+              <Button variant="outline" onClick={reset} className="border-2 border-gray-200 text-gray-700 font-semibold h-11 rounded-xl hover:bg-gray-50">처음으로</Button>
             </div>
           )}
 
