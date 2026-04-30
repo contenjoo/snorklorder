@@ -5,7 +5,6 @@ import { accountRequests } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { checkAuth } from "@/lib/auth";
 import { checkRateLimit, createRateLimitResponse, isValidEmail, normalizeText } from "@/lib/security";
-import { sendAccountRequestNotification } from "@/lib/email";
 
 export async function GET() {
   if (!(await checkAuth())) {
@@ -125,25 +124,8 @@ export async function POST(req: NextRequest) {
       })
       .returning();
 
-    // H1: Notify Jon of the new account request; fire-and-await with try/catch — never block the 200
-    try {
-      const emailResult = await sendAccountRequestNotification({
-        applicantType: insertedApplicantType,
-        schoolName: normalizedSchoolName,
-        schoolNameEn: data.schoolNameEn || null,
-        type: insertedType,
-        accountType: insertedAccountType,
-        quantity: insertedQuantity,
-        emails: uniqueValidEmails.join(", "),
-        notes: normalizedNotes,
-      });
-      if (!emailResult.success && !emailResult.skipped) {
-        console.error("[account-requests] notification email failed:", emailResult.error);
-      }
-    } catch (emailErr) {
-      console.error("[account-requests] notification email threw:", emailErr);
-    }
-
+    // 자동 Jon 알림은 의도적으로 비활성. 워크플로우상 admin이 대시보드에서 직접 검토 후
+    // /api/account-email 경유로 발송 → 중복 메일 방지 (Jon 피드백 2026-04-28).
     return NextResponse.json({ success: true, requestId: item.id });
   }
 
