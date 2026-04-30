@@ -106,6 +106,8 @@ export default function AccountsPage() {
   const [emailPreview, setEmailPreview] = useState<AccountRequest | null>(null);
   const [sending, setSending] = useState(false);
   const [sendMsg, setSendMsg] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [batchPreviewOpen, setBatchPreviewOpen] = useState(false);
 
   // Form
   const [fChannel, setFChannel] = useState("company");
@@ -294,6 +296,42 @@ export default function AccountsPage() {
     const { subject, body } = generateEmail(r);
     const mailto = `mailto:jon@snorkl.app?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     window.open(mailto, "_blank");
+  }
+
+  function toggleSelect(id: number) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function clearSelection() { setSelectedIds(new Set()); }
+
+  async function sendBatch() {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    const selectedRequests = ids
+      .map((id) => requests.find((r) => r.id === id))
+      .filter((r): r is AccountRequest => !!r);
+    const sections = selectedRequests.map((r) => generateEmail(r));
+    setSending(true); setSendMsg("");
+    try {
+      const res = await fetch("/api/account-email/batch", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requestIds: selectedRequests.map((r) => r.id), sections }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSendMsg(`✓ ${data.count}건 묶음 발송 완료`);
+        setBatchPreviewOpen(false);
+        clearSelection();
+        load();
+      } else {
+        setSendMsg("실패: " + (data.error || ""));
+      }
+    } catch { setSendMsg("연결 오류"); }
+    finally { setSending(false); }
   }
 
   // 클립보드 복사
@@ -504,6 +542,17 @@ export default function AccountsPage() {
         </div>
       </div>
 
+      {/* 묶음 발송 액션 바 */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-50 border border-blue-200">
+          <span className="text-sm font-medium text-blue-900">{selectedIds.size}건 선택됨</span>
+          <Button size="sm" onClick={() => setBatchPreviewOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-xs">
+            📧 묶음 발송 미리보기
+          </Button>
+          <button onClick={clearSelection} className="text-xs text-blue-700 hover:text-blue-900 underline">선택 해제</button>
+        </div>
+      )}
+
       {/* Status filter pills */}
       <div className="flex gap-1 flex-wrap">
         <button onClick={() => setFilter("all")}
@@ -521,7 +570,18 @@ export default function AccountsPage() {
       {/* Request list */}
       <div className="bg-white rounded-xl border overflow-hidden">
         {/* Desktop header */}
-        <div className="hidden md:grid grid-cols-[auto_1fr_auto_auto_auto] gap-2 px-3 py-1.5 bg-gray-50 border-b text-[10px] text-gray-400 font-medium uppercase tracking-wider">
+        <div className="hidden md:grid grid-cols-[auto_auto_1fr_auto_auto_auto] gap-2 px-3 py-1.5 bg-gray-50 border-b text-[10px] text-gray-400 font-medium uppercase tracking-wider">
+          <span className="w-4">
+            <input
+              type="checkbox"
+              aria-label="전체 선택"
+              checked={filtered.length > 0 && filtered.every((r) => selectedIds.has(r.id))}
+              onChange={(e) => {
+                if (e.target.checked) setSelectedIds(new Set(filtered.map((r) => r.id)));
+                else clearSelection();
+              }}
+            />
+          </span>
           <span className="w-5"></span>
           <span>학교 / 이메일</span>
           <span className="w-20 text-center">상태</span>
@@ -537,7 +597,15 @@ export default function AccountsPage() {
           return (
             <div key={r.id} className="border-b last:border-b-0 hover:bg-gray-50/50">
               {/* Desktop row */}
-              <div className="hidden md:grid grid-cols-[auto_1fr_auto_auto_auto] gap-2 px-3 py-2 items-center">
+              <div className={`hidden md:grid grid-cols-[auto_auto_1fr_auto_auto_auto] gap-2 px-3 py-2 items-center ${selectedIds.has(r.id) ? "bg-blue-50/40" : ""}`}>
+                <span className="w-4 flex items-center justify-center">
+                  <input
+                    type="checkbox"
+                    aria-label={`${r.schoolName} 선택`}
+                    checked={selectedIds.has(r.id)}
+                    onChange={() => toggleSelect(r.id)}
+                  />
+                </span>
                 <span className="text-sm w-5 text-center" title={typeInfo?.label}>{typeInfo?.icon}</span>
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5">
@@ -580,8 +648,15 @@ export default function AccountsPage() {
               </div>
 
               {/* Mobile row */}
-              <div className="md:hidden px-3 py-2.5">
+              <div className={`md:hidden px-3 py-2.5 ${selectedIds.has(r.id) ? "bg-blue-50/40" : ""}`}>
                 <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    aria-label={`${r.schoolName} 선택`}
+                    checked={selectedIds.has(r.id)}
+                    onChange={() => toggleSelect(r.id)}
+                    className="shrink-0"
+                  />
                   <span className="text-sm">{typeInfo?.icon}</span>
                   <span className="font-medium text-sm text-gray-900 truncate flex-1">
                     {(r.applicantType || "school") === "individual" && <span className="text-[9px] px-1 py-0.5 rounded bg-purple-50 text-purple-700 font-medium mr-1">개인</span>}
@@ -651,6 +726,66 @@ export default function AccountsPage() {
                 </Button>
                 <span className="text-[10px] text-gray-400 ml-auto">
                   발송 후 자동으로 &quot;요청 완료&quot;로 변경됩니다
+                </span>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* 묶음 발송 미리보기 모달 */}
+      {batchPreviewOpen && (() => {
+        const ids = Array.from(selectedIds);
+        const selectedRequests = ids
+          .map((id) => requests.find((r) => r.id === id))
+          .filter((r): r is AccountRequest => !!r);
+        const sections = selectedRequests.map((r) => generateEmail(r));
+        const totalEmails = selectedRequests.reduce(
+          (s, r) => s + r.emails.split(/[,;\n]+/).filter((e) => e.trim()).length, 0,
+        );
+        const subject = `[Snorkl] Batch Request — ${ids.length} request${ids.length !== 1 ? "s" : ""}, ${totalEmails} email${totalEmails !== 1 ? "s" : ""}`;
+        const lines: string[] = [];
+        lines.push("Hi Jon,");
+        lines.push("");
+        lines.push(`Below ${ids.length === 1 ? "is 1 account request" : `are ${ids.length} account requests`}` + (totalEmails > ids.length ? ` (${totalEmails} emails total):` : ":"));
+        lines.push("");
+        sections.forEach((s, i) => {
+          lines.push("═══════════════════════════════════════════");
+          lines.push(`[${i + 1}/${ids.length}] ${s.subject}`);
+          lines.push("");
+          lines.push(s.body);
+          lines.push("");
+          lines.push("(Confirm 링크는 발송 시 자동 생성됩니다)");
+          lines.push("");
+        });
+        lines.push("Thank you,");
+        lines.push("Banghyun");
+        const previewBody = lines.join("\n");
+        return (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setBatchPreviewOpen(false)}>
+            <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+              <div className="p-4 border-b bg-gray-50 rounded-t-xl">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="font-bold text-sm">묶음 발송 — {ids.length}건</h3>
+                  <button onClick={() => setBatchPreviewOpen(false)} className="text-gray-400 hover:text-gray-600">✕</button>
+                </div>
+                <div className="text-xs text-gray-500 space-y-0.5">
+                  <div><b>To:</b> jon@snorkl.app</div>
+                  <div><b>Subject:</b> {subject}</div>
+                </div>
+              </div>
+              <div className="p-4">
+                <pre className="text-xs text-gray-800 whitespace-pre-wrap font-mono leading-relaxed bg-gray-50 rounded-lg p-3 max-h-[50vh] overflow-y-auto">{previewBody}</pre>
+              </div>
+              <div className="p-3 border-t bg-gray-50 rounded-b-xl flex items-center gap-2">
+                <Button size="sm" onClick={sendBatch} disabled={sending} className="bg-blue-600 hover:bg-blue-700 text-xs">
+                  {sending ? "발송 중..." : `📧 ${ids.length}건 발송`}
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setBatchPreviewOpen(false)} className="text-xs">
+                  취소
+                </Button>
+                <span className="text-[10px] text-gray-400 ml-auto">
+                  발송 시 모두 &quot;요청 완료&quot;로 변경 + 각 요청별 confirm 링크 생성
                 </span>
               </div>
             </div>
