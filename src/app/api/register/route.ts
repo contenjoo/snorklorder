@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const [teacher] = await db
+  await db
     .insert(teachers)
     .values({
       schoolId: school.id,
@@ -70,8 +70,7 @@ export async function POST(req: NextRequest) {
       email: normalizedEmail,
       subject: normalizedSubject,
       status: "pending",
-    })
-    .returning();
+    });
 
   return NextResponse.json({
     success: true,

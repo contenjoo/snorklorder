@@ -165,7 +165,8 @@ export default function PartnerDashboard() {
   function toggle(id: number) {
     setSelected((prev) => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   }
@@ -198,7 +199,8 @@ export default function PartnerDashboard() {
   function toggleTeam(key: string) {
     setExpandedTeams(prev => {
       const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   }
@@ -206,7 +208,8 @@ export default function PartnerDashboard() {
   function toggleSchool(id: number) {
     setExpandedSchools((prev) => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   }

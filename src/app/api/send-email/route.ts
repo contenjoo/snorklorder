@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
 
   // Fetch all schools in the same teams (for team summary in email)
   const teamNames = [...new Set(groups.map(g => g.team).filter(Boolean))] as string[];
-  let teamSchoolsMap: Record<string, string[]> = {};
+  const teamSchoolsMap: Record<string, string[]> = {};
   if (teamNames.length > 0) {
     const allTeamSchools = await db
       .select({ name: schools.name, nameEn: schools.nameEn, team: schools.team })

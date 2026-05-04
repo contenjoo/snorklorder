@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp, integer } from "drizzle-orm/pg-core";
+import { index, integer, pgTable, serial, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
 export const schools = pgTable("schools", {
@@ -10,7 +10,10 @@ export const schools = pgTable("schools", {
   region: text("region"),
   team: text("team"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => [
+  index("schools_team_idx").on(table.team),
+  index("schools_region_idx").on(table.region),
+]);
 
 export const teachers = pgTable("teachers", {
   id: serial("id").primaryKey(),
@@ -23,7 +26,12 @@ export const teachers = pgTable("teachers", {
   status: text("status").notNull().default("pending"), // pending | sent | upgraded
   notifiedAt: timestamp("notified_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => [
+  index("teachers_school_id_idx").on(table.schoolId),
+  uniqueIndex("teachers_school_email_unique_idx").on(table.schoolId, table.email),
+  index("teachers_status_idx").on(table.status),
+  index("teachers_created_at_idx").on(table.createdAt),
+]);
 
 export const schoolRequests = pgTable("school_requests", {
   id: serial("id").primaryKey(),
@@ -38,7 +46,9 @@ export const schoolRequests = pgTable("school_requests", {
   rejectReason: text("reject_reason"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   reviewedAt: timestamp("reviewed_at"),
-});
+}, (table) => [
+  index("school_requests_status_created_at_idx").on(table.status, table.createdAt),
+]);
 
 export const accountRequests = pgTable("account_requests", {
   id: serial("id").primaryKey(),
@@ -65,7 +75,10 @@ export const accountRequests = pgTable("account_requests", {
   confirmedAt: timestamp("confirmed_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (table) => [
+  index("account_requests_status_created_at_idx").on(table.status, table.createdAt),
+  index("account_requests_created_at_idx").on(table.createdAt),
+]);
 
 export const upgradeBatches = pgTable("upgrade_batches", {
   id: serial("id").primaryKey(),

@@ -13,17 +13,6 @@ interface Teacher {
   schoolId: number;
 }
 
-interface School {
-  id: number;
-  name: string;
-  nameEn: string | null;
-  code: string;
-  region: string | null;
-  team: string | null;
-  teacherCount: number;
-  teachers: Teacher[];
-}
-
 interface AccountRequest {
   id: number;
   type: string;
