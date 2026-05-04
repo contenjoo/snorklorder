@@ -33,8 +33,16 @@ interface AccountRequest {
   paymentLink: string | null;
   paymentDate: string | null;
   paymentMethod: string | null;
+  confirmedAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+function fmtMD(s: string | null | undefined) {
+  if (!s) return "—";
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return "—";
+  return `${(d.getMonth() + 1).toString().padStart(2, "0")}/${d.getDate().toString().padStart(2, "0")}`;
 }
 
 const TYPES = [
@@ -570,7 +578,7 @@ export default function AccountsPage() {
       {/* Request list */}
       <div className="bg-white rounded-xl border overflow-hidden">
         {/* Desktop header */}
-        <div className="hidden md:grid grid-cols-[auto_auto_1fr_auto_auto_auto] gap-2 px-3 py-1.5 bg-gray-50 border-b text-[10px] text-gray-400 font-medium uppercase tracking-wider">
+        <div className="hidden md:grid grid-cols-[auto_auto_1fr_auto_auto_auto_auto] gap-2 px-3 py-1.5 bg-gray-50 border-b text-[10px] text-gray-400 font-medium uppercase tracking-wider">
           <span className="w-4">
             <input
               type="checkbox"
@@ -584,6 +592,7 @@ export default function AccountsPage() {
           </span>
           <span className="w-5"></span>
           <span>학교 / 이메일</span>
+          <span className="w-16 text-center">날짜</span>
           <span className="w-20 text-center">상태</span>
           <span className="w-24 text-center">결제</span>
           <span className="w-28 text-right">액션</span>
@@ -597,7 +606,7 @@ export default function AccountsPage() {
           return (
             <div key={r.id} className="border-b last:border-b-0 hover:bg-gray-50/50">
               {/* Desktop row */}
-              <div className={`hidden md:grid grid-cols-[auto_auto_1fr_auto_auto_auto] gap-2 px-3 py-2 items-center ${selectedIds.has(r.id) ? "bg-blue-50/40" : ""}`}>
+              <div className={`hidden md:grid grid-cols-[auto_auto_1fr_auto_auto_auto_auto] gap-2 px-3 py-2 items-center ${selectedIds.has(r.id) ? "bg-blue-50/40" : ""}`}>
                 <span className="w-4 flex items-center justify-center">
                   <input
                     type="checkbox"
@@ -622,6 +631,10 @@ export default function AccountsPage() {
                   <div className="text-[11px] font-mono text-gray-500 truncate">
                     {emails.length <= 2 ? emails.join(", ") : `${emails[0]} +${emails.length - 1}`}
                   </div>
+                </div>
+                <div className="w-16 text-center text-[10px] leading-tight" title={`신청: ${r.createdAt || "—"}\n완료: ${r.confirmedAt || "—"}`}>
+                  <div className="text-gray-600">{fmtMD(r.createdAt)}</div>
+                  <div className={r.confirmedAt ? "text-emerald-600" : "text-gray-300"}>{fmtMD(r.confirmedAt)}</div>
                 </div>
                 <div className="w-20">
                   <select value={r.status} onChange={(e) => updateStatus(r.id, e.target.value)}
@@ -669,6 +682,10 @@ export default function AccountsPage() {
                 </div>
                 <div className="text-[11px] font-mono text-gray-500 truncate mt-0.5 ml-6">
                   {emails.length <= 2 ? emails.join(", ") : `${emails[0]} +${emails.length - 1}`}
+                </div>
+                <div className="text-[10px] text-gray-400 mt-0.5 ml-6 flex items-center gap-2" title={`신청: ${r.createdAt || "—"}\n완료: ${r.confirmedAt || "—"}`}>
+                  <span>📅 {fmtMD(r.createdAt)}</span>
+                  {r.confirmedAt && <span className="text-emerald-600">✓ {fmtMD(r.confirmedAt)}</span>}
                 </div>
                 <div className="flex items-center gap-1.5 mt-1.5 ml-6">
                   <button onClick={() => setEmailPreview(r)} className="text-[11px] text-gray-400 hover:text-blue-600 px-2 py-1 rounded bg-gray-50 min-h-[28px]">미리보기</button>
