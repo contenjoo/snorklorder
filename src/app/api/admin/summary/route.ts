@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { schools, teachers } from "@/db/schema";
+import { schools, teachers, upgradeBatches } from "@/db/schema";
 import { checkAuth } from "@/lib/auth";
 
 type SchoolCounts = {
@@ -29,7 +29,7 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const [schoolRows, countRows, pendingRows, recentRows] = await Promise.all([
+  const [schoolRows, countRows, pendingRows, recentRows, recentBatchRows] = await Promise.all([
     db
       .select({
         id: schools.id,
@@ -84,7 +84,45 @@ export async function GET() {
       .innerJoin(schools, eq(teachers.schoolId, schools.id))
       .orderBy(desc(teachers.createdAt))
       .limit(8),
+    db
+      .select({
+        id: upgradeBatches.id,
+        confirmedAt: upgradeBatches.confirmedAt,
+        confirmedIds: upgradeBatches.confirmedIds,
+      })
+      .from(upgradeBatches)
+      .where(eq(upgradeBatches.status, "confirmed"))
+      .orderBy(desc(upgradeBatches.confirmedAt))
+      .limit(5),
   ]);
+
+  // Hydrate recent confirmed batches with school summaries
+  const recentBatches: { id: number; confirmedAt: Date | null; count: number; schools: { name: string; nameEn: string | null; team: string | null; count: number }[] }[] = [];
+  for (const batch of recentBatchRows) {
+    let ids: number[] = [];
+    try { ids = batch.confirmedIds ? (JSON.parse(batch.confirmedIds) as number[]) : []; } catch { ids = []; }
+    if (ids.length === 0) {
+      recentBatches.push({ id: batch.id, confirmedAt: batch.confirmedAt, count: 0, schools: [] });
+      continue;
+    }
+    const rows = await db
+      .select({ name: schools.name, nameEn: schools.nameEn, team: schools.team })
+      .from(teachers)
+      .innerJoin(schools, eq(teachers.schoolId, schools.id))
+      .where(inArray(teachers.id, ids));
+    const map = new Map<string, { name: string; nameEn: string | null; team: string | null; count: number }>();
+    for (const r of rows) {
+      const key = r.name;
+      if (!map.has(key)) map.set(key, { name: r.name, nameEn: r.nameEn, team: r.team, count: 0 });
+      map.get(key)!.count++;
+    }
+    recentBatches.push({
+      id: batch.id,
+      confirmedAt: batch.confirmedAt,
+      count: ids.length,
+      schools: Array.from(map.values()),
+    });
+  }
 
   const countsBySchool = new Map<number, SchoolCounts>();
   for (const row of countRows) {
@@ -183,6 +221,7 @@ export async function GET() {
     teamGroups,
     upgradeNeeded,
     recentTeachers: recentRows,
+    recentBatches,
     regions,
   });
 }

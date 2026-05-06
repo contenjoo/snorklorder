@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { upgradeBatches, teachers, schools } from "@/db/schema";
 import { eq, inArray, and, notInArray } from "drizzle-orm";
+import { sendConfirmNotification } from "@/lib/email";
 
 // GET: 배치 정보 + 교사 목록 조회
 export async function GET(
@@ -132,11 +133,40 @@ export async function POST(
     .where(eq(upgradeBatches.id, batch.id));
 
   // 확인된 교사들 상태를 upgraded로 변경
+  const confirmedAt = new Date();
   if (normalizedConfirmedIds.length > 0) {
     await db
       .update(teachers)
       .set({ status: "upgraded" })
       .where(inArray(teachers.id, normalizedConfirmedIds));
+
+    // 관리자에게 알림 메일 (실패해도 응답에는 영향 없음)
+    try {
+      const confirmedRows = await db
+        .select({
+          email: teachers.email,
+          schoolName: schools.name,
+          schoolNameEn: schools.nameEn,
+          schoolTeam: schools.team,
+        })
+        .from(teachers)
+        .innerJoin(schools, eq(teachers.schoolId, schools.id))
+        .where(inArray(teachers.id, normalizedConfirmedIds));
+
+      const bySchool = new Map<string, { name: string; nameEn: string | null; team: string | null; emails: string[] }>();
+      for (const row of confirmedRows) {
+        const key = row.schoolName;
+        if (!bySchool.has(key)) bySchool.set(key, { name: row.schoolName, nameEn: row.schoolNameEn, team: row.schoolTeam, emails: [] });
+        bySchool.get(key)!.emails.push(row.email);
+      }
+      await sendConfirmNotification({
+        confirmedCount: normalizedConfirmedIds.length,
+        schools: Array.from(bySchool.values()),
+        confirmedAt,
+      });
+    } catch (err) {
+      console.warn("[confirm] notification email failed:", err);
+    }
   }
 
   return NextResponse.json({ success: true, count: normalizedConfirmedIds.length });

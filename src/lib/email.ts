@@ -253,6 +253,42 @@ export async function sendSchoolCodeEmail(email: string, name: string, schoolNam
   }
 }
 
+// Jon이 Vercel 페이지에서 확인 완료 시 관리자에게 알림
+export async function sendConfirmNotification(payload: {
+  confirmedCount: number;
+  schools: { name: string; nameEn: string | null; team: string | null; emails: string[] }[];
+  confirmedAt: Date;
+}): Promise<EmailResult> {
+  const t = getTransporter();
+  if (!t) return { success: false, skipped: true };
+  if (!ADMIN_EMAIL) return { success: false, skipped: true };
+  const body = payload.schools.map((s) => {
+    const head = `<b>${safe(s.nameEn || s.name)}</b>${s.nameEn ? ` <span style="color:#888">${safe(s.name)}</span>` : ""}${s.team ? ` <span style="color:#666;font-size:11px">[${safe(s.team)}]</span>` : ""}`;
+    const lines = s.emails.map((e) => `&nbsp;&nbsp;• ${safe(e)}`).join("<br>");
+    return `<p style="margin:8px 0">${head}<br>${lines}</p>`;
+  }).join("");
+  const time = payload.confirmedAt.toLocaleString("ko-KR", { timeZone: "Asia/Seoul" });
+  try {
+    await t.sendMail({
+      from: ADMIN_EMAIL,
+      to: ADMIN_EMAIL,
+      subject: `[Snorkl] Jon 업그레이드 확인 완료 - ${payload.confirmedCount}명`,
+      html: `
+        <div style="font-family:sans-serif;max-width:560px">
+          <h3 style="margin:0 0 4px">Jon이 업그레이드를 확인했습니다</h3>
+          <p style="color:#666;margin:0 0 16px;font-size:13px">${time} · ${payload.confirmedCount}명 · ${payload.schools.length}개 학교</p>
+          ${body}
+          <hr style="border:none;border-top:1px solid #eee;margin:16px 0">
+          <p><a href="${BASE_URL}/admin" style="color:#2563eb">대시보드 열기 →</a></p>
+        </div>
+      `,
+    });
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
 // 매일 자동 digest
 export async function sendDailyDigest(teachers: { teacherName: string; teacherEmail: string; subject: string | null; schoolName: string; schoolCode: string }[]): Promise<EmailResult> {
   const t = getTransporter();

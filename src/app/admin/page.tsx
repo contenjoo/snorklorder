@@ -43,6 +43,13 @@ interface RegionSummary {
   teachers: number;
 }
 
+interface RecentBatch {
+  id: number;
+  confirmedAt: string | null;
+  count: number;
+  schools: { name: string; nameEn: string | null; team: string | null; count: number }[];
+}
+
 interface DashboardData {
   stats: {
     totalSchools: number;
@@ -56,6 +63,7 @@ interface DashboardData {
   teamGroups: TeamGroup[];
   upgradeNeeded: Array<SchoolSummary & { needTeachers: DashboardTeacher[] }>;
   recentTeachers: DashboardTeacher[];
+  recentBatches: RecentBatch[];
   regions: RegionSummary[];
 }
 
@@ -101,7 +109,7 @@ export default function AdminDashboard() {
     );
   }
 
-  const { stats, teamGroups, upgradeNeeded, recentTeachers, regions } = data;
+  const { stats, teamGroups, upgradeNeeded, recentTeachers, recentBatches, regions } = data;
   const needUpgrade = stats.pending + stats.sent;
   const upgradeRate = stats.totalTeachers > 0 ? Math.round((stats.confirmed / stats.totalTeachers) * 100) : 0;
   const maxRegionTeachers = Math.max(1, ...regions.map((region) => region.teachers));
@@ -322,6 +330,44 @@ export default function AdminDashboard() {
               <p className="text-[10px] text-gray-400 mt-1">개별 계정 구매</p>
             </div>
           </div>
+
+          {recentBatches.length > 0 && (
+            <div className="bg-white rounded-2xl border overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-4 border-b">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                  <h2 className="font-bold text-gray-900">Jon 확인 내역</h2>
+                </div>
+                <span className="text-[10px] text-gray-400">최근 {recentBatches.length}건</span>
+              </div>
+              <div className="divide-y">
+                {recentBatches.map((batch) => {
+                  const when = batch.confirmedAt ? new Date(batch.confirmedAt) : null;
+                  const rel = when ? Math.max(0, Math.floor((Date.now() - when.getTime()) / 60000)) : null;
+                  const relText = rel === null ? "—" : rel < 1 ? "방금" : rel < 60 ? `${rel}분 전` : rel < 1440 ? `${Math.floor(rel / 60)}시간 전` : `${Math.floor(rel / 1440)}일 전`;
+                  return (
+                    <div key={batch.id} className="px-4 md:px-5 py-3">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-gray-900">+{batch.count}명 upgraded</span>
+                          <span className="text-[10px] text-gray-400">{batch.schools.length}교</span>
+                        </div>
+                        <span className="text-[10px] text-gray-400" title={when?.toLocaleString("ko-KR") || ""}>{relText}</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {batch.schools.slice(0, 4).map((school) => (
+                          <span key={school.name} className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 rounded px-1.5 py-0.5">
+                            {school.nameEn || school.name} <span className="text-emerald-500/70">×{school.count}</span>
+                          </span>
+                        ))}
+                        {batch.schools.length > 4 && <span className="text-[10px] text-gray-400 self-center">+{batch.schools.length - 4}</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <div className="bg-white rounded-2xl border overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b">
