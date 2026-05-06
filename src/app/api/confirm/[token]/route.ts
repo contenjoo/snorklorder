@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { upgradeBatches, teachers, schools } from "@/db/schema";
 import { eq, inArray, and, notInArray } from "drizzle-orm";
-import { sendConfirmNotification } from "@/lib/email";
+import { sendConfirmNotification, sendTeacherUpgradedEmail } from "@/lib/email";
 
 // GET: 배치 정보 + 교사 목록 조회
 export async function GET(
@@ -144,6 +144,7 @@ export async function POST(
     try {
       const confirmedRows = await db
         .select({
+          name: teachers.name,
           email: teachers.email,
           schoolName: schools.name,
           schoolNameEn: schools.nameEn,
@@ -153,6 +154,7 @@ export async function POST(
         .innerJoin(schools, eq(teachers.schoolId, schools.id))
         .where(inArray(teachers.id, normalizedConfirmedIds));
 
+      // 1) 관리자 요약 알림
       const bySchool = new Map<string, { name: string; nameEn: string | null; team: string | null; emails: string[] }>();
       for (const row of confirmedRows) {
         const key = row.schoolName;
@@ -164,6 +166,22 @@ export async function POST(
         schools: Array.from(bySchool.values()),
         confirmedAt,
       });
+
+      // 2) 교사 개별 환영 메일 (병렬, 실패는 무시)
+      const teacherResults = await Promise.allSettled(
+        confirmedRows.map((row) =>
+          sendTeacherUpgradedEmail({
+            name: row.name,
+            email: row.email,
+            schoolName: row.schoolName,
+            schoolNameEn: row.schoolNameEn,
+          })
+        )
+      );
+      const failed = teacherResults.filter((r) => r.status === "rejected" || (r.status === "fulfilled" && !r.value.success && !r.value.skipped)).length;
+      if (failed > 0) {
+        console.warn(`[confirm] ${failed}/${confirmedRows.length} teacher emails failed`);
+      }
     } catch (err) {
       console.warn("[confirm] notification email failed:", err);
     }

@@ -253,6 +253,46 @@ export async function sendSchoolCodeEmail(email: string, name: string, schoolNam
   }
 }
 
+// Jon 확정 후 교사 본인에게 업그레이드 완료 알림 (개별 발송)
+export async function sendTeacherUpgradedEmail(teacher: {
+  name: string;
+  email: string;
+  schoolName: string;
+  schoolNameEn?: string | null;
+}): Promise<EmailResult> {
+  const t = getTransporter();
+  if (!t) return { success: false, skipped: true };
+  const schoolDisplay = teacher.schoolNameEn
+    ? `${safe(teacher.schoolNameEn)} <span style="color:#888">(${safe(teacher.schoolName)})</span>`
+    : safe(teacher.schoolName);
+  try {
+    await t.sendMail({
+      from: ADMIN_EMAIL,
+      to: teacher.email,
+      subject: `[Snorkl] 프리미엄 계정이 활성화되었습니다`,
+      html: `
+        <div style="max-width:520px;margin:0 auto;font-family:sans-serif;color:#1f2937">
+          <h2 style="color:#1e3a5f;margin:0 0 12px">${safe(teacher.name)} 선생님, 환영합니다 🎉</h2>
+          <p style="margin:0 0 12px">${schoolDisplay}에서 신청하신 <b>Snorkl 프리미엄 계정 업그레이드</b>가 완료되었습니다.</p>
+          <p style="margin:0 0 12px">가입하신 이메일 <code style="background:#f3f4f6;padding:2px 6px;border-radius:4px">${safe(teacher.email)}</code> 로
+            <a href="https://snorkl.app" style="color:#2563eb">Snorkl</a>에 로그인하시면 바로 프리미엄 기능을 사용하실 수 있습니다.</p>
+          <div style="background:#fef9c3;border:1px solid #fde68a;border-radius:12px;padding:14px 16px;margin:18px 0">
+            <p style="margin:0 0 6px;font-weight:600;color:#854d0e">💬 Snorkl 한국 선생님 커뮤니티</p>
+            <p style="margin:0;font-size:13px">다른 선생님들과 노하우를 나눠보세요.<br>
+              <a href="https://open.kakao.com/o/gkyPvfWh" style="color:#a16207;font-weight:600">카카오톡 오픈채팅 참여하기 →</a></p>
+          </div>
+          <p style="margin:0 0 4px;font-size:13px;color:#6b7280">문의: <a href="mailto:contenjoo@learntoday.co.kr" style="color:#2563eb">contenjoo@learntoday.co.kr</a></p>
+          <hr style="border:none;border-top:1px solid #eee;margin:20px 0">
+          <p style="color:#9ca3af;font-size:11px;margin:0">이 메일은 Snorkl 주문관리 시스템에서 자동 발송되었습니다.</p>
+        </div>
+      `,
+    });
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
 // Jon이 Vercel 페이지에서 확인 완료 시 관리자에게 알림
 export async function sendConfirmNotification(payload: {
   confirmedCount: number;
