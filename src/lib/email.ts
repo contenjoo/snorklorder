@@ -50,9 +50,12 @@ interface TeacherInfo {
 const TEAM_EN: Record<string, string> = {
   "서울1팀": "Seoul Team 1",
   "서울4팀": "Seoul Team 4",
+  "서울8팀": "Seoul Team 8",
   "경기2팀": "Gyeonggi Team 2",
   "경기3팀": "Gyeonggi Team 3",
   "경기5팀": "Gyeonggi Team 5",
+  "경기6팀": "Gyeonggi Team 6",
+  "경기7팀": "Gyeonggi Team 7",
 };
 
 function teamLabelEn(team: string): string {
