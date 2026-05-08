@@ -245,10 +245,7 @@ export default function TeacherRegistration() {
                 <div className="flex items-start gap-3 mb-3">
                   <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center text-2xl shrink-0 group-hover:scale-105 transition-transform">🏫</div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="font-bold text-gray-900">학교 단체구매</p>
-                      <span className="text-[10px] bg-blue-100 text-blue-700 font-bold rounded-full px-2 py-0.5">추천</span>
-                    </div>
+                    <p className="font-bold text-gray-900">학교 단체구매</p>
                     <p className="text-xs text-gray-500 mt-0.5">학교 차원의 일괄 구매로 함께 등록된 선생님</p>
                   </div>
                   <svg className="w-5 h-5 text-gray-300 group-hover:text-blue-500 group-hover:translate-x-0.5 transition-all shrink-0 mt-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
