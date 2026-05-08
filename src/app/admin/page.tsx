@@ -83,6 +83,23 @@ export default function AdminDashboard() {
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState("");
   const [expandedTeam, setExpandedTeam] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+
+  function toggleId(id: number) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  function toggleSchool(ids: number[], allSelected: boolean) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allSelected) ids.forEach((id) => next.delete(id));
+      else ids.forEach((id) => next.add(id));
+      return next;
+    });
+  }
 
   async function load() {
     setLoading(true);
@@ -115,11 +132,15 @@ export default function AdminDashboard() {
   const upgradeRate = stats.totalTeachers > 0 ? Math.round((stats.confirmed / stats.totalTeachers) * 100) : 0;
   const maxRegionTeachers = Math.max(1, ...regions.map((region) => region.teachers));
 
-  async function sendAllPending() {
-    const pendingTeacherIds = upgradeNeeded.flatMap((school) =>
-      school.needTeachers.filter((teacher) => teacher.status === "pending").map((teacher) => teacher.id)
-    );
-    if (pendingTeacherIds.length === 0) return;
+  const allPendingIds = upgradeNeeded.flatMap((school) =>
+    school.needTeachers.filter((teacher) => teacher.status === "pending").map((teacher) => teacher.id)
+  );
+  const targetIds = selectedIds.size > 0
+    ? allPendingIds.filter((id) => selectedIds.has(id))
+    : allPendingIds;
+
+  async function sendSelected() {
+    if (targetIds.length === 0) return;
 
     setSending(true);
     setMessage("");
@@ -127,11 +148,11 @@ export default function AdminDashboard() {
       const res = await fetch("/api/send-email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ teacherIds: pendingTeacherIds }),
+        body: JSON.stringify({ teacherIds: targetIds }),
       });
       const body = await res.json();
-      setMessage(body.success ? `${pendingTeacherIds.length}명 Jon에게 발송 완료` : "발송 실패");
-      if (body.success) await load();
+      setMessage(body.success ? `${targetIds.length}명 Jon에게 발송 완료` : "발송 실패");
+      if (body.success) { setSelectedIds(new Set()); await load(); }
     } catch {
       setMessage("연결 오류");
     } finally {
@@ -273,37 +294,85 @@ export default function AdminDashboard() {
           {needUpgrade > 0 && (
             <div className="bg-white rounded-2xl border overflow-hidden">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-4 md:px-5 py-3 md:py-4 border-b">
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 flex-wrap">
                   <h2 className="font-bold text-gray-900">업그레이드 대기</h2>
                   <span className="text-xs font-medium text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200">{needUpgrade}명</span>
+                  {stats.pending > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (selectedIds.size === allPendingIds.length) setSelectedIds(new Set());
+                        else setSelectedIds(new Set(allPendingIds));
+                      }}
+                      className="text-[11px] font-medium text-blue-600 hover:text-blue-700 hover:underline"
+                    >
+                      {selectedIds.size === allPendingIds.length && allPendingIds.length > 0 ? "전체 해제" : "전체 선택"}
+                    </button>
+                  )}
+                  {selectedIds.size > 0 && (
+                    <span className="text-[11px] text-gray-500">{selectedIds.size}명 선택됨</span>
+                  )}
                 </div>
                 {stats.pending > 0 && (
-                  <button onClick={sendAllPending} disabled={sending}
+                  <button onClick={sendSelected} disabled={sending || targetIds.length === 0}
                     className="text-xs font-semibold bg-slate-900 text-white px-4 py-2 rounded-lg hover:bg-slate-800 disabled:opacity-50 transition-colors w-full sm:w-auto">
-                    {sending ? "발송 중..." : `${stats.pending}명 Jon에게 발송`}
+                    {sending ? "발송 중..." : selectedIds.size > 0 ? `선택한 ${targetIds.length}명 Jon에게 발송` : `전체 ${stats.pending}명 Jon에게 발송`}
                   </button>
                 )}
               </div>
               <div className="divide-y max-h-[400px] overflow-y-auto">
                 {upgradeNeeded.map((school) => {
                   const tc = teamColorMap[school.team || ""] || { bg: "bg-gray-50", text: "text-gray-600", dot: "bg-gray-400", border: "border-gray-200" };
+                  const schoolPendingIds = school.needTeachers.filter((t) => t.status === "pending").map((t) => t.id);
+                  const selectedInSchool = schoolPendingIds.filter((id) => selectedIds.has(id)).length;
+                  const allSelected = schoolPendingIds.length > 0 && selectedInSchool === schoolPendingIds.length;
+                  const someSelected = selectedInSchool > 0 && !allSelected;
                   return (
                     <div key={school.id} className="px-4 md:px-5 py-3">
                       <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mb-2">
+                        {schoolPendingIds.length > 0 && (
+                          <input
+                            type="checkbox"
+                            checked={allSelected}
+                            ref={(el) => { if (el) el.indeterminate = someSelected; }}
+                            onChange={() => toggleSchool(schoolPendingIds, allSelected)}
+                            className="w-3.5 h-3.5 accent-slate-900 cursor-pointer"
+                            aria-label={`${school.name} 전체 선택`}
+                          />
+                        )}
                         <span className="text-sm font-semibold text-gray-900">{school.nameEn || school.name}</span>
                         {school.nameEn && <span className="text-[10px] text-gray-400">{school.name}</span>}
                         {school.team && <span className={`text-[10px] px-2 py-0.5 rounded-full ${tc.bg} ${tc.text} border ${tc.border}`}>{school.team}</span>}
                       </div>
                       <div className="flex flex-wrap gap-1">
-                        {school.needTeachers.map((teacher) => (
-                          <span key={teacher.id}
-                            className={`text-[10px] font-mono px-2 py-0.5 rounded-lg truncate max-w-[180px] sm:max-w-none ${
-                              teacher.status === "pending" ? "bg-amber-50 text-amber-700 border border-amber-200" : "bg-blue-50 text-blue-700 border border-blue-200"
-                            }`}
-                            title={teacher.email}>
-                            {teacher.email}
-                          </span>
-                        ))}
+                        {school.needTeachers.map((teacher) => {
+                          const selectable = teacher.status === "pending";
+                          const isSelected = selectedIds.has(teacher.id);
+                          return (
+                            <label
+                              key={teacher.id}
+                              title={teacher.email}
+                              className={`inline-flex items-center gap-1.5 text-[10px] font-mono px-2 py-0.5 rounded-lg truncate max-w-[200px] sm:max-w-none transition-colors ${
+                                !selectable
+                                  ? "bg-blue-50 text-blue-700 border border-blue-200 cursor-not-allowed"
+                                  : isSelected
+                                    ? "bg-slate-900 text-white border border-slate-900 cursor-pointer"
+                                    : "bg-amber-50 text-amber-700 border border-amber-200 cursor-pointer hover:bg-amber-100"
+                              }`}
+                            >
+                              {selectable && (
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => toggleId(teacher.id)}
+                                  className="w-3 h-3 accent-white cursor-pointer"
+                                  aria-label={`${teacher.email} 선택`}
+                                />
+                              )}
+                              <span className="truncate">{teacher.email}</span>
+                            </label>
+                          );
+                        })}
                       </div>
                     </div>
                   );
