@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
   }
 
   const results = await db
-    .select({ id: schools.id, name: schools.name, nameEn: schools.nameEn, code: schools.code })
+    .select({ id: schools.id, name: schools.name, nameEn: schools.nameEn, code: schools.code, team: schools.team })
     .from(schools)
     .where(
       sql`${schools.name} ILIKE ${"%" + q + "%"} OR ${schools.nameEn} ILIKE ${"%" + q + "%"} OR ${schools.code} ILIKE ${"%" + q + "%"}`

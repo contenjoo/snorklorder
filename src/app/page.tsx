@@ -8,7 +8,12 @@ import { Label } from "@/components/ui/label";
 type Step = "choose" | "schoolFind" | "schoolForm" | "batchForm" | "success" | "batchSuccess" | "request" | "requestSent" | "purchaseForm";
 type FindMode = "search" | "code";
 
-interface SchoolResult { id: number; name: string; nameEn: string | null; code: string; }
+interface SchoolResult { id: number; name: string; nameEn: string | null; code: string; team?: string | null; }
+
+function isGroupPurchaseTeam(team: string | null | undefined): boolean {
+  if (!team) return false;
+  return !team.includes("개별") && team !== "미배정";
+}
 
 export default function TeacherRegistration() {
   const [step, setStep] = useState<Step>("choose");
@@ -36,6 +41,23 @@ export default function TeacherRegistration() {
   const [purchaseTeachers, setPurchaseTeachers] = useState<{ name: string; email: string; subject: string }[]>([{ name: "", email: "", subject: "" }]);
   const [purchaseMode, setPurchaseMode] = useState<"individual" | "bulk">("individual");
   const [purchaseBulkEmails, setPurchaseBulkEmails] = useState("");
+  const [matchedSchool, setMatchedSchool] = useState<SchoolResult | null>(null);
+
+  useEffect(() => {
+    if (step !== "purchaseForm") { setMatchedSchool(null); return; }
+    const q = purchaseSchoolName.trim();
+    if (q.length < 2) { setMatchedSchool(null); return; }
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/schools/search?q=${encodeURIComponent(q)}`);
+        const list = (await res.json()) as SchoolResult[];
+        const exact = list.find((s) => s.name === q || s.nameEn === q);
+        const groupHit = (exact ?? list[0]);
+        setMatchedSchool(groupHit && isGroupPurchaseTeam(groupHit.team) ? groupHit : null);
+      } catch { /* ignore */ }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [purchaseSchoolName, step]);
 
   useEffect(() => {
     const trimmedQuery = searchQuery.trim();
@@ -579,7 +601,37 @@ export default function TeacherRegistration() {
               <div className="space-y-1.5">
                 <Label htmlFor="purchase-school-name" className={labelCls}>소속 학교 / 기관 *</Label>
                 <Input id="purchase-school-name" placeholder="예: 서울 OO고등학교" value={purchaseSchoolName} onChange={(e) => setPurchaseSchoolName(e.target.value)} autoFocus className={inputCls} />
-              </div>              <div className="flex rounded-xl bg-gray-100 p-1">
+              </div>
+
+              {matchedSchool && (
+                <div className="rounded-xl bg-amber-50 border-2 border-amber-200 p-4 space-y-2.5">
+                  <div className="flex items-start gap-2">
+                    <span className="text-lg">🏫</span>
+                    <div className="flex-1">
+                      <p className="text-sm font-bold text-amber-900">단체구매한 학교입니다</p>
+                      <p className="text-xs text-amber-800 mt-0.5">
+                        <b>{matchedSchool.name}</b>은(는) <b>{matchedSchool.team}</b> 단체구매로 등록된 학교예요.
+                        학교 단체구매로 등록하시면 함께 일괄 처리됩니다.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSchoolCode(matchedSchool.code);
+                      setSchoolName(matchedSchool.name);
+                      setSchoolNameEn(matchedSchool.nameEn || "");
+                      setError("");
+                      setStep("schoolForm");
+                    }}
+                    className="w-full h-10 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-sm font-bold transition-colors"
+                  >
+                    학교 단체구매로 등록하기 →
+                  </button>
+                </div>
+              )}
+
+              <div className="flex rounded-xl bg-gray-100 p-1">
                 <button
                   type="button"
                   onClick={() => { setPurchaseMode("individual"); setError(""); }}
