@@ -210,58 +210,104 @@ export default function TeacherRegistration() {
         {/* Card */}
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
 
-          {/* ===== 선택 화면 ===== */}
+          {/* ===== 선택 화면 (온보딩) ===== */}
           {step === "choose" && (
-            <div className="p-6 space-y-4">
-              {/* Snorkl 안내 */}
-              <div className="flex items-start gap-3 rounded-xl bg-blue-50 border border-blue-100 p-4">
-                <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center shrink-0 mt-0.5">
-                  <span className="text-blue-600 text-sm">💡</span>
-                </div>
-                <div>
-                  <p className="text-sm font-bold text-blue-900">먼저 Snorkl 가입이 필요합니다</p>
-                  <p className="text-sm text-blue-700 mt-1">
-                    <a href="https://snorkl.app" target="_blank" rel="noopener noreferrer" className="underline font-bold">snorkl.app</a>
-                    에서 가입 후, 동일한 이메일로 아래에서 등록해주세요.
-                  </p>
-                </div>
+            <div className="p-6 space-y-5">
+              {/* 진행 단계 인디케이터 */}
+              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider">
+                <span className="text-blue-600">1. 구매 유형</span>
+                <span className="text-gray-300">›</span>
+                <span className="text-gray-400">2. 정보 입력</span>
+                <span className="text-gray-300">›</span>
+                <span className="text-gray-400">3. 완료</span>
               </div>
 
-              <p className="text-sm font-bold text-gray-900">등록 유형을 선택하세요</p>
+              {/* 인사 + 안내 */}
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">어떻게 구매하셨나요?</h2>
+                <p className="text-sm text-gray-500 mt-1">구매 방식에 맞는 등록 안내를 도와드릴게요.</p>
+              </div>
+
+              {/* Snorkl 가입 안내 */}
+              <div className="flex items-start gap-3 rounded-xl bg-blue-50 border border-blue-100 p-3.5">
+                <span className="text-base mt-0.5">💡</span>
+                <p className="text-xs text-blue-800 leading-relaxed">
+                  먼저 <a href="https://snorkl.app" target="_blank" rel="noopener noreferrer" className="underline font-bold">snorkl.app</a>에서 가입해주세요.
+                  여기서 등록하실 때 <b>동일한 이메일</b>을 사용해야 업그레이드가 적용됩니다.
+                </p>
+              </div>
 
               {/* 학교 단체구매 */}
               <button
                 onClick={() => { setStep("schoolFind"); setError(""); }}
-                className="w-full rounded-2xl border-2 border-gray-100 p-5 text-left hover:border-blue-200 hover:bg-blue-50/30 transition-all group"
+                className="w-full rounded-2xl border-2 border-gray-100 p-5 text-left hover:border-blue-300 hover:bg-blue-50/40 hover:shadow-md transition-all group"
               >
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center text-2xl group-hover:scale-105 transition-transform">🏫</div>
-                  <div className="flex-1">
-                    <p className="font-bold text-gray-900">학교 단체구매</p>
-                    <p className="text-sm text-gray-500">학교에서 단체로 구매한 경우</p>
+                <div className="flex items-start gap-3 mb-3">
+                  <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center text-2xl shrink-0 group-hover:scale-105 transition-transform">🏫</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="font-bold text-gray-900">학교 단체구매</p>
+                      <span className="text-[10px] bg-blue-100 text-blue-700 font-bold rounded-full px-2 py-0.5">추천</span>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-0.5">학교 차원의 일괄 구매로 함께 등록된 선생님</p>
                   </div>
-                  <svg className="w-5 h-5 text-gray-300 group-hover:text-blue-400 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg className="w-5 h-5 text-gray-300 group-hover:text-blue-500 group-hover:translate-x-0.5 transition-all shrink-0 mt-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                   </svg>
                 </div>
+                <ul className="space-y-1 text-xs text-gray-600" style={{ paddingLeft: "60px" }}>
+                  <li className="flex items-center gap-1.5">
+                    <span className="text-blue-500">✓</span>
+                    학교 전체구매로 함께 신청한 경우
+                  </li>
+                  <li className="flex items-center gap-1.5">
+                    <span className="text-blue-500">✓</span>
+                    지역 공동구매팀 (서울/경기 N팀)
+                  </li>
+                  <li className="flex items-center gap-1.5">
+                    <span className="text-blue-500">✓</span>
+                    학교 코드를 받으셨다면 여기로
+                  </li>
+                </ul>
               </button>
 
               {/* 교사 개인구매 */}
               <button
                 onClick={() => { setStep("purchaseForm"); setError(""); }}
-                className="w-full rounded-2xl border-2 border-gray-100 p-5 text-left hover:border-emerald-200 hover:bg-emerald-50/30 transition-all group"
+                className="w-full rounded-2xl border-2 border-gray-100 p-5 text-left hover:border-emerald-300 hover:bg-emerald-50/40 hover:shadow-md transition-all group"
               >
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center text-2xl group-hover:scale-105 transition-transform">👤</div>
-                  <div className="flex-1">
+                <div className="flex items-start gap-3 mb-3">
+                  <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center text-2xl shrink-0 group-hover:scale-105 transition-transform">👤</div>
+                  <div className="flex-1 min-w-0">
                     <p className="font-bold text-gray-900">교사 개인구매</p>
-                    <p className="text-sm text-gray-500">최대 10명까지 한 번에 등록</p>
+                    <p className="text-xs text-gray-500 mt-0.5">개인 또는 소수 인원이 직접 구매한 경우</p>
                   </div>
-                  <svg className="w-5 h-5 text-gray-300 group-hover:text-emerald-400 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg className="w-5 h-5 text-gray-300 group-hover:text-emerald-500 group-hover:translate-x-0.5 transition-all shrink-0 mt-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                   </svg>
                 </div>
+                <ul className="space-y-1 text-xs text-gray-600" style={{ paddingLeft: "60px" }}>
+                  <li className="flex items-center gap-1.5">
+                    <span className="text-emerald-500">✓</span>
+                    학교 단체구매가 <b>아닌</b> 일반 구매
+                  </li>
+                  <li className="flex items-center gap-1.5">
+                    <span className="text-emerald-500">✓</span>
+                    혼자 또는 소수 인원으로 구매
+                  </li>
+                  <li className="flex items-center gap-1.5">
+                    <span className="text-emerald-500">✓</span>
+                    한 번에 1~10명까지 등록 가능
+                  </li>
+                </ul>
               </button>
+
+              {/* 도움말 */}
+              <div className="text-center pt-1">
+                <p className="text-[11px] text-gray-400">
+                  잘 모르시겠다면? 학교에서 받은 <b className="text-gray-500">학교 코드</b>가 있으면 학교 단체구매를 선택하세요.
+                </p>
+              </div>
             </div>
           )}
 
