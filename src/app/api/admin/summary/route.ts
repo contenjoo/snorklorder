@@ -96,25 +96,32 @@ export async function GET() {
       .limit(5),
   ]);
 
-  // Hydrate recent confirmed batches with school summaries
-  const recentBatches: { id: number; confirmedAt: Date | null; count: number; schools: { name: string; nameEn: string | null; team: string | null; count: number }[] }[] = [];
-  for (const batch of recentBatchRows) {
+  // Hydrate recent confirmed batches with school summaries — one query covers all batches
+  type SchoolSummaryItem = { name: string; nameEn: string | null; team: string | null; count: number };
+  const recentBatches: { id: number; confirmedAt: Date | null; count: number; schools: SchoolSummaryItem[] }[] = [];
+  const batchIds: { batchId: number; ids: number[] }[] = recentBatchRows.map((batch) => {
     let ids: number[] = [];
-    try { ids = batch.confirmedIds ? (JSON.parse(batch.confirmedIds) as number[]) : []; } catch { ids = []; }
-    if (ids.length === 0) {
-      recentBatches.push({ id: batch.id, confirmedAt: batch.confirmedAt, count: 0, schools: [] });
-      continue;
-    }
+    try { ids = batch.confirmedIds ? (JSON.parse(batch.confirmedIds) as number[]) : []; } catch { /* keep empty */ }
+    return { batchId: batch.id, ids };
+  });
+  const allTeacherIds = [...new Set(batchIds.flatMap((b) => b.ids))];
+  const teacherSchoolMap = new Map<number, { name: string; nameEn: string | null; team: string | null }>();
+  if (allTeacherIds.length > 0) {
     const rows = await db
-      .select({ name: schools.name, nameEn: schools.nameEn, team: schools.team })
+      .select({ id: teachers.id, name: schools.name, nameEn: schools.nameEn, team: schools.team })
       .from(teachers)
       .innerJoin(schools, eq(teachers.schoolId, schools.id))
-      .where(inArray(teachers.id, ids));
-    const map = new Map<string, { name: string; nameEn: string | null; team: string | null; count: number }>();
-    for (const r of rows) {
-      const key = r.name;
-      if (!map.has(key)) map.set(key, { name: r.name, nameEn: r.nameEn, team: r.team, count: 0 });
-      map.get(key)!.count++;
+      .where(inArray(teachers.id, allTeacherIds));
+    for (const r of rows) teacherSchoolMap.set(r.id, { name: r.name, nameEn: r.nameEn, team: r.team });
+  }
+  for (const batch of recentBatchRows) {
+    const ids = batchIds.find((b) => b.batchId === batch.id)!.ids;
+    const map = new Map<string, SchoolSummaryItem>();
+    for (const id of ids) {
+      const s = teacherSchoolMap.get(id);
+      if (!s) continue;
+      if (!map.has(s.name)) map.set(s.name, { ...s, count: 0 });
+      map.get(s.name)!.count++;
     }
     recentBatches.push({
       id: batch.id,

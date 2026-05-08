@@ -297,18 +297,18 @@ export default function AdminDashboard() {
                 <div className="flex items-center gap-3 flex-wrap">
                   <h2 className="font-bold text-gray-900">업그레이드 대기</h2>
                   <span className="text-xs font-medium text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200">{needUpgrade}명</span>
-                  {stats.pending > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (selectedIds.size === allPendingIds.length) setSelectedIds(new Set());
-                        else setSelectedIds(new Set(allPendingIds));
-                      }}
-                      className="text-[11px] font-medium text-blue-600 hover:text-blue-700 hover:underline"
-                    >
-                      {selectedIds.size === allPendingIds.length && allPendingIds.length > 0 ? "전체 해제" : "전체 선택"}
-                    </button>
-                  )}
+                  {stats.pending > 0 && (() => {
+                    const allChecked = selectedIds.size === allPendingIds.length && allPendingIds.length > 0;
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedIds(allChecked ? new Set() : new Set(allPendingIds))}
+                        className="text-[11px] font-medium text-blue-600 hover:text-blue-700 hover:underline"
+                      >
+                        {allChecked ? "전체 해제" : "전체 선택"}
+                      </button>
+                    );
+                  })()}
                   {selectedIds.size > 0 && (
                     <span className="text-[11px] text-gray-500">{selectedIds.size}명 선택됨</span>
                   )}

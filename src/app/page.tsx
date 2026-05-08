@@ -210,35 +210,24 @@ export default function TeacherRegistration() {
         {/* Card */}
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
 
-          {/* ===== 선택 화면 (온보딩) ===== */}
           {step === "choose" && (
             <div className="p-6 space-y-5">
-              {/* 진행 단계 인디케이터 */}
               <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider">
                 <span className="text-blue-600">1. 구매 유형</span>
                 <span className="text-gray-300">›</span>
                 <span className="text-gray-400">2. 정보 입력</span>
                 <span className="text-gray-300">›</span>
                 <span className="text-gray-400">3. 완료</span>
-              </div>
-
-              {/* 인사 + 안내 */}
-              <div>
+              </div>              <div>
                 <h2 className="text-xl font-bold text-gray-900">어떻게 구매하셨나요?</h2>
                 <p className="text-sm text-gray-500 mt-1">구매 방식에 맞는 등록 안내를 도와드릴게요.</p>
-              </div>
-
-              {/* Snorkl 가입 안내 */}
-              <div className="flex items-start gap-3 rounded-xl bg-blue-50 border border-blue-100 p-3.5">
+              </div>              <div className="flex items-start gap-3 rounded-xl bg-blue-50 border border-blue-100 p-3.5">
                 <span className="text-base mt-0.5">💡</span>
                 <p className="text-xs text-blue-800 leading-relaxed">
                   먼저 <a href="https://snorkl.app" target="_blank" rel="noopener noreferrer" className="underline font-bold">snorkl.app</a>에서 가입해주세요.
                   여기서 등록하실 때 <b>동일한 이메일</b>을 사용해야 업그레이드가 적용됩니다.
                 </p>
-              </div>
-
-              {/* 학교 단체구매 */}
-              <button
+              </div>              <button
                 onClick={() => { setStep("schoolFind"); setError(""); }}
                 className="w-full rounded-2xl border-2 border-gray-100 p-5 text-left hover:border-blue-300 hover:bg-blue-50/40 hover:shadow-md transition-all group"
               >
@@ -252,7 +241,7 @@ export default function TeacherRegistration() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                   </svg>
                 </div>
-                <ul className="space-y-1 text-xs text-gray-600" style={{ paddingLeft: "60px" }}>
+                <ul className="space-y-1 text-xs text-gray-600 pl-[60px]">
                   <li className="flex items-center gap-1.5">
                     <span className="text-blue-500">✓</span>
                     학교 전체구매로 함께 신청한 경우
@@ -266,10 +255,7 @@ export default function TeacherRegistration() {
                     학교 코드를 받으셨다면 여기로
                   </li>
                 </ul>
-              </button>
-
-              {/* 교사 개인구매 */}
-              <button
+              </button>              <button
                 onClick={() => { setStep("purchaseForm"); setError(""); }}
                 className="w-full rounded-2xl border-2 border-gray-100 p-5 text-left hover:border-emerald-300 hover:bg-emerald-50/40 hover:shadow-md transition-all group"
               >
@@ -283,7 +269,7 @@ export default function TeacherRegistration() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                   </svg>
                 </div>
-                <ul className="space-y-1 text-xs text-gray-600" style={{ paddingLeft: "60px" }}>
+                <ul className="space-y-1 text-xs text-gray-600 pl-[60px]">
                   <li className="flex items-center gap-1.5">
                     <span className="text-emerald-500">✓</span>
                     학교 단체구매가 <b>아닌</b> 일반 구매
@@ -297,10 +283,7 @@ export default function TeacherRegistration() {
                     한 번에 1~10명까지 등록 가능
                   </li>
                 </ul>
-              </button>
-
-              {/* 도움말 */}
-              <div className="text-center pt-1">
+              </button>              <div className="text-center pt-1">
                 <p className="text-[11px] text-gray-400">
                   잘 모르시겠다면? 학교에서 받은 <b className="text-gray-500">학교 코드</b>가 있으면 학교 단체구매를 선택하세요.
                 </p>
@@ -596,10 +579,7 @@ export default function TeacherRegistration() {
               <div className="space-y-1.5">
                 <Label htmlFor="purchase-school-name" className={labelCls}>소속 학교 / 기관 *</Label>
                 <Input id="purchase-school-name" placeholder="예: 서울 OO고등학교" value={purchaseSchoolName} onChange={(e) => setPurchaseSchoolName(e.target.value)} autoFocus className={inputCls} />
-              </div>
-
-              {/* 입력 모드 토글 */}
-              <div className="flex rounded-xl bg-gray-100 p-1">
+              </div>              <div className="flex rounded-xl bg-gray-100 p-1">
                 <button
                   type="button"
                   onClick={() => { setPurchaseMode("individual"); setError(""); }}

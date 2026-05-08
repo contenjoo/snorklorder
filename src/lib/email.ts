@@ -256,7 +256,6 @@ export async function sendSchoolCodeEmail(email: string, name: string, schoolNam
   }
 }
 
-// Jon 확정 후 교사 본인에게 업그레이드 완료 알림 (개별 발송)
 export async function sendTeacherUpgradedEmail(teacher: {
   name: string;
   email: string;
@@ -296,7 +295,6 @@ export async function sendTeacherUpgradedEmail(teacher: {
   }
 }
 
-// Jon이 Vercel 페이지에서 확인 완료 시 관리자에게 알림
 export async function sendConfirmNotification(payload: {
   confirmedCount: number;
   schools: { name: string; nameEn: string | null; team: string | null; emails: string[] }[];
