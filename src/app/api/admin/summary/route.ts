@@ -193,7 +193,7 @@ export async function GET() {
 
   const teamMap = new Map<string, typeof schoolSummaries>();
   for (const school of schoolSummaries) {
-    if (school.team && !school.team.includes("개별") && school.team !== "미배정") {
+    if (school.team && !school.team.includes("개별") && school.team !== "미배정" && school.team !== "취소") {
       if (!teamMap.has(school.team)) teamMap.set(school.team, []);
       teamMap.get(school.team)!.push(school);
     }

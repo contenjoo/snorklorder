@@ -86,6 +86,7 @@ export default function TeacherRegistration() {
       const res = await fetch(`/api/schools/lookup?code=${encodeURIComponent(schoolCode.trim())}`);
       if (!res.ok) { setError("학교 코드를 찾을 수 없습니다."); return; }
       const data = await res.json();
+      if (data.team === "취소") { setError("취소된 학교입니다. 학교 단체구매 신청이 종료되었어요."); return; }
       setSchoolName(data.name); setStep("schoolForm");
     } catch { setError("연결 오류입니다."); } finally { setLoading(false); }
   }
@@ -341,12 +342,25 @@ export default function TeacherRegistration() {
                     onChange={(e) => setSearchQuery(e.target.value)} autoFocus className={inputCls} />
                   {searchResults.length > 0 && (
                     <div className="rounded-xl border-2 border-gray-100 divide-y divide-gray-100 max-h-48 overflow-y-auto">
-                      {searchResults.map((s) => (
-                        <button key={s.id} onClick={() => selectSchool(s)} className="w-full text-left px-4 py-3 hover:bg-blue-50 transition-colors">
-                          <p className="font-semibold text-gray-900">{s.name}</p>
-                          {s.nameEn && <p className="text-xs text-gray-400">{s.nameEn}</p>}
-                        </button>
-                      ))}
+                      {searchResults.map((s) => {
+                        const cancelled = s.team === "취소";
+                        return (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => { if (!cancelled) selectSchool(s); }}
+                            disabled={cancelled}
+                            aria-disabled={cancelled}
+                            className={`w-full text-left px-4 py-3 transition-colors ${cancelled ? "bg-gray-50 cursor-not-allowed opacity-60" : "hover:bg-blue-50"}`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <p className={`font-semibold ${cancelled ? "text-gray-400 line-through" : "text-gray-900"}`}>{s.name}</p>
+                              {cancelled && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200">취소학교</span>}
+                            </div>
+                            {s.nameEn && <p className={`text-xs ${cancelled ? "text-gray-300" : "text-gray-400"}`}>{s.nameEn}</p>}
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
                   {searchQuery.length >= 2 && searchResults.length === 0 && (

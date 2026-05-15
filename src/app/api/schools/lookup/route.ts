@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
   }
 
   const [school] = await db
-    .select({ id: schools.id, name: schools.name })
+    .select({ id: schools.id, name: schools.name, team: schools.team })
     .from(schools)
     .where(eq(schools.code, code));
 
