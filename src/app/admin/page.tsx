@@ -75,6 +75,7 @@ const teamColorMap: Record<string, { bg: string; text: string; dot: string; bord
   "경기3팀": { bg: "bg-green-50", text: "text-green-700", dot: "bg-green-500", border: "border-green-200" },
   "경기5팀": { bg: "bg-teal-50", text: "text-teal-700", dot: "bg-teal-500", border: "border-teal-200" },
   "경기7팀": { bg: "bg-rose-50", text: "text-rose-700", dot: "bg-rose-500", border: "border-rose-200" },
+  "경기9팀": { bg: "bg-amber-50", text: "text-amber-700", dot: "bg-amber-500", border: "border-amber-200" },
 };
 
 export default function AdminDashboard() {

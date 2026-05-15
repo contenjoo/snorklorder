@@ -56,6 +56,7 @@ const TEAM_EN: Record<string, string> = {
   "경기5팀": "Gyeonggi Team 5",
   "경기6팀": "Gyeonggi Team 6",
   "경기7팀": "Gyeonggi Team 7",
+  "경기9팀": "Gyeonggi Team 9",
 };
 
 function teamLabelEn(team: string): string {
