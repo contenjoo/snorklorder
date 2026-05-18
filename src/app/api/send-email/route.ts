@@ -7,6 +7,7 @@ import { sendBatchNotification } from "@/lib/email";
 import { randomBytes } from "crypto";
 
 export async function POST(req: NextRequest) {
+  try {
   const body = await req.json();
   const { teacherIds } = body;
 
@@ -75,4 +76,8 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({ ...result, token });
+  } catch (err) {
+    console.error("[/api/send-email] failed:", err);
+    return NextResponse.json({ success: false, error: String(err) }, { status: 500 });
+  }
 }

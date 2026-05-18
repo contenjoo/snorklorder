@@ -180,10 +180,11 @@ export async function sendBatchNotification(
   if (teamCount > 0) summaryParts.push(`${teamCount} group purchase team${teamCount !== 1 ? "s" : ""}`);
   if (individualSchools.length > 0) summaryParts.push(`${individualSchools.length} individual school${individualSchools.length !== 1 ? "s" : ""}`);
 
-  await t.sendMail({
-    from: ADMIN_EMAIL,
-    to: JON_EMAIL,
-    subject: `[Snorkl] Upgrade Request — ${total} teacher${total !== 1 ? "s" : ""}, ${groups.length} school(s)${districtLabel}`,
+  try {
+    await t.sendMail({
+      from: ADMIN_EMAIL,
+      to: JON_EMAIL,
+      subject: `[Snorkl] Upgrade Request — ${total} teacher${total !== 1 ? "s" : ""}, ${groups.length} school(s)${districtLabel}`,
     html: `
       <div style="max-width:600px;margin:0 auto;font-family:-apple-system,sans-serif">
         <div style="background:#1e3a5f;color:white;padding:20px 24px;border-radius:12px 12px 0 0">
@@ -199,8 +200,12 @@ export async function sendBatchNotification(
         </div>
       </div>
     `,
-  });
-  return { success: true };
+    });
+    return { success: true };
+  } catch (err) {
+    console.error("[sendBatchNotification] failed:", err);
+    return { success: false, error: String(err) };
+  }
 }
 
 // 학교 등록 요청 시 관리자에게 알림
