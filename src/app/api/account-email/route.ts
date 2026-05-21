@@ -49,15 +49,30 @@ export async function POST(req: NextRequest) {
       confirmLink = `${BASE_URL}/account-confirm/${token}`;
     }
 
-    const bodyWithLink = confirmLink
-      ? `${body}\n\n---\nOnce the upgrade is done, please click to confirm:\n${confirmLink}\n`
-      : body;
+    const escapeHtml = (s: string) =>
+      s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    const bodyHtml = escapeHtml(body).replace(/\n/g, "<br>");
+
+    const buttonBlock = confirmLink
+      ? `<div style="text-align:center;margin:24px 0;padding:20px;background:#f0f7ff;border-radius:12px;border:1px solid #dbeafe">
+           <p style="margin:0 0 12px;color:#1e3a5f;font-size:14px;font-weight:600">Once the upgrade is done:</p>
+           <a href="${confirmLink}"
+              style="display:inline-block;background:#2563eb;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:16px">
+             ✓ Mark Upgrade as Done
+           </a>
+           <p style="margin:12px 0 0;color:#888;font-size:11px">Or paste this in your browser:<br>${escapeHtml(confirmLink)}</p>
+         </div>`
+      : "";
 
     await transporter.sendMail({
       from,
       to: JON_EMAIL,
       subject,
-      text: bodyWithLink,
+      text: confirmLink ? `${body}\n\n---\nOnce the upgrade is done, please click to confirm:\n${confirmLink}\n` : body,
+      html: `<div style="max-width:560px;margin:0 auto;font-family:-apple-system,sans-serif;color:#1f2937;font-size:14px;line-height:1.6">
+               ${buttonBlock}
+               <div>${bodyHtml}</div>
+             </div>`,
     });
 
     // Update status to "sent" if requestId provided

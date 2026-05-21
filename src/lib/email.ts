@@ -231,6 +231,43 @@ export async function sendAdminNotification(request: { name: string; contactName
   }
 }
 
+export async function sendAccountConfirmNotification(payload: {
+  schoolName: string;
+  schoolNameEn: string | null;
+  emails: string[];
+  type: string;
+  applicantType: string;
+  confirmedAt: Date;
+}): Promise<EmailResult> {
+  const t = getTransporter();
+  if (!t || !ADMIN_EMAIL) return { success: false, skipped: true };
+  const schoolDisplay = payload.schoolNameEn
+    ? `${safe(payload.schoolNameEn)} <span style="color:#888">(${safe(payload.schoolName)})</span>`
+    : safe(payload.schoolName);
+  const emailList = payload.emails.map((e) => `&nbsp;&nbsp;• ${safe(e)}`).join("<br>");
+  const time = payload.confirmedAt.toLocaleString("ko-KR", { timeZone: "Asia/Seoul" });
+  try {
+    await t.sendMail({
+      from: ADMIN_EMAIL,
+      to: ADMIN_EMAIL,
+      subject: `[Snorkl] Jon 처리 완료 - ${payload.schoolName.replace(/[\r\n]/g, " ").trim()} (${payload.emails.length}명)`,
+      html: `
+        <div style="font-family:sans-serif;max-width:560px">
+          <h3 style="margin:0 0 4px">Jon이 처리를 완료했습니다</h3>
+          <p style="color:#666;margin:0 0 16px;font-size:13px">${time} · ${safe(payload.type)} · ${payload.applicantType === "individual" ? "개인" : "학교"}</p>
+          <p style="margin:0 0 8px"><b>${schoolDisplay}</b></p>
+          <p style="margin:0 0 12px">${emailList}</p>
+          <hr style="border:none;border-top:1px solid #eee;margin:16px 0">
+          <p><a href="${BASE_URL}/admin/accounts" style="color:#2563eb">정산 페이지 열기 →</a></p>
+        </div>
+      `,
+    });
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
 // 승인 후 담당자에게 학교 코드 이메일 발송
 export async function sendSchoolCodeEmail(email: string, name: string, schoolName: string, code: string): Promise<EmailResult> {
   const t = getTransporter();
