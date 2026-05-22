@@ -10,9 +10,15 @@ interface DashboardTeacher {
   email: string;
   status: string;
   createdAt: string;
+  notifiedAt?: string | null;
   schoolName: string;
   schoolNameEn: string | null;
   schoolTeam: string | null;
+}
+
+function daysSince(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
 }
 
 interface SchoolSummary {
@@ -328,6 +334,12 @@ export default function AdminDashboard() {
                   const selectedInSchool = schoolPendingIds.filter((id) => selectedIds.has(id)).length;
                   const allSelected = schoolPendingIds.length > 0 && selectedInSchool === schoolPendingIds.length;
                   const someSelected = selectedInSchool > 0 && !allSelected;
+                  const maxSentDays = school.needTeachers
+                    .filter((t) => t.status === "sent")
+                    .map((t) => daysSince(t.notifiedAt))
+                    .filter((d): d is number => d !== null)
+                    .reduce((max, d) => Math.max(max, d), 0);
+                  const stale = maxSentDays >= 3;
                   return (
                     <div key={school.id} className="px-4 md:px-5 py-3">
                       <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mb-2">
@@ -344,6 +356,11 @@ export default function AdminDashboard() {
                         <span className="text-sm font-semibold text-gray-900">{school.nameEn || school.name}</span>
                         {school.nameEn && <span className="text-[10px] text-gray-400">{school.name}</span>}
                         {school.team && <span className={`text-[10px] px-2 py-0.5 rounded-full ${tc.bg} ${tc.text} border ${tc.border}`}>{school.team}</span>}
+                        {stale && (
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200 font-bold animate-pulse" title={`Jon에게 발송 후 ${maxSentDays}일 경과 — 리마인드 필요`}>
+                            🔥 {maxSentDays}일째 묶임
+                          </span>
+                        )}
                       </div>
                       <div className="flex flex-wrap gap-1">
                         {school.needTeachers.map((teacher) => {

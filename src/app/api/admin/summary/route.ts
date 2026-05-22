@@ -60,6 +60,7 @@ export async function GET() {
         email: teachers.email,
         status: teachers.status,
         createdAt: teachers.createdAt,
+        notifiedAt: teachers.notifiedAt,
         schoolName: schools.name,
         schoolNameEn: schools.nameEn,
         schoolTeam: schools.team,

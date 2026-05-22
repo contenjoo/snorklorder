@@ -373,6 +373,37 @@ export async function sendConfirmNotification(payload: {
   }
 }
 
+export async function sendStaleSentReminder(items: { email: string; name: string; notifiedAt: Date; schoolName: string; schoolTeam: string | null }[]): Promise<EmailResult> {
+  const t = getTransporter();
+  if (!t || !ADMIN_EMAIL || items.length === 0) return { success: false, skipped: true };
+  const now = Date.now();
+  const rows = items.map((i) => {
+    const days = Math.floor((now - new Date(i.notifiedAt).getTime()) / 86400000);
+    return `<tr><td style="padding:4px 8px;font-size:13px">${safe(i.schoolName)}${i.schoolTeam ? ` <span style="color:#999;font-size:11px">[${safe(i.schoolTeam)}]</span>` : ""}</td><td style="padding:4px 8px;font-family:monospace;font-size:12px">${safe(i.email)}</td><td style="padding:4px 8px;text-align:right;color:#dc2626;font-weight:600;font-size:12px">${days}일</td></tr>`;
+  }).join("");
+  try {
+    await t.sendMail({
+      from: ADMIN_EMAIL,
+      to: ADMIN_EMAIL,
+      subject: `[Snorkl] ⏰ Jon에게 발송 후 3일 넘은 건 ${items.length}건`,
+      html: `
+        <div style="max-width:640px;font-family:sans-serif">
+          <h3 style="margin:0 0 12px">⏰ Stale Sent Reminder</h3>
+          <p style="color:#666;margin:0 0 16px;font-size:13px">Jon에게 발송했지만 3일 넘게 확정 안 된 교사들이에요. Jon에게 리마인드 보낼지 검토 필요.</p>
+          <table style="border-collapse:collapse;width:100%;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;overflow:hidden">
+            <thead><tr style="background:#fee2e2"><th style="padding:8px;text-align:left;font-size:11px;color:#7f1d1d">학교</th><th style="padding:8px;text-align:left;font-size:11px;color:#7f1d1d">이메일</th><th style="padding:8px;text-align:right;font-size:11px;color:#7f1d1d">경과</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+          <p style="margin:16px 0 0"><a href="${BASE_URL}/admin" style="color:#2563eb">대시보드 열기 →</a></p>
+        </div>
+      `,
+    });
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
 // 매일 자동 digest
 export async function sendDailyDigest(teachers: { teacherName: string; teacherEmail: string; subject: string | null; schoolName: string; schoolCode: string }[]): Promise<EmailResult> {
   const t = getTransporter();
