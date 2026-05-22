@@ -88,11 +88,25 @@ export async function POST(
   if (emails.length > 0) {
     void (async () => {
       try {
-        const matched = await db
-          .select({ email: teachers.email, name: teachers.name })
-          .from(teachers)
-          .where(inArray(teachers.email, emails));
+        const { schools: schoolsTable } = await import("@/db/schema");
+        const { and } = await import("drizzle-orm");
+        // 같은 학교에 속한 교사만 매칭 — 동일 이메일이 다른 학교에 있어도 오매칭 방지
+        const [school] = await db.select({ id: schoolsTable.id }).from(schoolsTable).where(eq(schoolsTable.name, r.schoolName));
+        const matched = school
+          ? await db
+              .select({ email: teachers.email, name: teachers.name })
+              .from(teachers)
+              .where(and(eq(teachers.schoolId, school.id), inArray(teachers.email, emails)))
+          : [];
         const nameByEmail = new Map(matched.map((t) => [t.email.toLowerCase(), t.name]));
+
+        // 매칭된 같은-학교 교사들의 status도 upgraded로 (account_request 처리 = 그 학교 그 교사들 업그레이드 완료)
+        if (school && matched.length > 0) {
+          await db
+            .update(teachers)
+            .set({ status: "upgraded" })
+            .where(and(eq(teachers.schoolId, school.id), inArray(teachers.email, matched.map((m) => m.email))));
+        }
 
         const [, teacherResults] = await Promise.all([
           sendAccountConfirmNotification({
