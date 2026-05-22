@@ -56,6 +56,15 @@ interface RecentBatch {
   schools: { name: string; nameEn: string | null; team: string | null; count: number }[];
 }
 
+interface FailedEmail {
+  id: number;
+  toEmail: string;
+  subject: string;
+  kind: string;
+  errorMessage: string | null;
+  createdAt: string;
+}
+
 interface DashboardData {
   stats: {
     totalSchools: number;
@@ -70,6 +79,7 @@ interface DashboardData {
   upgradeNeeded: Array<SchoolSummary & { needTeachers: DashboardTeacher[] }>;
   recentTeachers: DashboardTeacher[];
   recentBatches: RecentBatch[];
+  recentFailedEmails: FailedEmail[];
   regions: RegionSummary[];
 }
 
@@ -134,7 +144,7 @@ export default function AdminDashboard() {
     );
   }
 
-  const { stats, teamGroups, upgradeNeeded, recentTeachers, recentBatches, regions } = data;
+  const { stats, teamGroups, upgradeNeeded, recentTeachers, recentBatches, recentFailedEmails, regions } = data;
   const needUpgrade = stats.pending + stats.sent;
   const upgradeRate = stats.totalTeachers > 0 ? Math.round((stats.confirmed / stats.totalTeachers) * 100) : 0;
   const maxRegionTeachers = Math.max(1, ...regions.map((region) => region.teachers));
@@ -169,6 +179,29 @@ export default function AdminDashboard() {
 
   return (
     <div className="space-y-6 pb-20 md:pb-0">
+      {recentFailedEmails && recentFailedEmails.length > 0 && (
+        <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-4">
+          <div className="flex items-start gap-3">
+            <span className="text-2xl">⚠️</span>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <p className="text-sm font-bold text-red-900">최근 메일 발송 실패 {recentFailedEmails.length}건</p>
+                <span className="text-[10px] text-red-600">최근 10건 표시</span>
+              </div>
+              <div className="space-y-1 max-h-32 overflow-y-auto">
+                {recentFailedEmails.map((f) => (
+                  <div key={f.id} className="flex items-center gap-2 text-[11px] bg-white rounded px-2 py-1 border border-red-100">
+                    <span className="font-mono text-red-700 shrink-0">{f.kind}</span>
+                    <span className="text-gray-600 truncate flex-1" title={f.subject}>{f.subject}</span>
+                    <span className="font-mono text-gray-500 shrink-0">→ {f.toEmail}</span>
+                    <span className="text-gray-400 shrink-0">{new Date(f.createdAt).toLocaleString("ko-KR", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-3 md:flex md:items-center md:gap-6 bg-white rounded-2xl border p-4 md:p-5">
         <div className="flex items-center gap-3 md:pr-6 md:border-r">
           <div className="w-10 h-10 rounded-xl bg-slate-900 flex items-center justify-center">

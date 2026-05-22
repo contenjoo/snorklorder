@@ -1,4 +1,6 @@
 import nodemailer from "nodemailer";
+import { db } from "@/db";
+import { emailLogs } from "@/db/schema";
 
 const JON_EMAIL = "jon@snorkl.app";
 const DIGEST_RECIPIENTS = ["jon@snorkl.app", "jeff@snorkl.app"];
@@ -9,6 +11,56 @@ export interface EmailResult {
   success: boolean;
   skipped?: boolean;
   error?: string;
+}
+
+export type EmailKind =
+  | "batch_notification"
+  | "teacher_upgraded"
+  | "account_confirm"
+  | "account_email"
+  | "stale_reminder"
+  | "daily_digest"
+  | "school_code"
+  | "admin_request";
+
+async function sendAndLog(
+  transporter: nodemailer.Transporter,
+  mail: nodemailer.SendMailOptions,
+  meta: { kind: EmailKind; relatedType?: string | null; relatedId?: number | null }
+): Promise<EmailResult> {
+  const toStr = Array.isArray(mail.to) ? mail.to.join(", ") : String(mail.to || "");
+  try {
+    await transporter.sendMail(mail);
+    await logEmail({ to: toStr, subject: String(mail.subject || ""), kind: meta.kind, status: "success", relatedType: meta.relatedType, relatedId: meta.relatedId });
+    return { success: true };
+  } catch (err) {
+    await logEmail({ to: toStr, subject: String(mail.subject || ""), kind: meta.kind, status: "failed", error: String(err), relatedType: meta.relatedType, relatedId: meta.relatedId });
+    return { success: false, error: String(err) };
+  }
+}
+
+export async function logEmail(args: {
+  to: string;
+  subject: string;
+  kind: EmailKind;
+  status: "success" | "failed" | "skipped";
+  error?: string | null;
+  relatedType?: string | null;
+  relatedId?: number | null;
+}): Promise<void> {
+  try {
+    await db.insert(emailLogs).values({
+      toEmail: args.to,
+      subject: args.subject,
+      kind: args.kind,
+      status: args.status,
+      errorMessage: args.error?.slice(0, 1000) || null,
+      relatedType: args.relatedType || null,
+      relatedId: args.relatedId ?? null,
+    });
+  } catch (err) {
+    console.error("[logEmail] failed to write log:", err);
+  }
 }
 
 function escapeHtml(value: string) {
@@ -180,11 +232,10 @@ export async function sendBatchNotification(
   if (teamCount > 0) summaryParts.push(`${teamCount} group purchase team${teamCount !== 1 ? "s" : ""}`);
   if (individualSchools.length > 0) summaryParts.push(`${individualSchools.length} individual school${individualSchools.length !== 1 ? "s" : ""}`);
 
-  try {
-    await t.sendMail({
-      from: ADMIN_EMAIL,
-      to: JON_EMAIL,
-      subject: `[Snorkl] Upgrade Request — ${total} teacher${total !== 1 ? "s" : ""}, ${groups.length} school(s)${districtLabel}`,
+  return sendAndLog(t, {
+    from: ADMIN_EMAIL,
+    to: JON_EMAIL,
+    subject: `[Snorkl] Upgrade Request — ${total} teacher${total !== 1 ? "s" : ""}, ${groups.length} school(s)${districtLabel}`,
     html: `
       <div style="max-width:600px;margin:0 auto;font-family:-apple-system,sans-serif">
         <div style="background:#1e3a5f;color:white;padding:20px 24px;border-radius:12px 12px 0 0">
@@ -200,12 +251,7 @@ export async function sendBatchNotification(
         </div>
       </div>
     `,
-    });
-    return { success: true };
-  } catch (err) {
-    console.error("[sendBatchNotification] failed:", err);
-    return { success: false, error: String(err) };
-  }
+  }, { kind: "batch_notification", relatedType: "upgrade_batch" });
 }
 
 // 학교 등록 요청 시 관리자에게 알림
@@ -310,32 +356,27 @@ export async function sendTeacherUpgradedEmail(teacher: {
   const schoolDisplay = teacher.schoolNameEn
     ? `${safe(teacher.schoolNameEn)} <span style="color:#888">(${safe(teacher.schoolName)})</span>`
     : safe(teacher.schoolName);
-  try {
-    await t.sendMail({
-      from: ADMIN_EMAIL,
-      to: teacher.email,
-      subject: `[Snorkl] 프리미엄 계정이 활성화되었습니다`,
-      html: `
-        <div style="max-width:520px;margin:0 auto;font-family:sans-serif;color:#1f2937">
-          <h2 style="color:#1e3a5f;margin:0 0 12px">${safe(teacher.name)} 선생님, 환영합니다 🎉</h2>
-          <p style="margin:0 0 12px">${schoolDisplay}에서 신청하신 <b>Snorkl 프리미엄 계정 업그레이드</b>가 완료되었습니다.</p>
-          <p style="margin:0 0 12px">가입하신 이메일 <code style="background:#f3f4f6;padding:2px 6px;border-radius:4px">${safe(teacher.email)}</code> 로
-            <a href="https://snorkl.app" style="color:#2563eb">Snorkl</a>에 로그인하시면 바로 프리미엄 기능을 사용하실 수 있습니다.</p>
-          <div style="background:#fef9c3;border:1px solid #fde68a;border-radius:12px;padding:14px 16px;margin:18px 0">
-            <p style="margin:0 0 6px;font-weight:600;color:#854d0e">💬 Snorkl 한국 선생님 커뮤니티</p>
-            <p style="margin:0;font-size:13px">다른 선생님들과 노하우를 나눠보세요.<br>
-              <a href="https://open.kakao.com/o/gkyPvfWh" style="color:#a16207;font-weight:600">카카오톡 오픈채팅 참여하기 →</a></p>
-          </div>
-          <p style="margin:0 0 4px;font-size:13px;color:#6b7280">문의: <a href="mailto:contenjoo@learntoday.co.kr" style="color:#2563eb">contenjoo@learntoday.co.kr</a></p>
-          <hr style="border:none;border-top:1px solid #eee;margin:20px 0">
-          <p style="color:#9ca3af;font-size:11px;margin:0">이 메일은 Snorkl 주문관리 시스템에서 자동 발송되었습니다.</p>
+  return sendAndLog(t, {
+    from: ADMIN_EMAIL,
+    to: teacher.email,
+    subject: `[Snorkl] 프리미엄 계정이 활성화되었습니다`,
+    html: `
+      <div style="max-width:520px;margin:0 auto;font-family:sans-serif;color:#1f2937">
+        <h2 style="color:#1e3a5f;margin:0 0 12px">${safe(teacher.name)} 선생님, 환영합니다 🎉</h2>
+        <p style="margin:0 0 12px">${schoolDisplay}에서 신청하신 <b>Snorkl 프리미엄 계정 업그레이드</b>가 완료되었습니다.</p>
+        <p style="margin:0 0 12px">가입하신 이메일 <code style="background:#f3f4f6;padding:2px 6px;border-radius:4px">${safe(teacher.email)}</code> 로
+          <a href="https://snorkl.app" style="color:#2563eb">Snorkl</a>에 로그인하시면 바로 프리미엄 기능을 사용하실 수 있습니다.</p>
+        <div style="background:#fef9c3;border:1px solid #fde68a;border-radius:12px;padding:14px 16px;margin:18px 0">
+          <p style="margin:0 0 6px;font-weight:600;color:#854d0e">💬 Snorkl 한국 선생님 커뮤니티</p>
+          <p style="margin:0;font-size:13px">다른 선생님들과 노하우를 나눠보세요.<br>
+            <a href="https://open.kakao.com/o/gkyPvfWh" style="color:#a16207;font-weight:600">카카오톡 오픈채팅 참여하기 →</a></p>
         </div>
-      `,
-    });
-    return { success: true };
-  } catch (err) {
-    return { success: false, error: String(err) };
-  }
+        <p style="margin:0 0 4px;font-size:13px;color:#6b7280">문의: <a href="mailto:contenjoo@learntoday.co.kr" style="color:#2563eb">contenjoo@learntoday.co.kr</a></p>
+        <hr style="border:none;border-top:1px solid #eee;margin:20px 0">
+        <p style="color:#9ca3af;font-size:11px;margin:0">이 메일은 Snorkl 주문관리 시스템에서 자동 발송되었습니다.</p>
+      </div>
+    `,
+  }, { kind: "teacher_upgraded", relatedType: "teacher" });
 }
 
 export async function sendConfirmNotification(payload: {
@@ -352,25 +393,20 @@ export async function sendConfirmNotification(payload: {
     return `<p style="margin:8px 0">${head}<br>${lines}</p>`;
   }).join("");
   const time = payload.confirmedAt.toLocaleString("ko-KR", { timeZone: "Asia/Seoul" });
-  try {
-    await t.sendMail({
-      from: ADMIN_EMAIL,
-      to: ADMIN_EMAIL,
-      subject: `[Snorkl] Jon 업그레이드 확인 완료 - ${payload.confirmedCount}명`,
-      html: `
-        <div style="font-family:sans-serif;max-width:560px">
-          <h3 style="margin:0 0 4px">Jon이 업그레이드를 확인했습니다</h3>
-          <p style="color:#666;margin:0 0 16px;font-size:13px">${time} · ${payload.confirmedCount}명 · ${payload.schools.length}개 학교</p>
-          ${body}
-          <hr style="border:none;border-top:1px solid #eee;margin:16px 0">
-          <p><a href="${BASE_URL}/admin" style="color:#2563eb">대시보드 열기 →</a></p>
-        </div>
-      `,
-    });
-    return { success: true };
-  } catch (err) {
-    return { success: false, error: String(err) };
-  }
+  return sendAndLog(t, {
+    from: ADMIN_EMAIL,
+    to: ADMIN_EMAIL,
+    subject: `[Snorkl] Jon 업그레이드 확인 완료 - ${payload.confirmedCount}명`,
+    html: `
+      <div style="font-family:sans-serif;max-width:560px">
+        <h3 style="margin:0 0 4px">Jon이 업그레이드를 확인했습니다</h3>
+        <p style="color:#666;margin:0 0 16px;font-size:13px">${time} · ${payload.confirmedCount}명 · ${payload.schools.length}개 학교</p>
+        ${body}
+        <hr style="border:none;border-top:1px solid #eee;margin:16px 0">
+        <p><a href="${BASE_URL}/admin" style="color:#2563eb">대시보드 열기 →</a></p>
+      </div>
+    `,
+  }, { kind: "account_confirm", relatedType: "upgrade_batch" });
 }
 
 export async function sendStaleSentReminder(items: { email: string; name: string; notifiedAt: Date; schoolName: string; schoolTeam: string | null }[]): Promise<EmailResult> {

@@ -90,6 +90,22 @@ export const upgradeBatches = pgTable("upgrade_batches", {
   confirmedAt: timestamp("confirmed_at"),
 });
 
+export const emailLogs = pgTable("email_logs", {
+  id: serial("id").primaryKey(),
+  toEmail: text("to_email").notNull(),
+  subject: text("subject").notNull(),
+  kind: text("kind").notNull(), // batch_notification | teacher_upgraded | account_confirm | account_email | stale_reminder | daily_digest | school_code | admin_request
+  status: text("status").notNull(), // success | failed | skipped
+  errorMessage: text("error_message"),
+  relatedType: text("related_type"), // teacher | account_request | upgrade_batch | school_request
+  relatedId: integer("related_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("email_logs_created_at_idx").on(table.createdAt),
+  index("email_logs_status_idx").on(table.status),
+  index("email_logs_kind_idx").on(table.kind),
+]);
+
 export const schoolsRelations = relations(schools, ({ many }) => ({
   teachers: many(teachers),
 }));

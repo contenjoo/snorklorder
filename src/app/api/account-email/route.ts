@@ -64,16 +64,23 @@ export async function POST(req: NextRequest) {
          </div>`
       : "";
 
-    await transporter.sendMail({
-      from,
-      to: JON_EMAIL,
-      subject,
-      text: confirmLink ? `${body}\n\n---\nOnce the upgrade is done, please click to confirm:\n${confirmLink}\n` : body,
-      html: `<div style="max-width:560px;margin:0 auto;font-family:-apple-system,sans-serif;color:#1f2937;font-size:14px;line-height:1.6">
-               ${buttonBlock}
-               <div>${bodyHtml}</div>
-             </div>`,
-    });
+    const { logEmail } = await import("@/lib/email");
+    try {
+      await transporter.sendMail({
+        from,
+        to: JON_EMAIL,
+        subject,
+        text: confirmLink ? `${body}\n\n---\nOnce the upgrade is done, please click to confirm:\n${confirmLink}\n` : body,
+        html: `<div style="max-width:560px;margin:0 auto;font-family:-apple-system,sans-serif;color:#1f2937;font-size:14px;line-height:1.6">
+                 ${buttonBlock}
+                 <div>${bodyHtml}</div>
+               </div>`,
+      });
+      await logEmail({ to: JON_EMAIL, subject, kind: "account_email", status: "success", relatedType: "account_request", relatedId: requestId || null });
+    } catch (sendErr) {
+      await logEmail({ to: JON_EMAIL, subject, kind: "account_email", status: "failed", error: String(sendErr), relatedType: "account_request", relatedId: requestId || null });
+      throw sendErr;
+    }
 
     // Update status to "sent" if requestId provided
     if (requestId) {

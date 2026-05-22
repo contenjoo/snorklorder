@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { schools, teachers, upgradeBatches } from "@/db/schema";
+import { schools, teachers, upgradeBatches, emailLogs } from "@/db/schema";
 import { checkAuth } from "@/lib/auth";
 
 type SchoolCounts = {
@@ -29,7 +29,7 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const [schoolRows, countRows, pendingRows, recentRows, recentBatchRows] = await Promise.all([
+  const [schoolRows, countRows, pendingRows, recentRows, recentBatchRows, recentFailedEmails] = await Promise.all([
     db
       .select({
         id: schools.id,
@@ -95,6 +95,19 @@ export async function GET() {
       .where(eq(upgradeBatches.status, "confirmed"))
       .orderBy(desc(upgradeBatches.confirmedAt))
       .limit(5),
+    db
+      .select({
+        id: emailLogs.id,
+        toEmail: emailLogs.toEmail,
+        subject: emailLogs.subject,
+        kind: emailLogs.kind,
+        errorMessage: emailLogs.errorMessage,
+        createdAt: emailLogs.createdAt,
+      })
+      .from(emailLogs)
+      .where(eq(emailLogs.status, "failed"))
+      .orderBy(desc(emailLogs.createdAt))
+      .limit(10),
   ]);
 
   // Hydrate recent confirmed batches with school summaries — one query covers all batches
@@ -230,6 +243,7 @@ export async function GET() {
     upgradeNeeded,
     recentTeachers: recentRows,
     recentBatches,
+    recentFailedEmails,
     regions,
   });
 }
