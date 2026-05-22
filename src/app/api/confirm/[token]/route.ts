@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { upgradeBatches, teachers, schools } from "@/db/schema";
 import { eq, inArray, and, notInArray } from "drizzle-orm";
-import { sendConfirmNotification, sendTeacherUpgradedEmail } from "@/lib/email";
+import { sendConfirmNotification } from "@/lib/email";
 
 // GET: 배치 정보 + 교사 목록 조회
 export async function GET(
@@ -160,25 +160,13 @@ export async function POST(
           bySchool.get(row.schoolName)!.emails.push(row.email);
         }
 
-        const [, teacherResults] = await Promise.all([
-          sendConfirmNotification({
-            confirmedCount: normalizedConfirmedIds.length,
-            schools: Array.from(bySchool.values()),
-            confirmedAt,
-          }),
-          Promise.allSettled(
-            confirmedRows.map((row) =>
-              sendTeacherUpgradedEmail({
-                name: row.name,
-                email: row.email,
-                schoolName: row.schoolName,
-                schoolNameEn: row.schoolNameEn,
-              })
-            )
-          ),
-        ]);
-        const failed = teacherResults.filter((r) => r.status === "rejected" || (r.status === "fulfilled" && !r.value.success && !r.value.skipped)).length;
-        if (failed > 0) console.warn(`[confirm] ${failed}/${confirmedRows.length} teacher emails failed`);
+        // 관리자(나)에게만 자동 알림. 교사 본인 환영 메일은 사용자 정책상 자동 발송하지 않음
+        // (관리자가 필요 시 별도 수동 발송)
+        await sendConfirmNotification({
+          confirmedCount: normalizedConfirmedIds.length,
+          schools: Array.from(bySchool.values()),
+          confirmedAt,
+        });
       } catch (err) {
         console.warn("[confirm] notification email failed:", err);
       }

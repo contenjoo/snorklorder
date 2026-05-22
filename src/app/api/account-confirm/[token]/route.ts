@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { accountRequests, teachers } from "@/db/schema";
 import { eq, inArray } from "drizzle-orm";
-import { sendTeacherUpgradedEmail, sendAccountConfirmNotification } from "@/lib/email";
+import { sendAccountConfirmNotification } from "@/lib/email";
 
 // GET: 토큰으로 요청 상세 조회 (Jon이 확인 페이지 열었을 때)
 export async function GET(
@@ -98,7 +98,6 @@ export async function POST(
               .from(teachers)
               .where(and(eq(teachers.schoolId, school.id), inArray(teachers.email, emails)))
           : [];
-        const nameByEmail = new Map(matched.map((t) => [t.email.toLowerCase(), t.name]));
 
         // 매칭된 같은-학교 교사들의 status도 upgraded로 (account_request 처리 = 그 학교 그 교사들 업그레이드 완료)
         if (school && matched.length > 0) {
@@ -108,28 +107,15 @@ export async function POST(
             .where(and(eq(teachers.schoolId, school.id), inArray(teachers.email, matched.map((m) => m.email))));
         }
 
-        const [, teacherResults] = await Promise.all([
-          sendAccountConfirmNotification({
-            schoolName: r.schoolName,
-            schoolNameEn: r.schoolNameEn,
-            emails,
-            type: r.type,
-            applicantType: r.applicantType || "school",
-            confirmedAt: new Date(),
-          }),
-          Promise.allSettled(
-            emails.map((email) =>
-              sendTeacherUpgradedEmail({
-                name: nameByEmail.get(email) || "선생님",
-                email,
-                schoolName: r.schoolName,
-                schoolNameEn: r.schoolNameEn,
-              })
-            )
-          ),
-        ]);
-        const failed = teacherResults.filter((res) => res.status === "rejected" || (res.status === "fulfilled" && !res.value.success && !res.value.skipped)).length;
-        if (failed > 0) console.warn(`[account-confirm] ${failed}/${emails.length} teacher emails failed`);
+        // 관리자(나)에게만 자동 알림. 교사 본인 환영 메일은 사용자 정책상 자동 발송하지 않음
+        await sendAccountConfirmNotification({
+          schoolName: r.schoolName,
+          schoolNameEn: r.schoolNameEn,
+          emails,
+          type: r.type,
+          applicantType: r.applicantType || "school",
+          confirmedAt: new Date(),
+        });
       } catch (err) {
         console.warn("[account-confirm] notification email failed:", err);
       }
