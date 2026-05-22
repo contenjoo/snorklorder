@@ -125,6 +125,8 @@ export default function AccountsPage() {
   const [fType, setFType] = useState("upgrade");
   const [fSchool, setFSchool] = useState("");
   const [fSchoolEn, setFSchoolEn] = useState("");
+  const [schoolMatches, setSchoolMatches] = useState<{ id: number; name: string; nameEn: string | null; code: string; team: string | null }[]>([]);
+  const [showSchoolDrop, setShowSchoolDrop] = useState(false);
   const [translating, setTranslating] = useState(false);
   const [fEmails, setFEmails] = useState("");
   const [fAccType, setFAccType] = useState("teacher");
@@ -151,6 +153,19 @@ export default function AccountsPage() {
     setRequests(Array.isArray(data) ? data : []);
   }
   useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    if (fApplicant === "individual") { setSchoolMatches([]); return; }
+    const q = fSchool.trim();
+    if (q.length < 2) { setSchoolMatches([]); return; }
+    const handle = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/schools/search?q=${encodeURIComponent(q)}`);
+        if (res.ok) setSchoolMatches(await res.json());
+      } catch { /* ignore */ }
+    }, 250);
+    return () => clearTimeout(handle);
+  }, [fSchool, fApplicant]);
 
   async function translateSchool(korean: string) {
     if (!korean.trim()) return;
@@ -470,9 +485,32 @@ export default function AccountsPage() {
                   </div>
                 ) : (
                   <>
-                    <div className="space-y-1">
+                    <div className="space-y-1 relative">
                       <Label className="text-xs">{fApplicant === "individual" ? "이름 *" : "학교명 *"}</Label>
-                      <Input value={fSchool} onChange={(e) => setFSchool(e.target.value)} onBlur={() => fApplicant !== "individual" && !fSchoolEn && translateSchool(fSchool)} placeholder={fApplicant === "individual" ? "이름" : "한국어 학교명"} className="h-8 text-sm" />
+                      <Input
+                        value={fSchool}
+                        onChange={(e) => { setFSchool(e.target.value); if (fApplicant !== "individual") setShowSchoolDrop(true); }}
+                        onBlur={() => { setTimeout(() => setShowSchoolDrop(false), 150); if (fApplicant !== "individual" && !fSchoolEn) translateSchool(fSchool); }}
+                        onFocus={() => fApplicant !== "individual" && fSchool.trim().length >= 2 && setShowSchoolDrop(true)}
+                        placeholder={fApplicant === "individual" ? "이름" : "한국어 학교명"}
+                        className="h-8 text-sm"
+                      />
+                      {fApplicant !== "individual" && showSchoolDrop && schoolMatches.length > 0 && (
+                        <div className="absolute z-10 top-full mt-1 left-0 right-0 bg-white border-2 border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto divide-y">
+                          {schoolMatches.map((s) => (
+                            <button
+                              key={s.id}
+                              type="button"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => { setFSchool(s.name); setFSchoolEn(s.nameEn || ""); setShowSchoolDrop(false); }}
+                              className="w-full text-left px-3 py-1.5 hover:bg-blue-50 text-xs"
+                            >
+                              <div className="font-medium text-gray-900">{s.name}</div>
+                              {s.nameEn && <div className="text-[10px] text-gray-400">{s.nameEn}{s.team ? ` · ${s.team}` : ""}</div>}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     <div className="space-y-1">
                       <Label className="text-xs">{fApplicant === "individual" ? "영문 이름 (선택)" : "영문 학교명"} {translating && <span className="text-blue-500 animate-pulse">번역 중...</span>}</Label>
