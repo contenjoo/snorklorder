@@ -27,9 +27,23 @@ const TYPE_LABELS: Record<string, string> = {
   extension: "Account Extension",
 };
 
+interface SiblingRequest {
+  id: number;
+  type: string;
+  applicantType: string;
+  emails: string;
+  accountType: string | null;
+  quantity: number | null;
+  status: string;
+  notes: string | null;
+  createdAt: string;
+}
+
 export default function AccountConfirmPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params);
   const [req, setReq] = useState<AccountRequest | null>(null);
+  const [siblings, setSiblings] = useState<SiblingRequest[]>([]);
+  const [includeSiblings, setIncludeSiblings] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -40,7 +54,11 @@ export default function AccountConfirmPage({ params }: { params: Promise<{ token
       .then((r) => r.json())
       .then((data) => {
         if (data.error) setError(data.error);
-        else setReq(data.request);
+        else {
+          setReq(data.request);
+          setSiblings(data.siblings || []);
+          setIncludeSiblings(new Set((data.siblings || []).map((s: SiblingRequest) => s.id)));
+        }
       })
       .catch(() => setError("Failed to load request"))
       .finally(() => setLoading(false));
@@ -49,7 +67,11 @@ export default function AccountConfirmPage({ params }: { params: Promise<{ token
   async function confirm() {
     setSubmitting(true);
     try {
-      const res = await fetch(`/api/account-confirm/${token}`, { method: "POST" });
+      const res = await fetch(`/api/account-confirm/${token}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ alsoConfirmIds: Array.from(includeSiblings) }),
+      });
       const data = await res.json();
       if (data.success) {
         setDone(true);
@@ -136,6 +158,38 @@ export default function AccountConfirmPage({ params }: { params: Promise<{ token
           <div>
             <div className="text-[10px] text-gray-400 uppercase tracking-wider font-medium mb-1">Notes</div>
             <div className="text-sm text-gray-700 whitespace-pre-wrap">{req.notes}</div>
+          </div>
+        )}
+
+        {siblings.length > 0 && !done && !alreadyConfirmed && (
+          <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="text-amber-600">📦</span>
+              <div className="text-sm font-semibold text-amber-900">{siblings.length}건의 다른 처리 대기 요청 ({displayName})</div>
+            </div>
+            <p className="text-xs text-amber-800">동시에 처리하실 거면 체크 유지하세요. 함께 status=processed 됩니다.</p>
+            <div className="space-y-1.5">
+              {siblings.map((s) => (
+                <label key={s.id} className="flex items-start gap-2 p-2 rounded bg-white border border-amber-100 cursor-pointer hover:bg-amber-50/50">
+                  <input
+                    type="checkbox"
+                    checked={includeSiblings.has(s.id)}
+                    onChange={() => {
+                      setIncludeSiblings((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(s.id)) next.delete(s.id); else next.add(s.id);
+                        return next;
+                      });
+                    }}
+                    className="mt-0.5 accent-amber-600"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-medium text-gray-700">{TYPE_LABELS[s.type] || s.type} · {s.applicantType === "individual" ? "개인" : "학교"} · {s.status}</div>
+                    <div className="text-[11px] font-mono text-gray-500 truncate">{s.emails}</div>
+                  </div>
+                </label>
+              ))}
+            </div>
           </div>
         )}
 

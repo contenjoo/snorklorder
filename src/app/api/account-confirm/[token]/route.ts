@@ -20,15 +20,34 @@ export async function GET(
     return NextResponse.json({ error: "Invalid or expired link" }, { status: 404 });
   }
 
-  return NextResponse.json({ request: r });
+  // 같은 학교에 처리 대기(draft/sent) 다른 요청들 — Jon이 한꺼번에 확인하도록 노출
+  const { and, ne, inArray: inArr } = await import("drizzle-orm");
+  const siblings = await db
+    .select({
+      id: accountRequests.id,
+      type: accountRequests.type,
+      applicantType: accountRequests.applicantType,
+      emails: accountRequests.emails,
+      accountType: accountRequests.accountType,
+      quantity: accountRequests.quantity,
+      status: accountRequests.status,
+      notes: accountRequests.notes,
+      createdAt: accountRequests.createdAt,
+    })
+    .from(accountRequests)
+    .where(and(eq(accountRequests.schoolName, r.schoolName), ne(accountRequests.id, r.id), inArr(accountRequests.status, ["draft", "sent"])));
+
+  return NextResponse.json({ request: r, siblings });
 }
 
-// POST: Jon이 "Upgrade Done" 클릭 → status=processed
+// POST: Jon이 "Upgrade Done" 클릭 → status=processed (alsoConfirmIds 있으면 같은 학교 형제 요청도 함께)
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ token: string }> }
 ) {
   const { token } = await params;
+  const body = await req.json().catch(() => ({}));
+  const alsoConfirmIds: number[] = Array.isArray(body?.alsoConfirmIds) ? body.alsoConfirmIds.filter((n: unknown) => Number.isInteger(n)) : [];
   const [r] = await db
     .select()
     .from(accountRequests)
@@ -38,13 +57,30 @@ export async function POST(
     return NextResponse.json({ error: "Invalid or expired link" }, { status: 404 });
   }
 
+  const allIds = [r.id, ...alsoConfirmIds];
+  // 형제 요청도 같은 학교에 한해서만 처리 (보안: 임의 id 처리 방지)
+  const validSiblings = alsoConfirmIds.length > 0
+    ? await db
+        .select({ id: accountRequests.id, emails: accountRequests.emails, schoolName: accountRequests.schoolName, schoolNameEn: accountRequests.schoolNameEn, type: accountRequests.type, applicantType: accountRequests.applicantType })
+        .from(accountRequests)
+        .where(inArray(accountRequests.id, alsoConfirmIds))
+    : [];
+  const sameSchoolIds = validSiblings.filter((s) => s.schoolName === r.schoolName).map((s) => s.id);
+  const finalIds = [r.id, ...sameSchoolIds];
+  void allIds;
+
   await db
     .update(accountRequests)
     .set({ status: "processed", confirmedAt: new Date(), updatedAt: new Date() })
-    .where(eq(accountRequests.id, r.id));
+    .where(inArray(accountRequests.id, finalIds));
 
-  // 교사 환영 메일은 응답 후 백그라운드로 발송
-  const emails = (r.emails || "")
+  // 교사 환영 메일은 응답 후 백그라운드로 발송 (형제 요청 포함)
+  const siblingEmailStrings = validSiblings
+    .filter((s) => s.schoolName === r.schoolName)
+    .map((s) => s.emails)
+    .filter(Boolean);
+  const combinedEmailString = [r.emails, ...siblingEmailStrings].join(",");
+  const emails = combinedEmailString
     .split(/[,;\n]+/)
     .map((e) => e.trim().toLowerCase())
     .filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
