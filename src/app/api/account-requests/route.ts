@@ -124,8 +124,36 @@ export async function POST(req: NextRequest) {
       })
       .returning();
 
-    // 자동 Jon 알림은 의도적으로 비활성. 워크플로우상 admin이 대시보드에서 직접 검토 후
-    // /api/account-email 경유로 발송 → 중복 메일 방지 (Jon 피드백 2026-04-28).
+    // 회사몰 학교 결제(applicantType=school, channel=company)는 검토할 게 없음 (notes에 주문/금액/담당자 다 들어있음)
+    // → 자동으로 Jon에게 메일 발송하여 admin 클릭 단계 제거
+    if (isApiKeyAuth && insertedApplicantType === "school" && insertedChannel === "company") {
+      void (async () => {
+        try {
+          const { generateAccountEmail } = await import("@/lib/account-email-template");
+          const { subject, body: emailBody } = generateAccountEmail({
+            type: insertedType,
+            applicantType: insertedApplicantType,
+            schoolName: normalizedSchoolName,
+            schoolNameEn: data.schoolNameEn || null,
+            emails: uniqueValidEmails,
+            accountType: insertedAccountType,
+            quantity: insertedQuantity,
+            oldEmail: data.oldEmail || null,
+            fromType: data.fromType || null,
+            extensionDate: data.extensionDate || null,
+            notes: normalizedNotes,
+          });
+          const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "https://snorkl-teacher-reg.vercel.app";
+          await fetch(`${baseUrl}/api/account-email`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Cookie: req.headers.get("cookie") || "" },
+            body: JSON.stringify({ requestId: item.id, subject, body: emailBody }),
+          });
+        } catch (err) {
+          console.warn("[account-requests] auto-send to Jon failed:", err);
+        }
+      })();
+    }
     return NextResponse.json({ success: true, requestId: item.id });
   }
 
