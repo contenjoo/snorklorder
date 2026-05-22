@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { schools, teachers, upgradeBatches, emailLogs } from "@/db/schema";
+import { schools, teachers, upgradeBatches, emailLogs, teams } from "@/db/schema";
 import { checkAuth } from "@/lib/auth";
 
 type SchoolCounts = {
@@ -29,7 +29,7 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const [schoolRows, countRows, pendingRows, recentRows, recentBatchRows, recentFailedEmails] = await Promise.all([
+  const [schoolRows, countRows, pendingRows, recentRows, recentBatchRows, recentFailedEmails, teamRows] = await Promise.all([
     db
       .select({
         id: schools.id,
@@ -108,6 +108,7 @@ export async function GET() {
       .where(eq(emailLogs.status, "failed"))
       .orderBy(desc(emailLogs.createdAt))
       .limit(10),
+    db.select({ code: teams.code, labelEn: teams.labelEn, colorPalette: teams.colorPalette, kind: teams.kind, isActive: teams.isActive }).from(teams),
   ]);
 
   // Hydrate recent confirmed batches with school summaries — one query covers all batches
@@ -244,6 +245,7 @@ export async function GET() {
     recentTeachers: recentRows,
     recentBatches,
     recentFailedEmails,
+    teams: teamRows,
     regions,
   });
 }

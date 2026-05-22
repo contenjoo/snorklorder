@@ -90,6 +90,18 @@ export const upgradeBatches = pgTable("upgrade_batches", {
   confirmedAt: timestamp("confirmed_at"),
 });
 
+export const teams = pgTable("teams", {
+  id: serial("id").primaryKey(),
+  code: text("code").notNull().unique(), // "서울1팀", "경기7팀", "취소" 등 — schools.team 과 동일 문자열
+  labelEn: text("label_en"),
+  colorPalette: text("color_palette"), // tailwind color name e.g. "blue", "rose"
+  isActive: integer("is_active").notNull().default(1), // 1=active, 0=deactivated
+  kind: text("kind").notNull().default("group"), // group | individual | system (취소 등)
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("teams_code_idx").on(table.code),
+]);
+
 export const emailLogs = pgTable("email_logs", {
   id: serial("id").primaryKey(),
   toEmail: text("to_email").notNull(),
