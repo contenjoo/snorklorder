@@ -415,6 +415,7 @@ export async function sendDomainPaidRequest(payload: {
   domain: string;
   team?: string | null;
   note?: string | null;
+  confirmLink?: string;
 }): Promise<EmailResult> {
   const t = getTransporter();
   if (!t) return { success: false, skipped: true };
@@ -422,6 +423,16 @@ export async function sendDomainPaidRequest(payload: {
     ? `${safe(payload.schoolNameEn)} (${safe(payload.schoolName)})`
     : safe(payload.schoolName);
   const subject = `[Snorkl] Please enable paid domain: @${payload.domain}`;
+  const buttonBlock = payload.confirmLink
+    ? `<div style="text-align:center;margin:24px 0;padding:20px;background:#f0f7ff;border-radius:12px;border:1px solid #dbeafe">
+         <p style="margin:0 0 12px;color:#1e3a5f;font-size:14px;font-weight:600">Once the domain is enabled as paid:</p>
+         <a href="${payload.confirmLink}"
+            style="display:inline-block;background:#2563eb;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:16px">
+           ✓ Domain Enabled
+         </a>
+         <p style="margin:12px 0 0;color:#888;font-size:11px">Or paste this in your browser:<br>${safe(payload.confirmLink)}</p>
+       </div>`
+    : "";
   return sendAndLog(t, {
     from: ADMIN_EMAIL,
     to: JON_EMAIL,
@@ -437,12 +448,43 @@ export async function sendDomainPaidRequest(payload: {
         </div>
         <p style="margin:0 0 6px;font-size:13px"><b>School:</b> ${schoolDisplay}${payload.team ? ` <span style="color:#666">[${safe(payload.team)}]</span>` : ""}</p>
         ${payload.note ? `<p style="margin:8px 0 0;font-size:13px"><b>Note:</b> ${safe(payload.note)}</p>` : ""}
+        ${buttonBlock}
         <hr style="border:none;border-top:1px solid #eee;margin:20px 0">
         <p style="color:#9ca3af;font-size:11px;margin:0">Sent from Snorkl 주문관리 · LearnToday</p>
       </div>
     `,
-    text: `Hi Jon,\n\nCould you please enable the following domain as a paid Snorkl domain?\nAll teachers signing up with this domain should be automatically upgraded to premium.\n\nDomain: @${payload.domain}\nSchool: ${payload.schoolNameEn || payload.schoolName}${payload.team ? ` [${payload.team}]` : ""}${payload.note ? `\nNote: ${payload.note}` : ""}\n\nThanks,\nBanghyun`,
+    text: `Hi Jon,\n\nCould you please enable the following domain as a paid Snorkl domain?\nAll teachers signing up with this domain should be automatically upgraded to premium.\n\nDomain: @${payload.domain}\nSchool: ${payload.schoolNameEn || payload.schoolName}${payload.team ? ` [${payload.team}]` : ""}${payload.note ? `\nNote: ${payload.note}` : ""}${payload.confirmLink ? `\n\nOnce enabled, please click to confirm:\n${payload.confirmLink}` : ""}\n\nThanks,\nBanghyun`,
   }, { kind: "account_email", relatedType: "school" });
+}
+
+export async function sendDomainConfirmedNotification(payload: {
+  schoolName: string;
+  schoolNameEn?: string | null;
+  domain: string;
+  team?: string | null;
+  confirmedAt: Date;
+}): Promise<EmailResult> {
+  const t = getTransporter();
+  if (!t || !ADMIN_EMAIL) return { success: false, skipped: true };
+  const schoolDisplay = payload.schoolNameEn
+    ? `${safe(payload.schoolNameEn)} <span style="color:#888">(${safe(payload.schoolName)})</span>`
+    : safe(payload.schoolName);
+  const time = payload.confirmedAt.toLocaleString("ko-KR", { timeZone: "Asia/Seoul" });
+  return sendAndLog(t, {
+    from: ADMIN_EMAIL,
+    to: ADMIN_EMAIL,
+    subject: `[Snorkl] Jon 도메인 유료 활성화 완료 - @${payload.domain}`,
+    html: `
+      <div style="font-family:sans-serif;max-width:560px">
+        <h3 style="margin:0 0 4px">Jon이 도메인을 유료로 활성화했습니다 ✓</h3>
+        <p style="color:#666;margin:0 0 16px;font-size:13px">${time}</p>
+        <p style="margin:0 0 8px"><b>Domain:</b> <code style="background:#f3f4f6;padding:2px 6px;border-radius:4px;font-family:monospace">@${safe(payload.domain)}</code></p>
+        <p style="margin:0 0 8px"><b>School:</b> ${schoolDisplay}${payload.team ? ` <span style="color:#666;font-size:11px">[${safe(payload.team)}]</span>` : ""}</p>
+        <hr style="border:none;border-top:1px solid #eee;margin:16px 0">
+        <p><a href="${BASE_URL}/admin/schools" style="color:#2563eb">학교 관리 열기 →</a></p>
+      </div>
+    `,
+  }, { kind: "account_confirm", relatedType: "school" });
 }
 
 export async function sendStaleSentReminder(items: { email: string; name: string; notifiedAt: Date; schoolName: string; schoolTeam: string | null }[]): Promise<EmailResult> {

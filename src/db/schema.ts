@@ -90,6 +90,22 @@ export const upgradeBatches = pgTable("upgrade_batches", {
   confirmedAt: timestamp("confirmed_at"),
 });
 
+export const domainRequests = pgTable("domain_requests", {
+  id: serial("id").primaryKey(),
+  schoolName: text("school_name").notNull(),
+  schoolNameEn: text("school_name_en"),
+  domain: text("domain").notNull(),
+  team: text("team"),
+  note: text("note"),
+  status: text("status").notNull().default("pending"), // pending | done
+  confirmToken: text("confirm_token").notNull().unique(),
+  confirmedAt: timestamp("confirmed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("domain_requests_status_idx").on(table.status),
+  index("domain_requests_created_at_idx").on(table.createdAt),
+]);
+
 export const teams = pgTable("teams", {
   id: serial("id").primaryKey(),
   code: text("code").notNull().unique(), // "서울1팀", "경기7팀", "취소" 등 — schools.team 과 동일 문자열
