@@ -409,6 +409,42 @@ export async function sendConfirmNotification(payload: {
   }, { kind: "account_confirm", relatedType: "upgrade_batch" });
 }
 
+export async function sendDomainPaidRequest(payload: {
+  schoolName: string;
+  schoolNameEn?: string | null;
+  domain: string;
+  team?: string | null;
+  note?: string | null;
+}): Promise<EmailResult> {
+  const t = getTransporter();
+  if (!t) return { success: false, skipped: true };
+  const schoolDisplay = payload.schoolNameEn
+    ? `${safe(payload.schoolNameEn)} (${safe(payload.schoolName)})`
+    : safe(payload.schoolName);
+  const subject = `[Snorkl] Please enable paid domain: @${payload.domain}`;
+  return sendAndLog(t, {
+    from: ADMIN_EMAIL,
+    to: JON_EMAIL,
+    subject,
+    html: `
+      <div style="max-width:560px;margin:0 auto;font-family:-apple-system,sans-serif;color:#1f2937">
+        <h3 style="margin:0 0 12px">Hi Jon,</h3>
+        <p style="margin:0 0 12px">Could you please enable the following <b>domain</b> as a paid Snorkl domain?
+          All teachers signing up with this domain should be automatically upgraded to premium.</p>
+        <div style="background:#f0f7ff;border:1px solid #dbeafe;border-radius:10px;padding:14px 16px;margin:16px 0">
+          <p style="margin:0 0 6px;font-size:12px;color:#1e3a5f;font-weight:600;text-transform:uppercase;letter-spacing:0.06em">Domain</p>
+          <p style="margin:0;font-size:18px;font-family:monospace;font-weight:bold;color:#1e3a5f">@${safe(payload.domain)}</p>
+        </div>
+        <p style="margin:0 0 6px;font-size:13px"><b>School:</b> ${schoolDisplay}${payload.team ? ` <span style="color:#666">[${safe(payload.team)}]</span>` : ""}</p>
+        ${payload.note ? `<p style="margin:8px 0 0;font-size:13px"><b>Note:</b> ${safe(payload.note)}</p>` : ""}
+        <hr style="border:none;border-top:1px solid #eee;margin:20px 0">
+        <p style="color:#9ca3af;font-size:11px;margin:0">Sent from Snorkl 주문관리 · LearnToday</p>
+      </div>
+    `,
+    text: `Hi Jon,\n\nCould you please enable the following domain as a paid Snorkl domain?\nAll teachers signing up with this domain should be automatically upgraded to premium.\n\nDomain: @${payload.domain}\nSchool: ${payload.schoolNameEn || payload.schoolName}${payload.team ? ` [${payload.team}]` : ""}${payload.note ? `\nNote: ${payload.note}` : ""}\n\nThanks,\nBanghyun`,
+  }, { kind: "account_email", relatedType: "school" });
+}
+
 export async function sendStaleSentReminder(items: { email: string; name: string; notifiedAt: Date; schoolName: string; schoolTeam: string | null }[]): Promise<EmailResult> {
   const t = getTransporter();
   if (!t || !ADMIN_EMAIL || items.length === 0) return { success: false, skipped: true };

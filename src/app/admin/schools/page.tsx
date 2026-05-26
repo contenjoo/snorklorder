@@ -90,6 +90,27 @@ export default function SchoolsPage() {
   const [fnameEn, setFnameEn] = useState("");
   const [fcode, setFcode] = useState("");
   const [fdomain, setFdomain] = useState("");
+  const [paidReqLoading, setPaidReqLoading] = useState(false);
+  const [paidReqMsg, setPaidReqMsg] = useState("");
+
+  async function requestPaidDomain() {
+    if (!fdomain.trim() || !fname.trim()) { setPaidReqMsg("학교명과 도메인이 필요합니다."); return; }
+    setPaidReqLoading(true); setPaidReqMsg("");
+    try {
+      const res = await fetch("/api/admin/request-paid-domain", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ schoolName: fname.trim(), schoolNameEn: fnameEn.trim() || null, domain: fdomain.trim(), team: fteam.trim() || null }),
+      });
+      const data = await res.json();
+      if (data.success) setPaidReqMsg("Jon에게 발송 완료 ✓");
+      else setPaidReqMsg(`발송 실패: ${data.error || "unknown"}`);
+    } catch (err) {
+      setPaidReqMsg(`발송 실패: ${String(err)}`);
+    } finally {
+      setPaidReqLoading(false);
+    }
+  }
   const [fregion, setFregion] = useState("");
   const [fteam, setFteam] = useState("");
   const [ferror, setFerror] = useState("");
@@ -405,6 +426,20 @@ export default function SchoolsPage() {
               <div className="space-y-1">
                 <Label>도메인 (선택)</Label>
                 <Input placeholder="hmh.or.kr" value={fdomain} onChange={(e) => setFdomain(e.target.value)} />
+                {fdomain.trim() && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={requestPaidDomain}
+                    disabled={paidReqLoading}
+                    className="w-full mt-2 text-xs border-blue-200 text-blue-700 hover:bg-blue-50"
+                  >
+                    {paidReqLoading ? "발송 중..." : `📧 Jon에게 @${fdomain.trim().replace(/^@/, "")} 도메인 유료 등록 요청`}
+                  </Button>
+                )}
+                {paidReqMsg && (
+                  <p className={`text-xs mt-1 ${paidReqMsg.includes("완료") ? "text-emerald-600" : "text-red-600"}`}>{paidReqMsg}</p>
+                )}
               </div>
               {ferror && <p className="text-sm text-red-600">{ferror}</p>}
               <div className="flex gap-2">
