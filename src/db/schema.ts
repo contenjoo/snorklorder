@@ -97,10 +97,17 @@ export const domainRequests = pgTable("domain_requests", {
   domain: text("domain").notNull(),
   team: text("team"),
   note: text("note"),
-  status: text("status").notNull().default("pending"), // pending | done
+  status: text("status").notNull().default("pending"), // pending | done | invoiced | paid
   confirmToken: text("confirm_token").notNull().unique(),
   confirmedAt: timestamp("confirmed_at"),
+  invoiceNumber: text("invoice_number").default(""),
+  invoiceAmount: text("invoice_amount").default(""),
+  invoiceDueDate: text("invoice_due_date").default(""),
+  paymentLink: text("payment_link").default(""),
+  paymentDate: text("payment_date").default(""),
+  paymentMethod: text("payment_method").default(""),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => [
   index("domain_requests_status_idx").on(table.status),
   index("domain_requests_created_at_idx").on(table.createdAt),

@@ -65,6 +65,61 @@ interface FailedEmail {
   createdAt: string;
 }
 
+interface OpenAccountRequest {
+  id: number;
+  schoolName: string;
+  schoolNameEn: string | null;
+  type: string;
+  applicantType: string;
+  emails: string;
+  status: string; // draft | sent | processed | invoiced
+  invoiceNumber: string | null;
+  invoiceAmount: string | null;
+  invoiceDueDate: string | null;
+  paymentLink: string | null;
+  paymentDate: string | null;
+  createdAt: string;
+  updatedAt: string;
+  confirmedAt: string | null;
+}
+
+interface OpenDomainRequest {
+  id: number;
+  schoolName: string;
+  schoolNameEn: string | null;
+  domain: string;
+  team: string | null;
+  status: string; // pending | done | invoiced
+  invoiceNumber: string | null;
+  invoiceAmount: string | null;
+  invoiceDueDate: string | null;
+  paymentLink: string | null;
+  paymentDate: string | null;
+  createdAt: string;
+  updatedAt: string;
+  confirmedAt: string | null;
+}
+
+function parseAmount(s?: string | null): number {
+  if (!s) return 0;
+  const n = Number(String(s).replace(/[^\d.]/g, ""));
+  return isNaN(n) ? 0 : n;
+}
+
+function classifyAccount(r: OpenAccountRequest): "JON_PROCESS" | "JON_INVOICE" | "ME_PAY" | "JON_CONFIRM" {
+  if (r.status === "draft" || r.status === "sent") return "JON_PROCESS";
+  if (r.status === "processed" && !r.invoiceNumber) return "JON_INVOICE";
+  if (r.status === "invoiced" && !r.paymentDate) return "ME_PAY";
+  return "JON_CONFIRM";
+}
+
+function classifyDomain(r: OpenDomainRequest): "JON_PROCESS" | "JON_INVOICE" | "ME_PAY" | "JON_CONFIRM" {
+  if (r.status === "pending") return "JON_PROCESS";
+  if (r.status === "done" && !r.invoiceNumber) return "JON_INVOICE";
+  if (r.status === "invoiced" && !r.paymentDate) return "ME_PAY";
+  return "JON_CONFIRM";
+}
+
 interface DashboardData {
   stats: {
     totalSchools: number;
@@ -80,6 +135,8 @@ interface DashboardData {
   recentTeachers: DashboardTeacher[];
   recentBatches: RecentBatch[];
   recentFailedEmails: FailedEmail[];
+  openAccountRequests: OpenAccountRequest[];
+  openDomainRequests: OpenDomainRequest[];
   regions: RegionSummary[];
 }
 
@@ -144,7 +201,36 @@ export default function AdminDashboard() {
     );
   }
 
-  const { stats, teamGroups, upgradeNeeded, recentTeachers, recentBatches, recentFailedEmails, regions } = data;
+  const { stats, teamGroups, upgradeNeeded, recentTeachers, recentBatches, recentFailedEmails, openAccountRequests, openDomainRequests, regions } = data;
+
+  // Billing pipeline 분류 (account + domain 통합)
+  type BillingItem = { id: string; source: "account" | "domain"; rawId: number; schoolName: string; schoolNameEn: string | null; team: string | null; amount: number; amountText: string; paymentLink: string | null; invoiceNumber: string | null; invoiceDueDate: string | null; status: string; bucket: "JON_PROCESS" | "JON_INVOICE" | "ME_PAY" | "JON_CONFIRM"; updatedAt: string; ageDays: number };
+  const items: BillingItem[] = [];
+  for (const r of (openAccountRequests || [])) {
+    items.push({
+      id: `a-${r.id}`, source: "account", rawId: r.id, schoolName: r.schoolName, schoolNameEn: r.schoolNameEn, team: null,
+      amount: parseAmount(r.invoiceAmount), amountText: r.invoiceAmount || "",
+      paymentLink: r.paymentLink, invoiceNumber: r.invoiceNumber, invoiceDueDate: r.invoiceDueDate,
+      status: r.status, bucket: classifyAccount(r),
+      updatedAt: r.updatedAt, ageDays: daysSince(r.updatedAt) ?? 0,
+    });
+  }
+  for (const r of (openDomainRequests || [])) {
+    items.push({
+      id: `d-${r.id}`, source: "domain", rawId: r.id, schoolName: r.schoolName, schoolNameEn: r.schoolNameEn, team: r.team,
+      amount: parseAmount(r.invoiceAmount), amountText: r.invoiceAmount || "",
+      paymentLink: r.paymentLink, invoiceNumber: r.invoiceNumber, invoiceDueDate: r.invoiceDueDate,
+      status: r.status, bucket: classifyDomain(r),
+      updatedAt: r.updatedAt, ageDays: daysSince(r.updatedAt) ?? 0,
+    });
+  }
+  const buckets = {
+    JON_PROCESS: items.filter((i) => i.bucket === "JON_PROCESS"),
+    JON_INVOICE: items.filter((i) => i.bucket === "JON_INVOICE"),
+    ME_PAY: items.filter((i) => i.bucket === "ME_PAY"),
+    JON_CONFIRM: items.filter((i) => i.bucket === "JON_CONFIRM"),
+  };
+  const outstanding = buckets.ME_PAY.reduce((s, i) => s + i.amount, 0);
   const needUpgrade = stats.pending + stats.sent;
   const upgradeRate = stats.totalTeachers > 0 ? Math.round((stats.confirmed / stats.totalTeachers) * 100) : 0;
   const maxRegionTeachers = Math.max(1, ...regions.map((region) => region.teachers));
@@ -200,6 +286,66 @@ export default function AdminDashboard() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+      {items.length > 0 && (
+        <div className="bg-white rounded-2xl border p-4 md:p-5 space-y-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-3">
+              <span className="text-lg">💳</span>
+              <h2 className="font-bold text-gray-900">Billing Action Center</h2>
+            </div>
+            <Link href="/admin/accounts" className="text-xs text-blue-600 hover:underline">정산 전체 →</Link>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <div className={`rounded-xl border p-3 ${buckets.JON_PROCESS.length ? "bg-amber-50 border-amber-200" : "bg-gray-50 border-gray-100"}`}>
+              <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Jon 처리대기</div>
+              <div className="text-xl font-bold text-gray-900 mt-0.5">{buckets.JON_PROCESS.length}</div>
+              <div className="text-[10px] text-gray-500 mt-0.5">draft + sent</div>
+            </div>
+            <div className={`rounded-xl border p-3 ${buckets.JON_INVOICE.length ? "bg-orange-50 border-orange-200" : "bg-gray-50 border-gray-100"}`}>
+              <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Jon 인보이스 대기</div>
+              <div className="text-xl font-bold text-gray-900 mt-0.5">{buckets.JON_INVOICE.length}</div>
+              <div className="text-[10px] text-gray-500 mt-0.5">처리완료 · 미발급</div>
+            </div>
+            <div className={`rounded-xl border p-3 ${buckets.ME_PAY.length ? "bg-red-50 border-red-200" : "bg-gray-50 border-gray-100"}`}>
+              <div className="text-[10px] font-bold text-red-700 uppercase tracking-wider">내 차례 · 결제</div>
+              <div className="text-xl font-bold text-red-700 mt-0.5">{buckets.ME_PAY.length}</div>
+              <div className="text-[10px] text-red-600 mt-0.5">미수금 {outstanding > 0 ? `~${outstanding.toLocaleString()}` : "—"}</div>
+            </div>
+            <div className={`rounded-xl border p-3 ${buckets.JON_CONFIRM.length ? "bg-blue-50 border-blue-200" : "bg-gray-50 border-gray-100"}`}>
+              <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Jon 확인 대기</div>
+              <div className="text-xl font-bold text-gray-900 mt-0.5">{buckets.JON_CONFIRM.length}</div>
+              <div className="text-[10px] text-gray-500 mt-0.5">paid · 미확인</div>
+            </div>
+          </div>
+          {buckets.ME_PAY.length > 0 && (
+            <div className="rounded-xl bg-red-50/50 border border-red-100 p-3 space-y-1.5">
+              <div className="text-[11px] font-bold text-red-900">⚡ 내가 결제할 것</div>
+              {buckets.ME_PAY.sort((a, b) => b.ageDays - a.ageDays).slice(0, 5).map((i) => (
+                <div key={i.id} className="flex items-center gap-2 text-xs bg-white rounded px-2 py-1.5 border border-red-100">
+                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 font-medium shrink-0">{i.source === "domain" ? "🌐 도메인" : "📚 정산"}</span>
+                  <span className="text-gray-700 truncate flex-1">{i.schoolNameEn || i.schoolName}</span>
+                  {i.amountText && <span className="font-mono text-gray-900 shrink-0">{i.amountText}</span>}
+                  <span className={`text-[10px] shrink-0 ${i.ageDays >= 7 ? "text-red-600 font-bold" : i.ageDays >= 3 ? "text-orange-600" : "text-gray-500"}`}>{i.ageDays}d</span>
+                  {i.paymentLink && <a href={i.paymentLink} target="_blank" rel="noopener noreferrer" className="text-[10px] bg-red-600 text-white rounded px-2 py-0.5 font-bold shrink-0 hover:bg-red-700">💳 결제</a>}
+                </div>
+              ))}
+            </div>
+          )}
+          {(buckets.JON_PROCESS.some((i) => i.ageDays >= 3) || buckets.JON_INVOICE.some((i) => i.ageDays >= 5)) && (
+            <div className="rounded-xl bg-amber-50/50 border border-amber-100 p-3 space-y-1.5">
+              <div className="text-[11px] font-bold text-amber-900">⏰ Jon 차례 · 오래된 건</div>
+              {[...buckets.JON_PROCESS, ...buckets.JON_INVOICE].filter((i) => (i.bucket === "JON_PROCESS" ? i.ageDays >= 3 : i.ageDays >= 5)).sort((a, b) => b.ageDays - a.ageDays).slice(0, 5).map((i) => (
+                <div key={i.id} className="flex items-center gap-2 text-xs bg-white rounded px-2 py-1.5 border border-amber-100">
+                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 font-medium shrink-0">{i.source === "domain" ? "🌐" : "📚"}</span>
+                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium shrink-0">{i.bucket === "JON_PROCESS" ? "처리대기" : "인보이스대기"}</span>
+                  <span className="text-gray-700 truncate flex-1">{i.schoolNameEn || i.schoolName}</span>
+                  <span className={`text-[10px] shrink-0 ${i.ageDays >= 7 ? "text-red-600 font-bold" : "text-orange-600"}`}>{i.ageDays}d</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
       <div className="grid grid-cols-2 gap-3 md:flex md:items-center md:gap-6 bg-white rounded-2xl border p-4 md:p-5">

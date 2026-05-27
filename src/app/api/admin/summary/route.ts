@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { schools, teachers, upgradeBatches, emailLogs, teams } from "@/db/schema";
+import { schools, teachers, upgradeBatches, emailLogs, teams, accountRequests, domainRequests } from "@/db/schema";
 import { checkAuth } from "@/lib/auth";
 
 type SchoolCounts = {
@@ -29,7 +29,7 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const [schoolRows, countRows, pendingRows, recentRows, recentBatchRows, recentFailedEmails, teamRows] = await Promise.all([
+  const [schoolRows, countRows, pendingRows, recentRows, recentBatchRows, recentFailedEmails, teamRows, openAccountRequests, openDomainRequests] = await Promise.all([
     db
       .select({
         id: schools.id,
@@ -109,6 +109,39 @@ export async function GET() {
       .orderBy(desc(emailLogs.createdAt))
       .limit(10),
     db.select({ code: teams.code, labelEn: teams.labelEn, colorPalette: teams.colorPalette, kind: teams.kind, isActive: teams.isActive }).from(teams),
+    db.select({
+      id: accountRequests.id,
+      schoolName: accountRequests.schoolName,
+      schoolNameEn: accountRequests.schoolNameEn,
+      type: accountRequests.type,
+      applicantType: accountRequests.applicantType,
+      emails: accountRequests.emails,
+      status: accountRequests.status,
+      invoiceNumber: accountRequests.invoiceNumber,
+      invoiceAmount: accountRequests.invoiceAmount,
+      invoiceDueDate: accountRequests.invoiceDueDate,
+      paymentLink: accountRequests.paymentLink,
+      paymentDate: accountRequests.paymentDate,
+      createdAt: accountRequests.createdAt,
+      updatedAt: accountRequests.updatedAt,
+      confirmedAt: accountRequests.confirmedAt,
+    }).from(accountRequests).where(inArray(accountRequests.status, ["draft", "sent", "processed", "invoiced"])).orderBy(desc(accountRequests.updatedAt)),
+    db.select({
+      id: domainRequests.id,
+      schoolName: domainRequests.schoolName,
+      schoolNameEn: domainRequests.schoolNameEn,
+      domain: domainRequests.domain,
+      team: domainRequests.team,
+      status: domainRequests.status,
+      invoiceNumber: domainRequests.invoiceNumber,
+      invoiceAmount: domainRequests.invoiceAmount,
+      invoiceDueDate: domainRequests.invoiceDueDate,
+      paymentLink: domainRequests.paymentLink,
+      paymentDate: domainRequests.paymentDate,
+      createdAt: domainRequests.createdAt,
+      updatedAt: domainRequests.updatedAt,
+      confirmedAt: domainRequests.confirmedAt,
+    }).from(domainRequests).where(inArray(domainRequests.status, ["pending", "done", "invoiced"])).orderBy(desc(domainRequests.updatedAt)),
   ]);
 
   // Hydrate recent confirmed batches with school summaries — one query covers all batches
@@ -246,6 +279,8 @@ export async function GET() {
     recentBatches,
     recentFailedEmails,
     teams: teamRows,
+    openAccountRequests,
+    openDomainRequests,
     regions,
   });
 }
