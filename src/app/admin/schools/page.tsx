@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { useSchoolData } from "@/lib/use-data";
+import { teamColor } from "@/lib/teams";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -43,14 +44,6 @@ interface School {
 }
 
 const REGIONS = ["서울", "부산", "대구", "인천", "광주", "대전", "울산", "세종", "경기", "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주"];
-
-const teamColors: Record<string, string> = {
-  "서울1팀": "#3b82f6",
-  "서울4팀": "#6366f1",
-  "경기2팀": "#10b981",
-  "경기3팀": "#22c55e",
-  "경기5팀": "#14b8a6",
-};
 
 const statusLabel: Record<string, string> = {
   upgraded: "확정",
@@ -495,7 +488,7 @@ export default function SchoolsPage() {
 
             <div className={showSection === "teams" ? "grid grid-cols-1 lg:grid-cols-2 gap-3" : "space-y-3"}>
               {teamGroups.map(group => {
-                const color = teamColors[group.name] || "#6b7280";
+                const color = teamColor(group.name).hex;
                 const allConfirmed = group.teacherCount > 0 && group.confirmedCount === group.teacherCount;
                 const groupRate = group.teacherCount > 0 ? Math.round((group.confirmedCount / group.teacherCount) * 100) : 0;
 

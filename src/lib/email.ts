@@ -1,7 +1,6 @@
 import nodemailer from "nodemailer";
 import { db } from "@/db";
 import { emailLogs } from "@/db/schema";
-
 const JON_EMAIL = "jon@snorkl.app";
 const DIGEST_RECIPIENTS = ["jon@snorkl.app", "jeff@snorkl.app"];
 const ADMIN_EMAIL = process.env.GMAIL_USER || "";
@@ -98,29 +97,7 @@ interface TeacherInfo {
   subject: string | null;
 }
 
-// English labels for team names
-const TEAM_EN: Record<string, string> = {
-  "서울1팀": "Seoul Team 1",
-  "서울4팀": "Seoul Team 4",
-  "서울8팀": "Seoul Team 8",
-  "경기2팀": "Gyeonggi Team 2",
-  "경기3팀": "Gyeonggi Team 3",
-  "경기5팀": "Gyeonggi Team 5",
-  "경기6팀": "Gyeonggi Team 6",
-  "경기7팀": "Gyeonggi Team 7",
-  "경기9팀": "Gyeonggi Team 9",
-};
-
-function teamLabelEn(team: string): string {
-  if (TEAM_EN[team]) return TEAM_EN[team];
-  if (team.includes("개별")) return "Individual";
-  return team;
-}
-
-function isGroupPurchaseTeam(team: string | null | undefined): boolean {
-  if (!team) return false;
-  return !team.includes("개별") && team !== "미배정";
-}
+import { teamLabelEn, isGroupPurchaseTeam } from "@/lib/teams";
 
 // 선택 교사 일괄 발송 (Jon에게만 + 확인 링크 포함)
 export async function sendBatchNotification(

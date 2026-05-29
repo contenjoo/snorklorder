@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
+import { teamLabelEn as teamLabel, isGroupPurchaseTeam } from "@/lib/teams";
 
 interface Teacher {
   id: number;
@@ -34,26 +35,6 @@ const SUBJECT_EN: Record<string, string> = {
   "정보": "IT", "가정": "Home Ec", "일본어": "Japanese", "중국어": "Chinese",
 };
 
-// English labels for team names
-const TEAM_EN: Record<string, string> = {
-  "서울1팀": "Seoul Team 1",
-  "서울4팀": "Seoul Team 4",
-  "경기2팀": "Gyeonggi Team 2",
-  "경기3팀": "Gyeonggi Team 3",
-  "경기5팀": "Gyeonggi Team 5",
-};
-
-function teamLabel(team: string | null): string {
-  if (!team || team === "미배정") return "Unassigned";
-  if (TEAM_EN[team]) return TEAM_EN[team];
-  if (team.includes("개별")) return "Individual";
-  return team;
-}
-
-function isGroupPurchaseTeam(team: string | null): boolean {
-  if (!team) return false;
-  return !team.includes("개별") && team !== "미배정";
-}
 
 export default function PartnerDashboard() {
   const [schools, setSchools] = useState<School[]>([]);

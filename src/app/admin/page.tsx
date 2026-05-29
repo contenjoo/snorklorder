@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { TEAM_COLORS } from "@/lib/teams";
 
 interface DashboardTeacher {
   id: number;
@@ -140,16 +141,7 @@ interface DashboardData {
   regions: RegionSummary[];
 }
 
-const teamColorMap: Record<string, { bg: string; text: string; dot: string; border: string }> = {
-  "서울1팀": { bg: "bg-blue-50", text: "text-blue-700", dot: "bg-blue-500", border: "border-blue-200" },
-  "서울4팀": { bg: "bg-blue-50", text: "text-blue-600", dot: "bg-blue-400", border: "border-blue-200" },
-  "서울8팀": { bg: "bg-violet-50", text: "text-violet-700", dot: "bg-violet-500", border: "border-violet-200" },
-  "경기2팀": { bg: "bg-emerald-50", text: "text-emerald-700", dot: "bg-emerald-500", border: "border-emerald-200" },
-  "경기3팀": { bg: "bg-green-50", text: "text-green-700", dot: "bg-green-500", border: "border-green-200" },
-  "경기5팀": { bg: "bg-teal-50", text: "text-teal-700", dot: "bg-teal-500", border: "border-teal-200" },
-  "경기7팀": { bg: "bg-rose-50", text: "text-rose-700", dot: "bg-rose-500", border: "border-rose-200" },
-  "경기9팀": { bg: "bg-amber-50", text: "text-amber-700", dot: "bg-amber-500", border: "border-amber-200" },
-};
+const teamColorMap = TEAM_COLORS;
 
 export default function AdminDashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
