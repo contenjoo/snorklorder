@@ -24,7 +24,37 @@ interface School {
   counts: { total: number; pending: number; sent: number; upgraded: number };
 }
 
-type Tab = "action" | "schools" | "recent";
+interface BillingAccount {
+  id: number;
+  schoolName: string;
+  schoolNameEn: string | null;
+  type: string;
+  emails: string;
+  status: string; // sent | processed | invoiced
+  invoiceNumber: string | null;
+  invoiceAmount: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface BillingDomain {
+  id: number;
+  schoolName: string;
+  schoolNameEn: string | null;
+  domain: string;
+  team: string | null;
+  status: string; // pending | done | invoiced
+  invoiceNumber: string | null;
+  invoiceAmount: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+type Tab = "action" | "schools" | "recent" | "billing";
+
+function daysAgo(iso: string): number {
+  return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+}
 
 const SUBJECT_EN: Record<string, string> = {
   "수학": "Math", "국어": "Korean", "영어": "English", "과학": "Science",
@@ -38,6 +68,8 @@ const SUBJECT_EN: Record<string, string> = {
 
 export default function PartnerDashboard() {
   const [schools, setSchools] = useState<School[]>([]);
+  const [billingAccounts, setBillingAccounts] = useState<BillingAccount[]>([]);
+  const [billingDomains, setBillingDomains] = useState<BillingDomain[]>([]);
   const [loading, setLoading] = useState(true);
   const [role, setRole] = useState<"jon" | "jeff" | null>(null);
   const [tab, setTab] = useState<Tab>("action");
@@ -54,7 +86,14 @@ export default function PartnerDashboard() {
       fetch("/api/partner").then((r) => r.json()),
     ]).then(([auth, data]) => {
       setRole(auth.role || null);
-      setSchools(data);
+      // 신규 응답: {schools, accountRequests, domainRequests}. 구버전 호환: 배열이면 schools.
+      if (Array.isArray(data)) {
+        setSchools(data);
+      } else {
+        setSchools(data.schools || []);
+        setBillingAccounts(data.accountRequests || []);
+        setBillingDomains(data.domainRequests || []);
+      }
       setLoading(false);
     });
   }, []);
@@ -142,6 +181,15 @@ export default function PartnerDashboard() {
       .slice(0, 30),
     [schools]
   );
+
+  // Billing: Jon이 직접 해야 할 일 분류 (early return 위에 위치 — hooks 순서 안정)
+  const jonTodo = useMemo(() => {
+    const acctProcess = billingAccounts.filter((r) => r.status === "sent");
+    const acctInvoice = billingAccounts.filter((r) => r.status === "processed" && !r.invoiceNumber);
+    const domProcess = billingDomains.filter((r) => r.status === "pending");
+    const domInvoice = billingDomains.filter((r) => r.status === "done" && !r.invoiceNumber);
+    return { acctProcess, acctInvoice, domProcess, domInvoice, total: acctProcess.length + acctInvoice.length + domProcess.length + domInvoice.length };
+  }, [billingAccounts, billingDomains]);
 
   function toggle(id: number) {
     setSelected((prev) => {
@@ -233,11 +281,13 @@ export default function PartnerDashboard() {
   const tabs: { key: Tab; label: string; badge?: number }[] = isJon
     ? [
         { key: "action", label: "Action Needed", badge: needAction || undefined },
+        { key: "billing", label: "Billing", badge: jonTodo.total || undefined },
         { key: "schools", label: "All Schools" },
         { key: "recent", label: "Recent" },
       ]
     : [
         { key: "action", label: "Overview" },
+        { key: "billing", label: "Billing" },
         { key: "schools", label: "All Schools" },
         { key: "recent", label: "Recent" },
       ];
@@ -529,6 +579,76 @@ export default function PartnerDashboard() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* ===== Billing Tab ===== */}
+      {tab === "billing" && (
+        <div className="space-y-4">
+          {jonTodo.total === 0 ? (
+            <div className="bg-white rounded-xl border p-10 text-center">
+              <div className="text-3xl mb-2">✅</div>
+              <p className="text-sm font-medium text-gray-700">All caught up — nothing waiting on you.</p>
+            </div>
+          ) : (
+            <>
+              {(jonTodo.acctProcess.length > 0 || jonTodo.domProcess.length > 0) && (
+                <div className="bg-white rounded-xl border overflow-hidden">
+                  <div className="px-4 py-2.5 bg-amber-50 border-b border-amber-100 flex items-center gap-2">
+                    <span>⚙️</span><span className="text-sm font-bold text-amber-900">To process</span>
+                    <span className="text-xs text-amber-600">{jonTodo.acctProcess.length + jonTodo.domProcess.length}</span>
+                  </div>
+                  <div className="divide-y">
+                    {jonTodo.acctProcess.map((r) => (
+                      <div key={`a${r.id}`} className="px-4 py-2.5 flex items-center gap-2 text-sm">
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 shrink-0">📚 account</span>
+                        <span className="text-gray-800 truncate flex-1">{r.schoolNameEn || r.schoolName}</span>
+                        <span className="text-[11px] font-mono text-gray-400 truncate max-w-[160px] hidden sm:inline">{r.emails}</span>
+                        <span className={`text-[11px] shrink-0 ${daysAgo(r.updatedAt) >= 3 ? "text-red-600 font-bold" : "text-gray-400"}`}>{daysAgo(r.updatedAt)}d</span>
+                      </div>
+                    ))}
+                    {jonTodo.domProcess.map((r) => (
+                      <div key={`d${r.id}`} className="px-4 py-2.5 flex items-center gap-2 text-sm">
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 shrink-0">🌐 domain</span>
+                        <span className="font-mono text-blue-700 shrink-0">@{r.domain}</span>
+                        <span className="text-gray-700 truncate flex-1">{r.schoolNameEn || r.schoolName}</span>
+                        <span className={`text-[11px] shrink-0 ${daysAgo(r.updatedAt) >= 3 ? "text-red-600 font-bold" : "text-gray-400"}`}>{daysAgo(r.updatedAt)}d</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {(jonTodo.acctInvoice.length > 0 || jonTodo.domInvoice.length > 0) && (
+                <div className="bg-white rounded-xl border overflow-hidden">
+                  <div className="px-4 py-2.5 bg-orange-50 border-b border-orange-100 flex items-center gap-2">
+                    <span>🧾</span><span className="text-sm font-bold text-orange-900">Invoice needed</span>
+                    <span className="text-xs text-orange-600">{jonTodo.acctInvoice.length + jonTodo.domInvoice.length}</span>
+                  </div>
+                  <div className="divide-y">
+                    {jonTodo.acctInvoice.map((r) => (
+                      <div key={`ai${r.id}`} className="px-4 py-2.5 flex items-center gap-2 text-sm">
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 shrink-0">📚 account</span>
+                        <span className="text-gray-800 truncate flex-1">{r.schoolNameEn || r.schoolName}</span>
+                        <span className="text-[10px] text-orange-600 shrink-0">upgraded, awaiting invoice</span>
+                        <span className={`text-[11px] shrink-0 ${daysAgo(r.updatedAt) >= 5 ? "text-red-600 font-bold" : "text-gray-400"}`}>{daysAgo(r.updatedAt)}d</span>
+                      </div>
+                    ))}
+                    {jonTodo.domInvoice.map((r) => (
+                      <div key={`di${r.id}`} className="px-4 py-2.5 flex items-center gap-2 text-sm">
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 shrink-0">🌐 domain</span>
+                        <span className="font-mono text-blue-700 shrink-0">@{r.domain}</span>
+                        <span className="text-gray-700 truncate flex-1">{r.schoolNameEn || r.schoolName}</span>
+                        <span className={`text-[11px] shrink-0 ${daysAgo(r.updatedAt) >= 5 ? "text-red-600 font-bold" : "text-gray-400"}`}>{daysAgo(r.updatedAt)}d</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <p className="text-[11px] text-gray-400 text-center px-4">
+                읽기 전용 체크리스트입니다. 처리 후 받으신 확인 메일의 버튼을 눌러 완료 표시해주세요.
+              </p>
+            </>
+          )}
         </div>
       )}
 

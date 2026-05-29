@@ -1,12 +1,12 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { schools, teachers } from "@/db/schema";
+import { schools, teachers, accountRequests, domainRequests } from "@/db/schema";
 import { desc, inArray } from "drizzle-orm";
 
 // GET: partner dashboard data
 export async function GET() {
-  const [schoolRows, teacherRows] = await Promise.all([
+  const [schoolRows, teacherRows, acctRows, domRows] = await Promise.all([
     db
       .select({
         id: schools.id,
@@ -30,6 +30,38 @@ export async function GET() {
       })
       .from(teachers)
       .orderBy(desc(teachers.createdAt)),
+    db
+      .select({
+        id: accountRequests.id,
+        schoolName: accountRequests.schoolName,
+        schoolNameEn: accountRequests.schoolNameEn,
+        type: accountRequests.type,
+        emails: accountRequests.emails,
+        status: accountRequests.status,
+        invoiceNumber: accountRequests.invoiceNumber,
+        invoiceAmount: accountRequests.invoiceAmount,
+        createdAt: accountRequests.createdAt,
+        updatedAt: accountRequests.updatedAt,
+      })
+      .from(accountRequests)
+      .where(inArray(accountRequests.status, ["sent", "processed", "invoiced"]))
+      .orderBy(desc(accountRequests.updatedAt)),
+    db
+      .select({
+        id: domainRequests.id,
+        schoolName: domainRequests.schoolName,
+        schoolNameEn: domainRequests.schoolNameEn,
+        domain: domainRequests.domain,
+        team: domainRequests.team,
+        status: domainRequests.status,
+        invoiceNumber: domainRequests.invoiceNumber,
+        invoiceAmount: domainRequests.invoiceAmount,
+        createdAt: domainRequests.createdAt,
+        updatedAt: domainRequests.updatedAt,
+      })
+      .from(domainRequests)
+      .where(inArray(domainRequests.status, ["pending", "done", "invoiced"]))
+      .orderBy(desc(domainRequests.updatedAt)),
   ]);
 
   const teachersBySchool = new Map<number, typeof teacherRows>();
@@ -52,7 +84,7 @@ export async function GET() {
     };
   });
 
-  return NextResponse.json(result);
+  return NextResponse.json({ schools: result, accountRequests: acctRows, domainRequests: domRows });
 }
 
 // PATCH: Jon marks teachers as upgraded
