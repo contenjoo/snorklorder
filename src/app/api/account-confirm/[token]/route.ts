@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { accountRequests, teachers } from "@/db/schema";
 import { eq, inArray } from "drizzle-orm";
-import { sendAccountConfirmNotification } from "@/lib/email";
+import { sendAccountConfirmNotification, sendTeacherUpgradedEmail } from "@/lib/email";
 
 // GET: 토큰으로 요청 상세 조회 (Jon이 확인 페이지 열었을 때)
 export async function GET(
@@ -107,15 +107,31 @@ export async function POST(
             .where(and(eq(teachers.schoolId, school.id), inArray(teachers.email, matched.map((m) => m.email))));
         }
 
-        // 관리자(나)에게만 자동 알림. 교사 본인 환영 메일은 사용자 정책상 자동 발송하지 않음
-        await sendAccountConfirmNotification({
-          schoolName: r.schoolName,
-          schoolNameEn: r.schoolNameEn,
-          emails,
-          type: r.type,
-          applicantType: r.applicantType || "school",
-          confirmedAt: new Date(),
-        });
+        const nameByEmail = new Map(matched.map((m) => [m.email.toLowerCase(), m.name]));
+
+        // Jon 확인 완료 시점: ① 관리자(나) 알림 ② 업그레이드된 이메일(선생님) 본인에게 완료 메일 (병렬)
+        const [, teacherResults] = await Promise.all([
+          sendAccountConfirmNotification({
+            schoolName: r.schoolName,
+            schoolNameEn: r.schoolNameEn,
+            emails,
+            type: r.type,
+            applicantType: r.applicantType || "school",
+            confirmedAt: new Date(),
+          }),
+          Promise.allSettled(
+            emails.map((email) =>
+              sendTeacherUpgradedEmail({
+                name: nameByEmail.get(email) || "선생님",
+                email,
+                schoolName: r.schoolName,
+                schoolNameEn: r.schoolNameEn,
+              })
+            )
+          ),
+        ]);
+        const failed = teacherResults.filter((res) => res.status === "rejected" || (res.status === "fulfilled" && !res.value.success && !res.value.skipped)).length;
+        if (failed > 0) console.warn(`[account-confirm] ${failed}/${emails.length} teacher emails failed`);
       } catch (err) {
         console.warn("[account-confirm] notification email failed:", err);
       }
