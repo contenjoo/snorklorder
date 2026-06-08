@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { teachers, schools, upgradeBatches } from "@/db/schema";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, and } from "drizzle-orm";
 import { sendBatchNotification } from "@/lib/email";
 import { randomBytes } from "crypto";
 
@@ -29,7 +29,14 @@ export async function POST(req: NextRequest) {
     })
     .from(teachers)
     .innerJoin(schools, eq(teachers.schoolId, schools.id))
-    .where(inArray(teachers.id, teacherIds));
+    // 방어: 검증·승인 완료(approved)된 교사만 Jon에게 발송
+    .where(and(inArray(teachers.id, teacherIds), eq(teachers.verificationStatus, "approved")));
+
+  if (selected.length === 0) {
+    return NextResponse.json({ success: false, error: "No approved teachers in selection" }, { status: 400 });
+  }
+  // 실제 발송 대상 = 승인된 교사만 (미승인 id는 무시)
+  const approvedIds = selected.map((t) => t.id);
 
   // Group by school
   const grouped = new Map<number, { schoolName: string; schoolNameEn?: string; team?: string; teachers: typeof selected }>();
@@ -57,11 +64,11 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // 배치 토큰 생성
+  // 배치 토큰 생성 (승인된 교사만 대상)
   const token = randomBytes(16).toString("hex");
   await db.insert(upgradeBatches).values({
     token,
-    teacherIds: JSON.stringify(teacherIds),
+    teacherIds: JSON.stringify(approvedIds),
   });
 
   // Send batch email to Jon (with confirm link + team school map)
@@ -72,7 +79,7 @@ export async function POST(req: NextRequest) {
     await db
       .update(teachers)
       .set({ status: "sent", notifiedAt: new Date() })
-      .where(inArray(teachers.id, teacherIds));
+      .where(inArray(teachers.id, approvedIds));
   }
 
   return NextResponse.json({ ...result, token });

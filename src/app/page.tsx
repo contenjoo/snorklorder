@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-type Step = "choose" | "schoolFind" | "schoolForm" | "batchForm" | "success" | "batchSuccess" | "request" | "requestSent" | "purchaseForm";
+type Step = "choose" | "schoolFind" | "schoolForm" | "batchForm" | "verify" | "success" | "batchSuccess" | "request" | "requestSent" | "purchaseForm";
 type FindMode = "search" | "code";
 
 interface SchoolResult { id: number; name: string; nameEn: string | null; code: string; team?: string | null; }
@@ -42,6 +42,9 @@ export default function TeacherRegistration() {
   const [purchaseMode, setPurchaseMode] = useState<"individual" | "bulk">("individual");
   const [purchaseBulkEmails, setPurchaseBulkEmails] = useState("");
   const [matchedSchool, setMatchedSchool] = useState<SchoolResult | null>(null);
+  const [verifyTeacherId, setVerifyTeacherId] = useState<number | null>(null);
+  const [verifyCode, setVerifyCode] = useState("");
+  const [approvalStatus, setApprovalStatus] = useState<"approved" | "email_verified" | null>(null);
 
   useEffect(() => {
     if (step !== "purchaseForm") { setMatchedSchool(null); return; }
@@ -101,6 +104,25 @@ export default function TeacherRegistration() {
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error?.includes("already registered") ? "이미 등록된 이메일입니다." : (data.error || "등록 실패")); return; }
+      setVerifyTeacherId(data.teacherId ?? null);
+      setVerifyCode(""); setApprovalStatus(null);
+      setStep("verify");
+    } catch { setError("연결 오류입니다."); } finally { setLoading(false); }
+  }
+
+  async function submitVerify() {
+    if (!verifyTeacherId) { setError("세션이 만료되었습니다. 다시 등록해주세요."); return; }
+    const code = verifyCode.trim();
+    if (!/^\d{6}$/.test(code)) { setError("6자리 인증 코드를 입력해주세요."); return; }
+    setLoading(true); setError("");
+    try {
+      const res = await fetch("/api/register/verify", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ teacherId: verifyTeacherId, code }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || "인증 실패"); return; }
+      setApprovalStatus(data.status === "approved" ? "approved" : "email_verified");
       setStep("success");
     } catch { setError("연결 오류입니다."); } finally { setLoading(false); }
   }
@@ -481,6 +503,31 @@ export default function TeacherRegistration() {
             </form>
           )}
 
+          {/* ===== 이메일 인증 (OTP) ===== */}
+          {step === "verify" && (
+            <form onSubmit={(e) => { e.preventDefault(); submitVerify(); }} className="p-6 space-y-5">
+              <div className="flex items-center gap-3 rounded-xl bg-blue-50 border border-blue-100 p-4">
+                <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center text-xl">✉️</div>
+                <div>
+                  <p className="font-bold text-gray-900">이메일 인증</p>
+                  <p className="text-sm text-blue-600">{email}로 보낸 6자리 코드를 입력하세요</p>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="verify-code" className="text-sm font-semibold text-gray-700">인증 코드</label>
+                <Input id="verify-code" inputMode="numeric" maxLength={6} placeholder="000000"
+                  value={verifyCode} onChange={(e) => setVerifyCode(e.target.value.replace(/\D/g, ""))}
+                  className="text-center text-2xl tracking-[0.4em] font-bold" />
+                <p className="text-xs text-gray-400">메일의 &quot;Verify email&quot; 링크를 클릭해도 인증됩니다.</p>
+              </div>
+              {error && <p className="text-sm text-red-500 font-medium">{error}</p>}
+              <Button type="submit" disabled={loading} className="w-full h-12 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold">
+                {loading ? "확인 중..." : "인증 완료"}
+              </Button>
+              <button type="button" onClick={reset} className="w-full text-sm text-gray-400 font-medium hover:text-gray-600 transition-colors py-1">← 처음으로</button>
+            </form>
+          )}
+
           {/* ===== 일괄 등록 완료 ===== */}
           {step === "batchSuccess" && batchResult && (
             <div className="p-8 text-center space-y-5">
@@ -503,8 +550,8 @@ export default function TeacherRegistration() {
                   )}
                 </div>
                 <p className="text-base text-gray-500 mt-3">
-                  프리미엄 업그레이드 요청이 접수되었습니다.
-                  <br /><span className="font-semibold text-gray-700">처리까지 1~2 영업일</span> 소요됩니다.
+                  각 교사에게 <span className="font-semibold text-gray-700">인증 메일</span>을 보냈습니다.
+                  <br />메일의 <span className="font-semibold text-gray-700">&quot;Verify email&quot;</span> 링크를 클릭해야 등록이 완료됩니다.
                 </p>
               </div>
               <Button variant="outline" onClick={reset} className="border-2 border-gray-200 text-gray-700 font-semibold h-11 rounded-xl hover:bg-gray-50">
@@ -522,11 +569,20 @@ export default function TeacherRegistration() {
                 </svg>
               </div>
               <div>
-                <h3 className="text-2xl font-bold text-gray-900">등록 완료!</h3>
-                <p className="text-base text-gray-500 mt-2">
-                  Snorkl 프리미엄 업그레이드 요청이 접수되었습니다.
-                  <br /><span className="font-semibold text-gray-700">처리까지 1~2 영업일</span> 소요됩니다.
-                </p>
+                <h3 className="text-2xl font-bold text-gray-900">
+                  {approvalStatus === "email_verified" ? "인증 완료!" : "등록 완료!"}
+                </h3>
+                {approvalStatus === "email_verified" ? (
+                  <p className="text-base text-gray-500 mt-2">
+                    이메일 인증이 완료되었습니다.
+                    <br /><span className="font-semibold text-gray-700">학교 관리자 승인</span> 후 업그레이드가 진행됩니다.
+                  </p>
+                ) : (
+                  <p className="text-base text-gray-500 mt-2">
+                    Snorkl 프리미엄 업그레이드 요청이 접수되었습니다.
+                    <br /><span className="font-semibold text-gray-700">처리까지 1~2 영업일</span> 소요됩니다.
+                  </p>
+                )}
               </div>
               <Button variant="outline" onClick={reset} className="border-2 border-gray-200 text-gray-700 font-semibold h-11 rounded-xl hover:bg-gray-50">
                 다른 교사 등록하기
