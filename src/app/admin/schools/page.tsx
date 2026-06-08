@@ -76,6 +76,14 @@ export default function SchoolsPage() {
   const [message, setMessage] = useState("");
   const [showSection, setShowSection] = useState<"all" | "teams" | "individual">("all");
 
+  // School admins (학교 관리자 이메일)
+  const [adminPanelSchoolId, setAdminPanelSchoolId] = useState<number | null>(null);
+  const [adminList, setAdminList] = useState<{ id: number; schoolId: number; email: string; role: string; createdAt: string }[]>([]);
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [newAdminEmail, setNewAdminEmail] = useState("");
+  const [adminError, setAdminError] = useState("");
+  const [adminBusy, setAdminBusy] = useState(false);
+
   // Add/Edit school form
   const [open, setOpen] = useState(false);
   const [editingSchool, setEditingSchool] = useState<School | null>(null);
@@ -237,6 +245,75 @@ export default function SchoolsPage() {
     setSelected(new Set()); load();
   }
 
+  // School admin helpers
+  function toggleAdminPanel(schoolId: number) {
+    if (adminPanelSchoolId === schoolId) {
+      setAdminPanelSchoolId(null);
+      setAdminList([]);
+      setNewAdminEmail("");
+      setAdminError("");
+    } else {
+      setAdminPanelSchoolId(schoolId);
+      setAdminList([]);
+      setNewAdminEmail("");
+      setAdminError("");
+      loadAdmins(schoolId);
+    }
+  }
+  async function loadAdmins(schoolId: number) {
+    setAdminLoading(true); setAdminError("");
+    try {
+      const res = await fetch(`/api/admin/school-admins?schoolId=${schoolId}`);
+      const data = await res.json();
+      setAdminList(Array.isArray(data.admins) ? data.admins : []);
+    } catch {
+      setAdminError("관리자 목록을 불러오지 못했습니다.");
+    } finally {
+      setAdminLoading(false);
+    }
+  }
+  async function addAdmin(schoolId: number) {
+    const email = newAdminEmail.trim();
+    if (!email) { setAdminError("이메일을 입력하세요."); return; }
+    setAdminBusy(true); setAdminError("");
+    try {
+      const res = await fetch("/api/admin/school-admins", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ schoolId, email }),
+      });
+      if (res.status === 409) { setAdminError("이미 등록된 관리자입니다."); return; }
+      if (res.status === 400) { setAdminError("올바르지 않은 이메일입니다."); return; }
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        setAdminError(d.error || "추가에 실패했습니다.");
+        return;
+      }
+      setNewAdminEmail("");
+      await loadAdmins(schoolId);
+    } catch {
+      setAdminError("연결 오류");
+    } finally {
+      setAdminBusy(false);
+    }
+  }
+  async function removeAdmin(adminId: number, schoolId: number) {
+    setAdminBusy(true); setAdminError("");
+    try {
+      const res = await fetch(`/api/admin/school-admins?id=${adminId}`, { method: "DELETE" });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        setAdminError(d.error || "삭제에 실패했습니다.");
+        return;
+      }
+      await loadAdmins(schoolId);
+    } catch {
+      setAdminError("연결 오류");
+    } finally {
+      setAdminBusy(false);
+    }
+  }
+
   // Render school row (reused in teams and individual sections)
   function renderSchoolRow(school: School, indent = false) {
     const isOpen = expandedSchool === school.id;
@@ -274,6 +351,10 @@ export default function SchoolsPage() {
             <button onClick={(e) => { e.stopPropagation(); openEditDialog(school); }}
               className="p-1 rounded text-gray-300 hover:text-blue-600 hover:bg-blue-50" title="수정">
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" /></svg>
+            </button>
+            <button onClick={(e) => { e.stopPropagation(); toggleAdminPanel(school.id); }}
+              className={`p-1 rounded hover:bg-indigo-50 ${adminPanelSchoolId === school.id ? "text-indigo-600 bg-indigo-50" : "text-gray-300 hover:text-indigo-600"}`} title="관리자 관리">
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /></svg>
             </button>
             <button onClick={(e) => { e.stopPropagation(); copyEmails(school.teachers.map(t => t.email), `s-${school.id}`); }}
               className="p-1 rounded text-gray-300 hover:text-blue-600 hover:bg-blue-50" title="이메일 복사">
@@ -315,6 +396,51 @@ export default function SchoolsPage() {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* School admin panel */}
+        {adminPanelSchoolId === school.id && (
+          <div className="bg-indigo-50/50 border-t border-b border-indigo-100 px-3 sm:px-4 py-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <svg className="w-3.5 h-3.5 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /></svg>
+              <span className="text-xs font-semibold text-indigo-900">학교 관리자 (대시보드 로그인 / 승인 권한)</span>
+            </div>
+
+            {adminLoading ? (
+              <p className="text-xs text-gray-400 py-1">불러오는 중...</p>
+            ) : adminList.length === 0 ? (
+              <p className="text-xs text-gray-400 py-1">등록된 관리자 없음</p>
+            ) : (
+              <div className="space-y-1">
+                {adminList.map(a => (
+                  <div key={a.id} className="flex items-center gap-2 bg-white rounded px-2 py-1 border border-indigo-50">
+                    <span className="text-xs font-mono text-gray-700 truncate flex-1">{a.email}</span>
+                    <button onClick={() => removeAdmin(a.id, school.id)} disabled={adminBusy}
+                      className="text-[10px] text-red-500 hover:text-red-700 hover:bg-red-50 px-1.5 py-0.5 rounded disabled:opacity-40" title="삭제">
+                      삭제
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 pt-1">
+              <Input
+                type="email"
+                placeholder="admin@school.kr"
+                value={newAdminEmail}
+                onChange={(e) => setNewAdminEmail(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addAdmin(school.id); } }}
+                className="h-7 text-xs flex-1"
+              />
+              <Button size="sm" onClick={() => addAdmin(school.id)} disabled={adminBusy}
+                className="h-7 text-xs px-3">
+                {adminBusy ? "..." : "추가"}
+              </Button>
+            </div>
+
+            {adminError && <p className="text-xs text-red-600">{adminError}</p>}
           </div>
         )}
       </div>

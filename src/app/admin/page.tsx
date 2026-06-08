@@ -121,6 +121,20 @@ function classifyDomain(r: OpenDomainRequest): "JON_PROCESS" | "JON_INVOICE" | "
   return "JON_CONFIRM";
 }
 
+interface HqQueueTeacher {
+  id: number;
+  schoolId: number;
+  name: string;
+  email: string;
+  subject: string | null;
+  emailVerifiedAt: string | null;
+  escalatedAt: string | null;
+  createdAt: string;
+  schoolName: string;
+  schoolNameEn: string | null;
+  schoolTeam: string | null;
+}
+
 interface DashboardData {
   stats: {
     totalSchools: number;
@@ -132,6 +146,7 @@ interface DashboardData {
     confirmed: number;
   };
   teamGroups: TeamGroup[];
+  hqVerificationQueue: HqQueueTeacher[];
   upgradeNeeded: Array<SchoolSummary & { needTeachers: DashboardTeacher[] }>;
   recentTeachers: DashboardTeacher[];
   recentBatches: RecentBatch[];
@@ -193,7 +208,7 @@ export default function AdminDashboard() {
     );
   }
 
-  const { stats, teamGroups, upgradeNeeded, recentTeachers, recentBatches, recentFailedEmails, openAccountRequests, openDomainRequests, regions } = data;
+  const { stats, teamGroups, hqVerificationQueue, upgradeNeeded, recentTeachers, recentBatches, recentFailedEmails, openAccountRequests, openDomainRequests, regions } = data;
 
   // Billing pipeline 분류 (account + domain 통합)
   type BillingItem = { id: string; source: "account" | "domain"; rawId: number; schoolName: string; schoolNameEn: string | null; team: string | null; amount: number; amountText: string; paymentLink: string | null; invoiceNumber: string | null; invoiceDueDate: string | null; status: string; bucket: "JON_PROCESS" | "JON_INVOICE" | "ME_PAY" | "JON_CONFIRM"; updatedAt: string; ageDays: number };
@@ -233,6 +248,13 @@ export default function AdminDashboard() {
   const targetIds = selectedIds.size > 0
     ? allPendingIds.filter((id) => selectedIds.has(id))
     : allPendingIds;
+
+  async function reviewHqTeacher(ids: number[], action: "approve" | "reject") {
+    let reason: string | undefined;
+    if (action === "reject") { const r = prompt("거절 사유 (선택)"); reason = r || undefined; }
+    const res = await fetch("/api/admin/verify-teacher", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids, action, reason }) });
+    if (res.ok) { await load(); } else { const d = await res.json().catch(() => ({})); setMessage(d.error || "처리 실패"); }
+  }
 
   async function sendSelected() {
     if (targetIds.length === 0) return;
@@ -467,6 +489,55 @@ export default function AdminDashboard() {
                 );
               })}
             </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border overflow-hidden">
+            <div className="px-4 md:px-5 py-3 md:py-4 border-b">
+              <div className="flex items-center gap-3 flex-wrap">
+                <h2 className="font-bold text-gray-900">본사 승인 대기 / HQ approval queue</h2>
+                <span className="text-xs font-medium text-purple-700 bg-purple-50 px-2.5 py-1 rounded-full border border-purple-200">{hqVerificationQueue.length}</span>
+              </div>
+              <p className="text-[11px] text-gray-400 mt-1">학교 관리자가 없거나 기한 내 미처리되어 본사로 이관된 등록입니다.</p>
+            </div>
+            {hqVerificationQueue.length === 0 ? (
+              <div className="px-5 py-6 text-sm text-gray-400 text-center">이관된 항목이 없습니다.</div>
+            ) : (
+              <div className="divide-y max-h-[400px] overflow-y-auto">
+                {hqVerificationQueue.map((teacher) => {
+                  const tc = teamColorMap[teacher.schoolTeam || ""] || { bg: "bg-gray-50", text: "text-gray-600", dot: "bg-gray-400", border: "border-gray-200" };
+                  return (
+                    <div key={teacher.id} className="flex flex-col sm:flex-row sm:items-center gap-2 px-4 md:px-5 py-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                          <span className="text-sm font-bold text-gray-900 truncate">{teacher.email}</span>
+                          {teacher.schoolTeam && <span className={`text-[10px] px-2 py-0.5 rounded-full ${tc.bg} ${tc.text} border ${tc.border}`}>{teacher.schoolTeam}</span>}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                          <span className="text-[11px] text-gray-500 truncate">{teacher.schoolNameEn ? `${teacher.schoolNameEn} (${teacher.schoolName})` : teacher.schoolName}</span>
+                          {teacher.escalatedAt && <span className="text-[10px] text-gray-400">· 이관일 {new Date(teacher.escalatedAt).toLocaleDateString("ko-KR", { month: "short", day: "numeric" })}</span>}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => reviewHqTeacher([teacher.id], "approve")}
+                          className="text-xs font-semibold bg-emerald-600 text-white px-3 py-1.5 rounded-lg hover:bg-emerald-700 transition-colors"
+                        >
+                          승인
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => reviewHqTeacher([teacher.id], "reject")}
+                          className="text-xs font-semibold bg-red-50 text-red-700 border border-red-200 px-3 py-1.5 rounded-lg hover:bg-red-100 transition-colors"
+                        >
+                          거절
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {needUpgrade > 0 && (

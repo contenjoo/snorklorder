@@ -1,12 +1,12 @@
 export const dynamic = "force-dynamic";
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { teachers, schools, accountRequests } from "@/db/schema";
-import { eq, and, or, desc } from "drizzle-orm";
+import { eq, or, desc } from "drizzle-orm";
 import { getSchoolSession } from "@/lib/school-auth";
 
-export async function GET(_req: NextRequest) {
+export async function GET() {
   const schoolId = await getSchoolSession();
   if (schoolId == null) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

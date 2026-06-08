@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 function isPublicApiRequest(request: NextRequest, pathname: string) {
   if (pathname.startsWith("/api/auth")) return true;
   if (pathname.startsWith("/api/register")) return true;
+  // 학교 관리자 영역: 로그인은 공개, summary/teachers 는 라우트 내부에서 학교 세션(snorkl-school-auth)으로 인증
+  if (pathname.startsWith("/api/school/")) return true;
   if (pathname.startsWith("/api/schools/lookup")) return true;
   if (pathname.startsWith("/api/schools/search")) return true;
   if (pathname.startsWith("/api/confirm/")) return true;
