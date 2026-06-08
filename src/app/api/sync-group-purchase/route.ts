@@ -73,6 +73,11 @@ export async function POST(req: NextRequest) {
           name: teacherName.trim(),
           email: emailNorm,
           status: "pending",
+          // 신뢰된 동기화 소스(API키) → 검증 면제, 자동 승인
+          verificationStatus: "approved",
+          emailVerifiedAt: new Date(),
+          approvedAt: new Date(),
+          approvedBy: "sync",
         })
         .returning({ id: teachers.id });
       return NextResponse.json({ success: true, schoolId: school.id, teacherId: created.id, created: true });

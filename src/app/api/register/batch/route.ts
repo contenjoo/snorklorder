@@ -4,6 +4,8 @@ import { db } from "@/db";
 import { teachers, schools } from "@/db/schema";
 import { eq, and, inArray } from "drizzle-orm";
 import { checkRateLimit, createRateLimitResponse, isValidEmail } from "@/lib/security";
+import { createTeacherVerification } from "@/lib/verification";
+import { sendTeacherVerificationEmail } from "@/lib/verification-email";
 
 export async function POST(req: NextRequest) {
   const rateLimit = checkRateLimit({
@@ -73,19 +75,39 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  // 일괄 삽입 (이름은 이메일 @ 앞부분)
+  // 일괄 삽입 (이름은 이메일 @ 앞부분), 미검증 상태로 생성
   const values = newEmails.map((email) => ({
     schoolId: school.id,
     name: email.split("@")[0],
     email,
     subject: null,
     status: "pending" as const,
+    verificationStatus: "unverified" as const,
   }));
 
-  await db.insert(teachers).values(values);
+  const inserted = await db.insert(teachers).values(values).returning({ id: teachers.id, name: teachers.name, email: teachers.email });
+
+  // 각 교사에게 이메일 소유 증명 메일(매직링크+OTP) 발송 — 응답을 막지 않도록 백그라운드
+  void (async () => {
+    await Promise.allSettled(
+      inserted.map(async (t) => {
+        const { code, token } = await createTeacherVerification(t.id);
+        return sendTeacherVerificationEmail({
+          teacherId: t.id,
+          email: t.email,
+          name: t.name,
+          schoolName: school.name,
+          schoolNameEn: school.nameEn,
+          code,
+          token,
+        });
+      })
+    );
+  })();
 
   return NextResponse.json({
     success: true,
+    needsVerification: true,
     schoolName: school.name,
     registered: newEmails.length,
     duplicates: duplicateCount,

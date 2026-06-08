@@ -4,6 +4,8 @@ import { db } from "@/db";
 import { teachers, schools } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { checkRateLimit, createRateLimitResponse, isValidEmail, normalizeText } from "@/lib/security";
+import { createTeacherVerification } from "@/lib/verification";
+import { sendTeacherVerificationEmail } from "@/lib/verification-email";
 
 export async function POST(req: NextRequest) {
   const rateLimit = checkRateLimit({
@@ -45,8 +47,8 @@ export async function POST(req: NextRequest) {
   }
 
   // Check duplicate
-  const existing = await db
-    .select()
+  const [existing] = await db
+    .select({ id: teachers.id, verificationStatus: teachers.verificationStatus })
     .from(teachers)
     .where(
       and(
@@ -55,25 +57,47 @@ export async function POST(req: NextRequest) {
       )
     );
 
-  if (existing.length > 0) {
-    return NextResponse.json(
-      { error: "This email is already registered for this school" },
-      { status: 409 }
-    );
+  let teacherId: number;
+  if (existing) {
+    // 이미 검증/승인된 등록이면 중복 차단. 미검증 상태면 재발송 허용.
+    if (existing.verificationStatus !== "unverified") {
+      return NextResponse.json(
+        { error: "This email is already registered for this school" },
+        { status: 409 }
+      );
+    }
+    teacherId = existing.id;
+  } else {
+    const [inserted] = await db
+      .insert(teachers)
+      .values({
+        schoolId: school.id,
+        name: normalizedName,
+        email: normalizedEmail,
+        subject: normalizedSubject,
+        status: "pending",
+        verificationStatus: "unverified",
+      })
+      .returning({ id: teachers.id });
+    teacherId = inserted.id;
   }
 
-  await db
-    .insert(teachers)
-    .values({
-      schoolId: school.id,
-      name: normalizedName,
-      email: normalizedEmail,
-      subject: normalizedSubject,
-      status: "pending",
-    });
+  // 이메일 소유 증명: OTP + 매직링크 발송
+  const { code, token } = await createTeacherVerification(teacherId);
+  void sendTeacherVerificationEmail({
+    teacherId,
+    email: normalizedEmail,
+    name: normalizedName,
+    schoolName: school.name,
+    schoolNameEn: school.nameEn,
+    code,
+    token,
+  });
 
   return NextResponse.json({
     success: true,
+    needsVerification: true,
+    teacherId,
     schoolName: school.name,
   });
 }
