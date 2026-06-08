@@ -94,6 +94,9 @@ export default function SchoolDashboardPage() {
   const [data, setData] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [addInput, setAddInput] = useState("");
+  const [addBusy, setAddBusy] = useState(false);
+  const [addMsg, setAddMsg] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const res = await fetch("/api/school/summary");
@@ -109,6 +112,47 @@ export default function SchoolDashboardPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const addTeachers = useCallback(async () => {
+    setAddBusy(true);
+    setAddMsg(null);
+    try {
+      const res = await fetch("/api/school/teachers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ emails: addInput }),
+      });
+      if (res.status === 401) {
+        window.location.href = "/school/login";
+        return;
+      }
+      if (!res.ok) {
+        let msg = "추가에 실패했습니다";
+        try {
+          const err = (await res.json()) as { error?: string };
+          if (err?.error) msg = err.error;
+        } catch {
+          /* ignore parse error */
+        }
+        setAddMsg(msg);
+        return;
+      }
+      const json = (await res.json()) as {
+        success: boolean;
+        added: number;
+        duplicates: number;
+      };
+      setAddInput("");
+      setAddMsg(
+        `${json.added}명 추가됨${
+          json.duplicates ? `, ${json.duplicates}명 중복 제외` : ""
+        }`
+      );
+      await load();
+    } finally {
+      setAddBusy(false);
+    }
+  }, [addInput, load]);
 
   const act = useCallback(
     async (id: number, action: "approve" | "reject") => {
@@ -186,6 +230,38 @@ export default function SchoolDashboardPage() {
             </div>
           </div>
         ))}
+      </section>
+
+      {/* Add teachers (admin bulk add — auto-approved) */}
+      <section className="mb-10">
+        <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="mb-1 text-lg font-semibold text-slate-900">
+            교사 일괄 추가 / Add teachers
+          </h2>
+          <p className="mb-4 text-sm text-slate-500">
+            참여 교사 이메일을 붙여넣으면 바로 등록·승인됩니다. (관리자가 직접
+            올리는 경우 — 교사 본인이 등록하는 경우는 별도 인증을 거칩니다.)
+          </p>
+          <textarea
+            value={addInput}
+            onChange={(e) => setAddInput(e.target.value)}
+            placeholder="이메일을 줄바꿈 또는 쉼표로 구분해 붙여넣기"
+            rows={4}
+            className="w-full rounded-md border border-slate-300 p-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-300"
+          />
+          <div className="mt-3 flex items-center gap-3">
+            <button
+              onClick={addTeachers}
+              disabled={addBusy || addInput.trim().length === 0}
+              className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+            >
+              {addBusy ? "추가 중..." : "추가 / Add"}
+            </button>
+            {addMsg && (
+              <span className="text-sm text-slate-600">{addMsg}</span>
+            )}
+          </div>
+        </div>
       </section>
 
       {/* Pending approval queue */}
