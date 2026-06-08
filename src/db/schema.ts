@@ -7,6 +7,7 @@ export const schools = pgTable("schools", {
   code: text("code").notNull().unique(),
   nameEn: text("name_en"),
   domain: text("domain"),
+  allowedDomains: text("allowed_domains"), // 콤마 구분 다중 도메인 (domain 보강) — 자동 승인 판정용
   region: text("region"),
   team: text("team"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -25,12 +26,20 @@ export const teachers = pgTable("teachers", {
   subject: text("subject"),
   status: text("status").notNull().default("pending"), // pending | sent | upgraded
   notifiedAt: timestamp("notified_at"),
+  // 검증 파이프라인: unverified → email_verified → approved | rejected
+  verificationStatus: text("verification_status").notNull().default("unverified"),
+  emailVerifiedAt: timestamp("email_verified_at"), // OTP 확인 시각 = 승인 큐 진입 시각
+  approvedAt: timestamp("approved_at"),
+  approvedBy: text("approved_by"), // domain | school_admin:<email> | hq | legacy
+  rejectedReason: text("rejected_reason"),
+  escalatedAt: timestamp("escalated_at"), // 본사 큐로 이관된 시각 (null=미이관)
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => [
   index("teachers_school_id_idx").on(table.schoolId),
   uniqueIndex("teachers_school_email_unique_idx").on(table.schoolId, table.email),
   index("teachers_status_idx").on(table.status),
   index("teachers_created_at_idx").on(table.createdAt),
+  index("teachers_school_vstatus_idx").on(table.schoolId, table.verificationStatus),
 ]);
 
 export const schoolRequests = pgTable("school_requests", {
@@ -141,8 +150,61 @@ export const emailLogs = pgTable("email_logs", {
   index("email_logs_kind_idx").on(table.kind),
 ]);
 
+// 학교 관리자 (공동구매 총무) — 한 학교에 복수 허용. 매직링크 로그인 대상.
+export const schoolAdmins = pgTable("school_admins", {
+  id: serial("id").primaryKey(),
+  schoolId: integer("school_id")
+    .notNull()
+    .references(() => schools.id),
+  email: text("email").notNull(),
+  role: text("role").notNull().default("admin"), // admin
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("school_admins_email_idx").on(table.email),
+  uniqueIndex("school_admins_school_email_unique_idx").on(table.schoolId, table.email),
+]);
+
+// 교사 이메일 소유 증명 (OTP 6자리 + 매직링크 토큰)
+export const emailVerificationTokens = pgTable("email_verification_tokens", {
+  id: serial("id").primaryKey(),
+  teacherId: integer("teacher_id")
+    .notNull()
+    .references(() => teachers.id),
+  code: text("code").notNull(), // 6자리 OTP
+  token: text("token").notNull().unique(), // 매직링크용 토큰
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("email_verification_tokens_teacher_idx").on(table.teacherId),
+  index("email_verification_tokens_token_idx").on(table.token),
+]);
+
+// 학교 관리자 매직링크 로그인 토큰
+export const schoolLoginTokens = pgTable("school_login_tokens", {
+  id: serial("id").primaryKey(),
+  email: text("email").notNull(),
+  schoolId: integer("school_id")
+    .notNull()
+    .references(() => schools.id),
+  token: text("token").notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("school_login_tokens_token_idx").on(table.token),
+]);
+
 export const schoolsRelations = relations(schools, ({ many }) => ({
   teachers: many(teachers),
+  admins: many(schoolAdmins),
+}));
+
+export const schoolAdminsRelations = relations(schoolAdmins, ({ one }) => ({
+  school: one(schools, {
+    fields: [schoolAdmins.schoolId],
+    references: [schools.id],
+  }),
 }));
 
 export const teachersRelations = relations(teachers, ({ one }) => ({

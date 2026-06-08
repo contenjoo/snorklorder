@@ -4,7 +4,7 @@ import { emailLogs } from "@/db/schema";
 const JON_EMAIL = "jon@snorkl.app";
 const DIGEST_RECIPIENTS = ["jon@snorkl.app", "jeff@snorkl.app"];
 const ADMIN_EMAIL = process.env.GMAIL_USER || "";
-const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || "https://snorkl-teacher-reg.vercel.app";
+export const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || "https://snorkl-teacher-reg.vercel.app";
 
 export interface EmailResult {
   success: boolean;
@@ -20,7 +20,10 @@ export type EmailKind =
   | "stale_reminder"
   | "daily_digest"
   | "school_code"
-  | "admin_request";
+  | "admin_request"
+  | "email_verify" // 교사 등록 이메일 OTP/매직링크
+  | "school_login" // 학교 관리자 매직링크 로그인
+  | "verification_reminder"; // 승인 대기 교사 리마인더 (학교 관리자/본사)
 
 async function sendAndLog(
   transporter: nodemailer.Transporter,
@@ -77,7 +80,7 @@ function safe(value: string | null | undefined, fallback = "") {
 }
 
 let _warnedMissingEnv = false;
-function getTransporter() {
+export function getTransporter() {
   const user = process.env.GMAIL_USER;
   const pass = process.env.GMAIL_APP_PASSWORD;
   if (!user || !pass) {
