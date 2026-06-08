@@ -25,20 +25,39 @@ export type EmailKind =
   | "school_login" // 학교 관리자 매직링크 로그인
   | "verification_reminder"; // 승인 대기 교사 리마인더 (학교 관리자/본사)
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// Gmail 등 SMTP의 일시적(transient) 오류 판별 — 4xx 코드/"try again"/temporary/rate 등
+function isTransientSmtpError(err: unknown): boolean {
+  const s = String(err);
+  return /\b421\b|\b4\.\d\.\d\b|try again|temporary|temporarily|rate limit|too many|throttl|ETIMEDOUT|ECONNRESET|ESOCKET|EAI_AGAIN/i.test(s);
+}
+
 async function sendAndLog(
   transporter: nodemailer.Transporter,
   mail: nodemailer.SendMailOptions,
   meta: { kind: EmailKind; relatedType?: string | null; relatedId?: number | null }
 ): Promise<EmailResult> {
   const toStr = Array.isArray(mail.to) ? mail.to.join(", ") : String(mail.to || "");
-  try {
-    await transporter.sendMail(mail);
-    await logEmail({ to: toStr, subject: String(mail.subject || ""), kind: meta.kind, status: "success", relatedType: meta.relatedType, relatedId: meta.relatedId });
-    return { success: true };
-  } catch (err) {
-    await logEmail({ to: toStr, subject: String(mail.subject || ""), kind: meta.kind, status: "failed", error: String(err), relatedType: meta.relatedType, relatedId: meta.relatedId });
-    return { success: false, error: String(err) };
+  const maxAttempts = 3;
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await transporter.sendMail(mail);
+      await logEmail({ to: toStr, subject: String(mail.subject || ""), kind: meta.kind, status: "success", relatedType: meta.relatedType, relatedId: meta.relatedId });
+      return { success: true };
+    } catch (err) {
+      lastErr = err;
+      // 일시 오류면 백오프 후 재시도 (1.5s, 3s). 영구 오류(550 등)는 즉시 중단.
+      if (attempt < maxAttempts && isTransientSmtpError(err)) {
+        await sleep(attempt * 1500);
+        continue;
+      }
+      break;
+    }
   }
+  await logEmail({ to: toStr, subject: String(mail.subject || ""), kind: meta.kind, status: "failed", error: String(lastErr), relatedType: meta.relatedType, relatedId: meta.relatedId });
+  return { success: false, error: String(lastErr) };
 }
 
 export async function logEmail(args: {

@@ -160,25 +160,36 @@ export async function POST(
           bySchool.get(row.schoolName)!.emails.push(row.email);
         }
 
-        // Jon 확인 완료 시점: ① 관리자(나) 알림 ② 업그레이드된 교사 본인에게 완료 메일 (병렬)
-        const [, teacherResults] = await Promise.all([
+        // Jon 확인 완료 시점: ① 관리자(나) 알림 ② 업그레이드된 교사 본인에게 완료 메일
+        // 교사 메일은 한꺼번에 보내면 Gmail 421(레이트리밋)이 나므로 간격을 두고 순차 발송
+        const [, failed] = await Promise.all([
           sendConfirmNotification({
             confirmedCount: normalizedConfirmedIds.length,
             schools: Array.from(bySchool.values()),
             confirmedAt,
           }),
-          Promise.allSettled(
-            confirmedRows.map((row) =>
-              sendTeacherUpgradedEmail({
-                name: row.name,
-                email: row.email,
-                schoolName: row.schoolName,
-                schoolNameEn: row.schoolNameEn,
-              })
-            )
-          ),
+          (async () => {
+            let failedCount = 0;
+            for (let i = 0; i < confirmedRows.length; i++) {
+              const row = confirmedRows[i];
+              try {
+                const res = await sendTeacherUpgradedEmail({
+                  name: row.name,
+                  email: row.email,
+                  schoolName: row.schoolName,
+                  schoolNameEn: row.schoolNameEn,
+                });
+                if (!res.success && !res.skipped) failedCount++;
+              } catch {
+                failedCount++;
+              }
+              if (i < confirmedRows.length - 1) {
+                await new Promise((r) => setTimeout(r, 400)); // 폭주 방지 간격
+              }
+            }
+            return failedCount;
+          })(),
         ]);
-        const failed = teacherResults.filter((r) => r.status === "rejected" || (r.status === "fulfilled" && !r.value.success && !r.value.skipped)).length;
         if (failed > 0) console.warn(`[confirm] ${failed}/${confirmedRows.length} teacher emails failed`);
       } catch (err) {
         console.warn("[confirm] notification email failed:", err);
