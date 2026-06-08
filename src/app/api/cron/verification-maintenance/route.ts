@@ -160,11 +160,18 @@ async function run() {
 }
 
 function authorize(req: NextRequest): boolean {
-  const expected = process.env.INTEGRATION_API_KEY;
-  if (!expected) return false;
-  const provided =
-    req.headers.get("x-api-key") ?? req.nextUrl.searchParams.get("key");
-  return provided === expected;
+  // 1) Vercel 크론: Authorization: Bearer ${CRON_SECRET} (자동 전송) — 기존 크론과 동일
+  const cronSecret = process.env.CRON_SECRET?.trim();
+  if (cronSecret && req.headers.get("authorization") === `Bearer ${cronSecret}`) {
+    return true;
+  }
+  // 2) 수동 트리거: x-api-key 헤더 또는 ?key= (INTEGRATION_API_KEY)
+  const apiKey = process.env.INTEGRATION_API_KEY;
+  if (apiKey) {
+    const provided = req.headers.get("x-api-key") ?? req.nextUrl.searchParams.get("key");
+    if (provided === apiKey) return true;
+  }
+  return false;
 }
 
 export async function GET(req: NextRequest) {
