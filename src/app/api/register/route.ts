@@ -4,8 +4,7 @@ import { db } from "@/db";
 import { teachers, schools } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { checkRateLimit, createRateLimitResponse, isValidEmail, normalizeText } from "@/lib/security";
-import { createTeacherVerification } from "@/lib/verification";
-import { sendTeacherVerificationEmail } from "@/lib/verification-email";
+import { resolveApproval } from "@/lib/verification";
 
 export async function POST(req: NextRequest) {
   const rateLimit = checkRateLimit({
@@ -48,7 +47,7 @@ export async function POST(req: NextRequest) {
 
   // Check duplicate
   const [existing] = await db
-    .select({ id: teachers.id, verificationStatus: teachers.verificationStatus })
+    .select({ id: teachers.id })
     .from(teachers)
     .where(
       and(
@@ -57,47 +56,31 @@ export async function POST(req: NextRequest) {
       )
     );
 
-  let teacherId: number;
   if (existing) {
-    // 이미 검증/승인된 등록이면 중복 차단. 미검증 상태면 재발송 허용.
-    if (existing.verificationStatus !== "unverified") {
-      return NextResponse.json(
-        { error: "This email is already registered for this school" },
-        { status: 409 }
-      );
-    }
-    teacherId = existing.id;
-  } else {
-    const [inserted] = await db
-      .insert(teachers)
-      .values({
-        schoolId: school.id,
-        name: normalizedName,
-        email: normalizedEmail,
-        subject: normalizedSubject,
-        status: "pending",
-        verificationStatus: "unverified",
-      })
-      .returning({ id: teachers.id });
-    teacherId = inserted.id;
+    return NextResponse.json(
+      { error: "This email is already registered for this school" },
+      { status: 409 }
+    );
   }
 
-  // 이메일 소유 증명: OTP + 매직링크 발송
-  const { code, token } = await createTeacherVerification(teacherId);
-  void sendTeacherVerificationEmail({
-    teacherId,
-    email: normalizedEmail,
-    name: normalizedName,
-    schoolName: school.name,
-    schoolNameEn: school.nameEn,
-    code,
-    token,
-  });
+  const [inserted] = await db
+    .insert(teachers)
+    .values({
+      schoolId: school.id,
+      name: normalizedName,
+      email: normalizedEmail,
+      subject: normalizedSubject,
+      status: "pending",
+      emailVerifiedAt: new Date(), // 큐 진입/접수 시각 (OTP 없이 등록 즉시 접수)
+    })
+    .returning({ id: teachers.id });
+
+  // 도메인 일치 → 자동승인 / 아니면 학교 관리자 승인 큐 (OTP 없음)
+  const status = await resolveApproval(inserted.id, school.id);
 
   return NextResponse.json({
     success: true,
-    needsVerification: true,
-    teacherId,
+    status, // "approved" | "email_verified"
     schoolName: school.name,
   });
 }

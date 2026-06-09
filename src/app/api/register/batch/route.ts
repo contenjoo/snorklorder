@@ -4,8 +4,7 @@ import { db } from "@/db";
 import { teachers, schools } from "@/db/schema";
 import { eq, and, inArray } from "drizzle-orm";
 import { checkRateLimit, createRateLimitResponse, isValidEmail } from "@/lib/security";
-import { createTeacherVerification } from "@/lib/verification";
-import { sendTeacherVerificationEmail } from "@/lib/verification-email";
+import { resolveApproval } from "@/lib/verification";
 
 export async function POST(req: NextRequest) {
   const rateLimit = checkRateLimit({
@@ -75,41 +74,32 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  // 일괄 삽입 (이름은 이메일 @ 앞부분), 미검증 상태로 생성
+  // 일괄 삽입 (이름은 이메일 @ 앞부분)
+  const now = new Date();
   const values = newEmails.map((email) => ({
     schoolId: school.id,
     name: email.split("@")[0],
     email,
     subject: null,
     status: "pending" as const,
-    verificationStatus: "unverified" as const,
+    emailVerifiedAt: now, // 접수 시각 (OTP 없음)
   }));
 
-  const inserted = await db.insert(teachers).values(values).returning({ id: teachers.id, name: teachers.name, email: teachers.email });
+  const inserted = await db.insert(teachers).values(values).returning({ id: teachers.id });
 
-  // 각 교사에게 이메일 소유 증명 메일(매직링크+OTP) 발송 — 응답을 막지 않도록 백그라운드
-  void (async () => {
-    await Promise.allSettled(
-      inserted.map(async (t) => {
-        const { code, token } = await createTeacherVerification(t.id);
-        return sendTeacherVerificationEmail({
-          teacherId: t.id,
-          email: t.email,
-          name: t.name,
-          schoolName: school.name,
-          schoolNameEn: school.nameEn,
-          code,
-          token,
-        });
-      })
-    );
-  })();
+  // 각 교사 승인 판정: 도메인 일치 → 자동승인 / 아니면 관리자 큐
+  let approved = 0;
+  for (const t of inserted) {
+    const status = await resolveApproval(t.id, school.id);
+    if (status === "approved") approved++;
+  }
 
   return NextResponse.json({
     success: true,
-    needsVerification: true,
     schoolName: school.name,
     registered: newEmails.length,
+    approved,
+    pendingReview: newEmails.length - approved,
     duplicates: duplicateCount,
     total: cleanEmails.length,
   });
