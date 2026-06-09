@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { desc, eq, inArray, sql, and, isNotNull } from "drizzle-orm";
+import { desc, eq, inArray, sql, and } from "drizzle-orm";
 import { db } from "@/db";
 import { schools, teachers, upgradeBatches, emailLogs, teams, accountRequests, domainRequests } from "@/db/schema";
 import { checkAuth } from "@/lib/auth";
@@ -29,7 +29,7 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const [schoolRows, countRows, pendingRows, recentRows, recentBatchRows, recentFailedEmails, teamRows, openAccountRequests, openDomainRequests, hqQueueRows] = await Promise.all([
+  const [schoolRows, countRows, pendingRows, recentRows, recentBatchRows, recentFailedEmails, teamRows, openAccountRequests, openDomainRequests, approvalQueueRows, pipelineRows] = await Promise.all([
     db
       .select({
         id: schools.id,
@@ -143,7 +143,7 @@ export async function GET() {
       updatedAt: domainRequests.updatedAt,
       confirmedAt: domainRequests.confirmedAt,
     }).from(domainRequests).where(inArray(domainRequests.status, ["pending", "done", "invoiced"])).orderBy(desc(domainRequests.updatedAt)),
-    // 본사(HQ) 검증 큐: 학교 관리자 부재/타임아웃으로 본사로 이관된 승인 대기 교사
+    // 승인 대기 큐: 아직 승인되지 않은 모든 등록 (unverified=레거시 + email_verified). 본사가 백스톱으로 전체를 본다.
     db
       .select({
         id: teachers.id,
@@ -151,6 +151,7 @@ export async function GET() {
         name: teachers.name,
         email: teachers.email,
         subject: teachers.subject,
+        verificationStatus: teachers.verificationStatus,
         emailVerifiedAt: teachers.emailVerifiedAt,
         escalatedAt: teachers.escalatedAt,
         createdAt: teachers.createdAt,
@@ -160,8 +161,16 @@ export async function GET() {
       })
       .from(teachers)
       .innerJoin(schools, eq(teachers.schoolId, schools.id))
-      .where(and(eq(teachers.verificationStatus, "email_verified"), isNotNull(teachers.escalatedAt)))
-      .orderBy(desc(teachers.escalatedAt)),
+      .where(and(eq(teachers.status, "pending"), inArray(teachers.verificationStatus, ["unverified", "email_verified"])))
+      .orderBy(desc(teachers.createdAt)),
+    // 파이프라인 카운트 (검증 인지)
+    db
+      .select({
+        awaitingApproval: sql<number>`count(*) filter (where ${teachers.status} = 'pending' and ${teachers.verificationStatus} in ('unverified','email_verified'))::int`,
+        readyForJon: sql<number>`count(*) filter (where ${teachers.status} = 'pending' and ${teachers.verificationStatus} = 'approved')::int`,
+        sentToJon: sql<number>`count(*) filter (where ${teachers.status} = 'sent' and ${teachers.verificationStatus} = 'approved')::int`,
+      })
+      .from(teachers),
   ]);
 
   // Hydrate recent confirmed batches with school summaries — one query covers all batches
@@ -302,6 +311,7 @@ export async function GET() {
     openAccountRequests,
     openDomainRequests,
     regions,
-    hqVerificationQueue: hqQueueRows,
+    approvalQueue: approvalQueueRows,
+    pipeline: pipelineRows[0] ?? { awaitingApproval: 0, readyForJon: 0, sentToJon: 0 },
   });
 }

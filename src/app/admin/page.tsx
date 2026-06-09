@@ -121,12 +121,13 @@ function classifyDomain(r: OpenDomainRequest): "JON_PROCESS" | "JON_INVOICE" | "
   return "JON_CONFIRM";
 }
 
-interface HqQueueTeacher {
+interface ApprovalQueueTeacher {
   id: number;
   schoolId: number;
   name: string;
   email: string;
   subject: string | null;
+  verificationStatus: string;
   emailVerifiedAt: string | null;
   escalatedAt: string | null;
   createdAt: string;
@@ -145,8 +146,9 @@ interface DashboardData {
     individual: number;
     confirmed: number;
   };
+  pipeline: { awaitingApproval: number; readyForJon: number; sentToJon: number };
   teamGroups: TeamGroup[];
-  hqVerificationQueue: HqQueueTeacher[];
+  approvalQueue: ApprovalQueueTeacher[];
   upgradeNeeded: Array<SchoolSummary & { needTeachers: DashboardTeacher[] }>;
   recentTeachers: DashboardTeacher[];
   recentBatches: RecentBatch[];
@@ -208,7 +210,7 @@ export default function AdminDashboard() {
     );
   }
 
-  const { stats, teamGroups, hqVerificationQueue, upgradeNeeded, recentTeachers, recentBatches, recentFailedEmails, openAccountRequests, openDomainRequests, regions } = data;
+  const { stats, pipeline, teamGroups, approvalQueue, upgradeNeeded, recentTeachers, recentBatches, recentFailedEmails, openAccountRequests, openDomainRequests, regions } = data;
 
   // Billing pipeline 분류 (account + domain 통합)
   type BillingItem = { id: string; source: "account" | "domain"; rawId: number; schoolName: string; schoolNameEn: string | null; team: string | null; amount: number; amountText: string; paymentLink: string | null; invoiceNumber: string | null; invoiceDueDate: string | null; status: string; bucket: "JON_PROCESS" | "JON_INVOICE" | "ME_PAY" | "JON_CONFIRM"; updatedAt: string; ageDays: number };
@@ -238,7 +240,8 @@ export default function AdminDashboard() {
     JON_CONFIRM: items.filter((i) => i.bucket === "JON_CONFIRM"),
   };
   const outstanding = buckets.ME_PAY.reduce((s, i) => s + i.amount, 0);
-  const needUpgrade = stats.pending + stats.sent;
+  // Jon 발송 대기/발송됨 = 검증 승인(approved)된 교사만 (목록과 카운트 일치)
+  const needUpgrade = pipeline.readyForJon + pipeline.sentToJon;
   const upgradeRate = stats.totalTeachers > 0 ? Math.round((stats.confirmed / stats.totalTeachers) * 100) : 0;
   const maxRegionTeachers = Math.max(1, ...regions.map((region) => region.teachers));
 
@@ -394,20 +397,22 @@ export default function AdminDashboard() {
             <p className="text-[10px] text-gray-400">{stats.confirmed} / {stats.totalTeachers}</p>
           </div>
         </div>
-        {needUpgrade > 0 ? (
-          <div className="col-span-2 md:col-span-1 flex items-center gap-3 bg-amber-50 rounded-xl px-4 py-2.5 border border-amber-200">
-            <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center">
-              <svg className="w-4 h-4 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z" /></svg>
+        {(pipeline.awaitingApproval + needUpgrade) > 0 ? (
+          <div className="col-span-2 md:col-span-1 flex items-center gap-4 bg-amber-50 rounded-xl px-4 py-2.5 border border-amber-200">
+            <div className="text-center">
+              <p className="text-lg font-bold text-purple-700 leading-none">{pipeline.awaitingApproval}</p>
+              <p className="text-[10px] text-purple-600 mt-0.5">승인 대기</p>
             </div>
-            <div>
-              <p className="text-sm font-bold text-amber-900">{needUpgrade}명 처리 필요</p>
-              <p className="text-[10px] text-amber-700">{stats.pending} 대기 · {stats.sent} 발송됨</p>
+            <div className="w-px h-7 bg-amber-200" />
+            <div className="text-center">
+              <p className="text-lg font-bold text-amber-900 leading-none">{needUpgrade}</p>
+              <p className="text-[10px] text-amber-700 mt-0.5">Jon 발송 ({pipeline.sentToJon} 발송됨)</p>
             </div>
           </div>
         ) : (
           <div className="col-span-2 md:col-span-1 flex items-center gap-3 bg-emerald-50 rounded-xl px-4 py-2.5 border border-emerald-200">
             <svg className="w-5 h-5 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-            <span className="text-sm font-semibold text-emerald-700">전원 확정 완료</span>
+            <span className="text-sm font-semibold text-emerald-700">처리할 항목 없음</span>
           </div>
         )}
         <div className="col-span-2 md:col-span-1 md:ml-auto flex gap-2">
@@ -417,8 +422,8 @@ export default function AdminDashboard() {
       </div>
 
       <div className="grid lg:grid-cols-5 gap-6">
-        <div className="lg:col-span-3 space-y-4">
-          <div className="bg-white rounded-2xl border overflow-hidden">
+        <div className="lg:col-span-3 flex flex-col gap-4">
+          <div className="bg-white rounded-2xl border overflow-hidden order-3">
             <div className="flex items-center justify-between px-5 py-4 border-b">
               <div className="flex items-center gap-3">
                 <h2 className="font-bold text-gray-900">공동구매팀</h2>
@@ -491,19 +496,19 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl border overflow-hidden">
+          <div className="bg-white rounded-2xl border overflow-hidden order-1">
             <div className="px-4 md:px-5 py-3 md:py-4 border-b">
               <div className="flex items-center gap-3 flex-wrap">
-                <h2 className="font-bold text-gray-900">본사 승인 대기 / HQ approval queue</h2>
-                <span className="text-xs font-medium text-purple-700 bg-purple-50 px-2.5 py-1 rounded-full border border-purple-200">{hqVerificationQueue.length}</span>
+                <h2 className="font-bold text-gray-900">승인 대기 / Approval queue</h2>
+                <span className="text-xs font-medium text-purple-700 bg-purple-50 px-2.5 py-1 rounded-full border border-purple-200">{approvalQueue.length}명</span>
               </div>
-              <p className="text-[11px] text-gray-400 mt-1">학교 관리자가 없거나 기한 내 미처리되어 본사로 이관된 등록입니다.</p>
+              <p className="text-[11px] text-gray-400 mt-1">학교 도메인과 일치하지 않아 승인이 필요한 자가등록입니다. 승인하면 Jon 발송 대기로 넘어갑니다.</p>
             </div>
-            {hqVerificationQueue.length === 0 ? (
-              <div className="px-5 py-6 text-sm text-gray-400 text-center">이관된 항목이 없습니다.</div>
+            {approvalQueue.length === 0 ? (
+              <div className="px-5 py-6 text-sm text-gray-400 text-center">승인 대기 중인 등록이 없습니다.</div>
             ) : (
               <div className="divide-y max-h-[400px] overflow-y-auto">
-                {hqVerificationQueue.map((teacher) => {
+                {approvalQueue.map((teacher) => {
                   const tc = teamColorMap[teacher.schoolTeam || ""] || { bg: "bg-gray-50", text: "text-gray-600", dot: "bg-gray-400", border: "border-gray-200" };
                   return (
                     <div key={teacher.id} className="flex flex-col sm:flex-row sm:items-center gap-2 px-4 md:px-5 py-3">
@@ -514,7 +519,8 @@ export default function AdminDashboard() {
                         </div>
                         <div className="flex flex-wrap items-center gap-1.5 mt-1">
                           <span className="text-[11px] text-gray-500 truncate">{teacher.schoolNameEn ? `${teacher.schoolNameEn} (${teacher.schoolName})` : teacher.schoolName}</span>
-                          {teacher.escalatedAt && <span className="text-[10px] text-gray-400">· 이관일 {new Date(teacher.escalatedAt).toLocaleDateString("ko-KR", { month: "short", day: "numeric" })}</span>}
+                          <span className="text-[10px] text-gray-400">· 등록 {new Date(teacher.createdAt).toLocaleDateString("ko-KR", { month: "short", day: "numeric" })}</span>
+                          {teacher.escalatedAt && <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-50 text-purple-600 border border-purple-200">본사 이관</span>}
                         </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
@@ -541,12 +547,12 @@ export default function AdminDashboard() {
           </div>
 
           {needUpgrade > 0 && (
-            <div className="bg-white rounded-2xl border overflow-hidden">
+            <div className="bg-white rounded-2xl border overflow-hidden order-2">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-4 md:px-5 py-3 md:py-4 border-b">
                 <div className="flex items-center gap-3 flex-wrap">
-                  <h2 className="font-bold text-gray-900">업그레이드 대기</h2>
+                  <h2 className="font-bold text-gray-900">Jon 발송 대기 / Upgrade</h2>
                   <span className="text-xs font-medium text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200">{needUpgrade}명</span>
-                  {stats.pending > 0 && (() => {
+                  {allPendingIds.length > 0 && (() => {
                     const allChecked = selectedIds.size === allPendingIds.length && allPendingIds.length > 0;
                     return (
                       <button
@@ -562,10 +568,10 @@ export default function AdminDashboard() {
                     <span className="text-[11px] text-gray-500">{selectedIds.size}명 선택됨</span>
                   )}
                 </div>
-                {stats.pending > 0 && (
+                {allPendingIds.length > 0 && (
                   <button onClick={sendSelected} disabled={sending || targetIds.length === 0}
                     className="text-xs font-semibold bg-slate-900 text-white px-4 py-2 rounded-lg hover:bg-slate-800 disabled:opacity-50 transition-colors w-full sm:w-auto">
-                    {sending ? "발송 중..." : selectedIds.size > 0 ? `선택한 ${targetIds.length}명 Jon에게 발송` : `전체 ${stats.pending}명 Jon에게 발송`}
+                    {sending ? "발송 중..." : selectedIds.size > 0 ? `선택한 ${targetIds.length}명 Jon에게 발송` : `전체 ${allPendingIds.length}명 Jon에게 발송`}
                   </button>
                 )}
               </div>
