@@ -167,6 +167,8 @@ export default function AdminDashboard() {
   const [message, setMessage] = useState("");
   const [expandedTeam, setExpandedTeam] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [approvalSelected, setApprovalSelected] = useState<Set<number>>(new Set());
+  const [approving, setApproving] = useState(false);
 
   function toggleId(id: number) {
     setSelectedIds((prev) => {
@@ -252,11 +254,35 @@ export default function AdminDashboard() {
     ? allPendingIds.filter((id) => selectedIds.has(id))
     : allPendingIds;
 
+  function toggleApproval(id: number) {
+    setApprovalSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
   async function reviewHqTeacher(ids: number[], action: "approve" | "reject") {
+    if (ids.length === 0) return;
     let reason: string | undefined;
-    if (action === "reject") { const r = prompt("거절 사유 (선택)"); reason = r || undefined; }
-    const res = await fetch("/api/admin/verify-teacher", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids, action, reason }) });
-    if (res.ok) { await load(); } else { const d = await res.json().catch(() => ({})); setMessage(d.error || "처리 실패"); }
+    if (action === "reject") { const r = prompt(`거절 사유 (선택) — ${ids.length}명`); reason = r || undefined; }
+    setApproving(true);
+    setMessage("");
+    try {
+      const res = await fetch("/api/admin/verify-teacher", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids, action, reason }) });
+      if (res.ok) {
+        setMessage(`${ids.length}명 ${action === "approve" ? "승인" : "거절"} 완료`);
+        setApprovalSelected(new Set());
+        await load();
+      } else {
+        const d = await res.json().catch(() => ({}));
+        setMessage(d.error || "처리 실패");
+      }
+    } catch {
+      setMessage("연결 오류");
+    } finally {
+      setApproving(false);
+    }
   }
 
   async function sendSelected() {
@@ -497,13 +523,48 @@ export default function AdminDashboard() {
           </div>
 
           <div className="bg-white rounded-2xl border overflow-hidden order-1">
-            <div className="px-4 md:px-5 py-3 md:py-4 border-b">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-4 md:px-5 py-3 md:py-4 border-b">
               <div className="flex items-center gap-3 flex-wrap">
                 <h2 className="font-bold text-gray-900">승인 대기 / Approval queue</h2>
                 <span className="text-xs font-medium text-purple-700 bg-purple-50 px-2.5 py-1 rounded-full border border-purple-200">{approvalQueue.length}명</span>
+                {approvalQueue.length > 0 && (() => {
+                  const allChecked = approvalSelected.size === approvalQueue.length && approvalQueue.length > 0;
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => setApprovalSelected(allChecked ? new Set() : new Set(approvalQueue.map((t) => t.id)))}
+                      className="text-[11px] font-medium text-blue-600 hover:text-blue-700 hover:underline"
+                    >
+                      {allChecked ? "전체 해제" : "전체 선택"}
+                    </button>
+                  );
+                })()}
+                {approvalSelected.size > 0 && <span className="text-[11px] text-gray-500">{approvalSelected.size}명 선택됨</span>}
               </div>
-              <p className="text-[11px] text-gray-400 mt-1">학교 도메인과 일치하지 않아 승인이 필요한 자가등록입니다. 승인하면 Jon 발송 대기로 넘어갑니다.</p>
+              {approvalQueue.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={approving}
+                    onClick={() => reviewHqTeacher(approvalSelected.size > 0 ? [...approvalSelected] : approvalQueue.map((t) => t.id), "approve")}
+                    className="text-xs font-semibold bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+                  >
+                    {approving ? "처리 중..." : approvalSelected.size > 0 ? `선택한 ${approvalSelected.size}명 승인` : `전체 ${approvalQueue.length}명 승인`}
+                  </button>
+                  {approvalSelected.size > 0 && (
+                    <button
+                      type="button"
+                      disabled={approving}
+                      onClick={() => reviewHqTeacher([...approvalSelected], "reject")}
+                      className="text-xs font-semibold bg-red-50 text-red-700 border border-red-200 px-3 py-2 rounded-lg hover:bg-red-100 disabled:opacity-50 transition-colors"
+                    >
+                      거절
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
+            <p className="text-[11px] text-gray-400 px-4 md:px-5 pt-2">학교 도메인과 일치하지 않아 승인이 필요한 자가등록입니다. 승인하면 Jon 발송 대기로 넘어갑니다.</p>
             {approvalQueue.length === 0 ? (
               <div className="px-5 py-6 text-sm text-gray-400 text-center">승인 대기 중인 등록이 없습니다.</div>
             ) : (
@@ -511,7 +572,14 @@ export default function AdminDashboard() {
                 {approvalQueue.map((teacher) => {
                   const tc = teamColorMap[teacher.schoolTeam || ""] || { bg: "bg-gray-50", text: "text-gray-600", dot: "bg-gray-400", border: "border-gray-200" };
                   return (
-                    <div key={teacher.id} className="flex flex-col sm:flex-row sm:items-center gap-2 px-4 md:px-5 py-3">
+                    <div key={teacher.id} className="flex flex-row items-start sm:items-center gap-2 px-4 md:px-5 py-3">
+                      <input
+                        type="checkbox"
+                        checked={approvalSelected.has(teacher.id)}
+                        onChange={() => toggleApproval(teacher.id)}
+                        className="w-4 h-4 mt-1 sm:mt-0 accent-emerald-600 cursor-pointer shrink-0"
+                        aria-label={`${teacher.email} 선택`}
+                      />
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                           <span className="text-sm font-bold text-gray-900 truncate">{teacher.email}</span>
