@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { desc, eq, inArray, sql, and } from "drizzle-orm";
+import { desc, eq, ne, inArray, sql, and } from "drizzle-orm";
 import { db } from "@/db";
 import { schools, teachers, upgradeBatches, emailLogs, teams, accountRequests, domainRequests } from "@/db/schema";
 import { checkAuth } from "@/lib/auth";
@@ -106,7 +106,13 @@ export async function GET() {
         createdAt: emailLogs.createdAt,
       })
       .from(emailLogs)
-      .where(eq(emailLogs.status, "failed"))
+      .where(and(
+        eq(emailLogs.status, "failed"),
+        // 폐기된 종류(OTP 등록 인증) 제외
+        ne(emailLogs.kind, "email_verify"),
+        // 이후 같은 수신자·종류로 성공(복구)한 실패는 제외
+        sql`not exists (select 1 from ${emailLogs} e2 where e2.to_email = ${emailLogs.toEmail} and e2.kind = ${emailLogs.kind} and e2.status = 'success' and e2.created_at > ${emailLogs.createdAt})`,
+      ))
       .orderBy(desc(emailLogs.createdAt))
       .limit(10),
     db.select({ code: teams.code, labelEn: teams.labelEn, colorPalette: teams.colorPalette, kind: teams.kind, isActive: teams.isActive }).from(teams),
