@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { teachers, schools } from "@/db/schema";
 import { sql, desc, eq } from "drizzle-orm";
-import { sendDailyDigest, sendStaleSentReminder } from "@/lib/email";
+import { sendStaleSentReminder } from "@/lib/email";
 
 export async function GET(req: Request) {
   // Verify cron secret (Vercel cron sends this header)
@@ -60,19 +60,12 @@ export async function GET(req: Request) {
     })));
   }
 
-  if (newTeachers.length === 0) {
-    return NextResponse.json({
-      message: "No new teachers in last 24h",
-      sent: false,
-      staleSentCount: staleSent.length,
-    });
-  }
-
-  await sendDailyDigest(newTeachers);
-
+  // Daily digest 메일은 비활성화됨 (Jon/Jeff에게 혼란만 줘서 끔). 신규 등록 현황은 /admin 대시보드에서 확인.
+  // 내부 stale-sent 리마인더(관리자 대상)만 유지.
   return NextResponse.json({
-    message: `Digest sent: ${newTeachers.length} teachers`,
-    sent: true,
+    message: "Daily digest disabled — admin reminder only",
+    sent: false,
+    newTeacherCount: newTeachers.length,
     staleSentCount: staleSent.length,
   });
 }
