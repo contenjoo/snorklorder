@@ -141,15 +141,16 @@ export async function POST(req: NextRequest) {
     for (const f of fields) {
       if (data[f] !== undefined) updates[f] = data[f];
     }
-    // 결제 완료(paid) 전환 감지를 위해 이전 상태 조회
+    // Jon 처리완료(processed) 전환 감지를 위해 이전 상태 조회
     const [prev] = await db.select({ status: accountRequests.status }).from(accountRequests).where(eq(accountRequests.id, id));
     const [item] = await db
       .update(accountRequests)
       .set(updates)
       .where(eq(accountRequests.id, id))
       .returning();
-    // 정산이 paid 로 새로 전환된 교사 업그레이드 건 → 교사 본인에게 활성화 완료 메일 자동 발송
-    if (item && prev?.status !== "paid" && item.status === "paid" && item.type === "upgrade" && item.accountType === "teacher") {
+    // 정산이 processed(Jon 처리완료)로 새로 전환된 교사 업그레이드 건 → 교사 본인에게 활성화 완료 메일 자동 발송
+    // (Jon이 확인 링크로 처리하면 account-confirm 플로우가 이미 발송하므로, 여기선 대시보드 수동 전환 케이스를 커버)
+    if (item && prev?.status !== "processed" && item.status === "processed" && item.type === "upgrade" && item.accountType === "teacher") {
       void sendAccountUpgradeCompletion({ emails: item.emails, schoolName: item.schoolName, schoolNameEn: item.schoolNameEn });
     }
     return NextResponse.json({ request: item });

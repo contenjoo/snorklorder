@@ -85,7 +85,8 @@ export async function POST(
     .map((e) => e.trim().toLowerCase())
     .filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
 
-  if (emails.length > 0) {
+  // 이미 처리완료(processed)였던 건을 다시 클릭하면 완료 메일 재발송 방지 (r.status는 이 확인 직전 상태)
+  if (emails.length > 0 && r.status !== "processed") {
     void (async () => {
       try {
         const { schools: schoolsTable } = await import("@/db/schema");
