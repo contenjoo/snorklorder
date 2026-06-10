@@ -345,7 +345,7 @@ export async function sendSchoolCodeEmail(email: string, name: string, schoolNam
 }
 
 export async function sendTeacherUpgradedEmail(teacher: {
-  name: string;
+  name?: string | null;
   email: string;
   schoolName: string;
   schoolNameEn?: string | null;
@@ -355,13 +355,14 @@ export async function sendTeacherUpgradedEmail(teacher: {
   const schoolDisplay = teacher.schoolNameEn
     ? `${safe(teacher.schoolNameEn)} <span style="color:#888">(${safe(teacher.schoolName)})</span>`
     : safe(teacher.schoolName);
+  const greetName = teacher.name ? `${safe(teacher.name)} ` : "";
   return sendAndLog(t, {
     from: ADMIN_EMAIL,
     to: teacher.email,
     subject: `[Snorkl] 프리미엄 계정이 활성화되었습니다`,
     html: `
       <div style="max-width:520px;margin:0 auto;font-family:sans-serif;color:#1f2937">
-        <h2 style="color:#1e3a5f;margin:0 0 12px">${safe(teacher.name)} 선생님, 환영합니다 🎉</h2>
+        <h2 style="color:#1e3a5f;margin:0 0 12px">${greetName}선생님, 환영합니다 🎉</h2>
         <p style="margin:0 0 12px">${schoolDisplay}에서 신청하신 <b>Snorkl 프리미엄 계정 업그레이드</b>가 완료되었습니다.</p>
         <p style="margin:0 0 12px">가입하신 이메일 <code style="background:#f3f4f6;padding:2px 6px;border-radius:4px">${safe(teacher.email)}</code> 로
           <a href="https://snorkl.app" style="color:#2563eb">Snorkl</a>에 로그인하시면 바로 프리미엄 기능을 사용하실 수 있습니다.</p>
@@ -376,6 +377,29 @@ export async function sendTeacherUpgradedEmail(teacher: {
       </div>
     `,
   }, { kind: "teacher_upgraded", relatedType: "teacher" });
+}
+
+// 정산(account_requests) 경로로 업그레이드/결제 완료된 교사들에게 활성화 완료 메일 발송.
+// emails 는 콤마/줄바꿈 구분 문자열. 이름 정보가 없으므로 일반 인사로 발송. 폭주 방지 간격.
+export async function sendAccountUpgradeCompletion(req: {
+  emails: string;
+  schoolName: string;
+  schoolNameEn?: string | null;
+}): Promise<{ sent: number; failed: number; total: number }> {
+  const list = [...new Set(
+    req.emails.split(/[\n,;]+/).map((e) => e.trim().toLowerCase()).filter((e) => e && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e))
+  )];
+  let sent = 0, failed = 0;
+  for (let i = 0; i < list.length; i++) {
+    const res = await sendTeacherUpgradedEmail({
+      email: list[i],
+      schoolName: req.schoolName,
+      schoolNameEn: req.schoolNameEn,
+    });
+    if (res.success) sent++; else if (!res.skipped) failed++;
+    if (i < list.length - 1) await sleep(400);
+  }
+  return { sent, failed, total: list.length };
 }
 
 export async function sendConfirmNotification(payload: {
