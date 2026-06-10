@@ -27,10 +27,10 @@ export type EmailKind =
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// Gmail 등 SMTP의 일시적(transient) 오류 판별 — 4xx 코드/"try again"/temporary/rate 등
+// Gmail 등 SMTP의 일시적(transient) 오류 판별 — 4xx 코드/"try again"/temporary/rate + 연결 계열
 function isTransientSmtpError(err: unknown): boolean {
   const s = String(err);
-  return /\b421\b|\b4\.\d\.\d\b|try again|temporary|temporarily|rate limit|too many|throttl|ETIMEDOUT|ECONNRESET|ESOCKET|EAI_AGAIN/i.test(s);
+  return /\b421\b|\b4\.\d\.\d\b|try again|temporar|rate limit|too many|throttl|greeting never received|connection|timed?\s*out|timeout|ETIMEDOUT|ECONNRESET|ECONNREFUSED|ESOCKET|EAI_AGAIN|ENOTFOUND|EPIPE/i.test(s);
 }
 
 async function sendAndLog(
