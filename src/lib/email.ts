@@ -19,6 +19,7 @@ export type EmailKind =
   | "account_email"
   | "stale_reminder"
   | "daily_digest"
+  | "payment_followup" // 정산 팔로우업 다이제스트 (미확인/미인보이스/미결제/도메인 지연)
   | "school_code"
   | "admin_request"
   | "email_verify" // 교사 등록 이메일 OTP/매직링크
@@ -573,4 +574,137 @@ export async function sendDailyDigest(teachers: { teacherName: string; teacherEm
   } catch (err) {
     return { success: false, error: String(err) };
   }
+}
+
+// ── payment-followup 크론 다이제스트 ──────────────────────────────────────
+// Jon에게는 아무것도 보내지 않음. ADMIN_EMAIL(내부)에게만 4개 섹션으로 묶어 발송.
+function schoolDisplay(schoolName: string, schoolNameEn: string | null) {
+  return schoolNameEn
+    ? `${safe(schoolNameEn)} <span style="color:#888">(${safe(schoolName)})</span>`
+    : safe(schoolName);
+}
+
+function daysElapsed(from: Date): number {
+  return Math.floor((Date.now() - from.getTime()) / 86400000);
+}
+
+// 결제 기한(D-day) 라벨 — admin/page.tsx dDayInfo 와 동일 컨벤션 (D+N=연체, D-N=임박/여유)
+function dueDayLabel(invoiceDueDate: string): { label: string; overdue: boolean } {
+  const due = new Date(`${invoiceDueDate.slice(0, 10)}T00:00:00`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const diff = Math.round((due.getTime() - today.getTime()) / 86400000);
+  return diff < 0 ? { label: `D+${-diff}`, overdue: true } : { label: `D-${diff}`, overdue: false };
+}
+
+interface FollowupSectionItem {
+  schoolName: string;
+  schoolNameEn: string | null;
+  detail: string; // "N명" 또는 "도메인: xxx"
+  dayLabel: string; // "N일 경과" 또는 "D-2" 등
+  status: string;
+  overdue?: boolean;
+}
+
+function renderFollowupRows(items: FollowupSectionItem[]): string {
+  return items
+    .map(
+      (i) =>
+        `<tr><td style="padding:4px 8px;font-size:13px">${schoolDisplay(i.schoolName, i.schoolNameEn)}</td>` +
+        `<td style="padding:4px 8px;font-size:12px;color:#555">${safe(i.detail)}</td>` +
+        `<td style="padding:4px 8px;text-align:right;font-weight:600;font-size:12px;color:${i.overdue ? "#dc2626" : "#b45309"}">${safe(i.dayLabel)}</td>` +
+        `<td style="padding:4px 8px;font-size:11px;color:#888">${safe(i.status)}</td></tr>`
+    )
+    .join("");
+}
+
+function renderFollowupSection(title: string, desc: string, items: FollowupSectionItem[]): string {
+  if (items.length === 0) return "";
+  return `
+    <div style="margin:0 0 20px">
+      <h3 style="margin:0 0 4px;font-size:15px">${safe(title)} (${items.length})</h3>
+      <p style="color:#666;margin:0 0 8px;font-size:12px">${safe(desc)}</p>
+      <table style="border-collapse:collapse;width:100%;background:#fafafa;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden">
+        <thead><tr style="background:#f3f4f6"><th style="padding:8px;text-align:left;font-size:11px;color:#374151">학교</th><th style="padding:8px;text-align:left;font-size:11px;color:#374151">상세</th><th style="padding:8px;text-align:right;font-size:11px;color:#374151">경과/기한</th><th style="padding:8px;text-align:left;font-size:11px;color:#374151">상태</th></tr></thead>
+        <tbody>${renderFollowupRows(items)}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+export async function sendPaymentFollowupDigest(payload: {
+  staleSent: { schoolName: string; schoolNameEn: string | null; emailCount: number; updatedAt: Date }[];
+  unInvoiced: { schoolName: string; schoolNameEn: string | null; emailCount: number; confirmedAt: Date }[];
+  unpaid: { schoolName: string; schoolNameEn: string | null; emailCount: number; invoiceDueDate: string }[];
+  pendingDomains: { schoolName: string; schoolNameEn: string | null; domain: string; createdAt: Date }[];
+}): Promise<EmailResult> {
+  const total =
+    payload.staleSent.length + payload.unInvoiced.length + payload.unpaid.length + payload.pendingDomains.length;
+  if (total === 0) return { success: false, skipped: true };
+
+  const t = getTransporter();
+  if (!t || !ADMIN_EMAIL) return { success: false, skipped: true };
+
+  const staleSentItems: FollowupSectionItem[] = payload.staleSent.map((i) => ({
+    schoolName: i.schoolName,
+    schoolNameEn: i.schoolNameEn,
+    detail: `${i.emailCount}명`,
+    dayLabel: `${daysElapsed(i.updatedAt)}일 경과`,
+    status: "sent (Jon 미확인)",
+    overdue: true,
+  }));
+
+  const unInvoicedItems: FollowupSectionItem[] = payload.unInvoiced.map((i) => ({
+    schoolName: i.schoolName,
+    schoolNameEn: i.schoolNameEn,
+    detail: `${i.emailCount}명`,
+    dayLabel: `${daysElapsed(i.confirmedAt)}일 경과`,
+    status: "processed (인보이스 미수령)",
+    overdue: true,
+  }));
+
+  const unpaidItems: FollowupSectionItem[] = payload.unpaid.map((i) => {
+    const { label, overdue } = dueDayLabel(i.invoiceDueDate);
+    return {
+      schoolName: i.schoolName,
+      schoolNameEn: i.schoolNameEn,
+      detail: `${i.emailCount}명`,
+      dayLabel: label,
+      status: overdue ? "invoiced (연체)" : "invoiced (임박)",
+      overdue,
+    };
+  });
+
+  const pendingDomainItems: FollowupSectionItem[] = payload.pendingDomains.map((i) => ({
+    schoolName: i.schoolName,
+    schoolNameEn: i.schoolNameEn,
+    detail: `도메인: ${i.domain}`,
+    dayLabel: `${daysElapsed(i.createdAt)}일 경과`,
+    status: "pending",
+    overdue: true,
+  }));
+
+  const html = `
+    <div style="max-width:680px;font-family:sans-serif">
+      <h2 style="margin:0 0 4px">💰 정산 팔로우업</h2>
+      <p style="color:#666;margin:0 0 20px;font-size:13px">총 ${total}건 — 확인이 필요해요.</p>
+      ${renderFollowupSection("Jon 미확인", "Jon에게 발송했지만 3일 넘게 확정 안 된 건", staleSentItems)}
+      ${renderFollowupSection("인보이스 미수령", "Jon이 처리 완료했지만 7일 넘게 인보이스가 안 온 건", unInvoicedItems)}
+      ${renderFollowupSection("미결제/결제 임박", "인보이스 발행됨 — 기한 초과 또는 3일 이내 도래", unpaidItems)}
+      ${renderFollowupSection("도메인 승인 지연", "도메인 요청이 3일 넘게 pending 상태", pendingDomainItems)}
+      <hr style="border:none;border-top:1px solid #eee;margin:16px 0">
+      <p><a href="${BASE_URL}/admin/accounts" style="color:#2563eb">정산 페이지 열기 →</a> · <a href="${BASE_URL}/admin/domains" style="color:#2563eb">도메인 페이지 열기 →</a></p>
+    </div>
+  `;
+
+  return sendAndLog(
+    t,
+    {
+      from: ADMIN_EMAIL,
+      to: ADMIN_EMAIL,
+      subject: `[Snorkl] 💰 정산 팔로우업 - 총 ${total}건`,
+      html,
+    },
+    { kind: "payment_followup" }
+  );
 }
