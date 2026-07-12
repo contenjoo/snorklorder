@@ -2,11 +2,13 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { teachers, schools } from "@/db/schema";
-import { eq, desc, inArray } from "drizzle-orm";
+import { eq, desc, inArray, and, sql } from "drizzle-orm";
 
 export async function GET(req: NextRequest) {
   const schoolId = req.nextUrl.searchParams.get("schoolId");
   const status = req.nextUrl.searchParams.get("status");
+  // `search` powers the admin command palette (name/email partial match, top results only).
+  const search = req.nextUrl.searchParams.get("search")?.trim();
 
   let query = db
     .select({
@@ -26,11 +28,17 @@ export async function GET(req: NextRequest) {
     .orderBy(desc(teachers.createdAt))
     .$dynamic();
 
-  if (schoolId) {
-    query = query.where(eq(teachers.schoolId, parseInt(schoolId)));
+  const conditions = [];
+  if (schoolId) conditions.push(eq(teachers.schoolId, parseInt(schoolId)));
+  if (status) conditions.push(eq(teachers.status, status));
+  if (search) {
+    conditions.push(sql`(${teachers.name} ILIKE ${"%" + search + "%"} OR ${teachers.email} ILIKE ${"%" + search + "%"})`);
   }
-  if (status) {
-    query = query.where(eq(teachers.status, status));
+  if (conditions.length > 0) {
+    query = query.where(and(...conditions));
+  }
+  if (search) {
+    query = query.limit(5);
   }
 
   const result = await query;

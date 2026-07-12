@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -115,9 +116,18 @@ function generateEmail(r: AccountRequest) {
   return { subject, body };
 }
 
-export default function AccountsPage() {
+function AccountsPageContent() {
+  // 대시보드 연동: ?filter=상태 로 초기 필터, ?focus=id 로 해당 행 스크롤+강조
+  const searchParams = useSearchParams();
+  const filterParam = searchParams.get("filter");
+  const focusId = Number(searchParams.get("focus")) || null;
+
   const [requests, setRequests] = useState<AccountRequest[]>([]);
-  const [filter, setFilter] = useState("all");
+  const [filter, setFilter] = useState(
+    filterParam && STATUSES.some((s) => s.value === filterParam) ? filterParam : "all"
+  );
+  const [focusHighlight, setFocusHighlight] = useState<number | null>(null);
+  const focusedOnce = useRef(false);
   const [filterChannel, setFilterChannel] = useState("all");
   const [filterApplicant, setFilterApplicant] = useState("all");
   const [filterType, setFilterType] = useState("all");
@@ -166,6 +176,17 @@ export default function AccountsPage() {
     setRequests(Array.isArray(data) ? data : []);
   }
   useEffect(() => { load(); }, []);
+
+  // focus 대상 행으로 스크롤 + 배경 강조 (최초 1회)
+  useEffect(() => {
+    if (!focusId || focusedOnce.current || requests.length === 0) return;
+    if (!requests.some((r) => r.id === focusId)) return;
+    focusedOnce.current = true;
+    setFocusHighlight(focusId);
+    requestAnimationFrame(() => {
+      document.getElementById(`account-row-${focusId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }, [requests, focusId]);
 
   useEffect(() => {
     if (fApplicant === "individual") { setSchoolMatches([]); return; }
@@ -656,7 +677,11 @@ export default function AccountsPage() {
           const dday = dDayInfo(r.invoiceDueDate, r.paymentDate);
 
           return (
-            <div key={r.id} className="border-b last:border-b-0 hover:bg-gray-50/50">
+            <div
+              key={r.id}
+              id={`account-row-${r.id}`}
+              className={`border-b last:border-b-0 hover:bg-gray-50/50 ${focusHighlight === r.id ? "bg-yellow-50 ring-2 ring-inset ring-amber-300" : ""}`}
+            >
               {/* Desktop row */}
               <div className={`hidden md:grid grid-cols-[auto_auto_1fr_auto_auto_auto_auto] gap-2 px-3 py-2 items-center ${selectedIds.has(r.id) ? "bg-blue-50/40" : ""}`}>
                 <span className="w-4 flex items-center justify-center">
@@ -864,5 +889,20 @@ export default function AccountsPage() {
         );
       })()}
     </div>
+  );
+}
+
+// useSearchParams는 prerender 시 Suspense 경계가 필요 (next docs: use-search-params)
+export default function AccountsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center py-20">
+          <div className="w-6 h-6 border-2 border-gray-300 border-t-gray-900 rounded-full animate-spin" />
+        </div>
+      }
+    >
+      <AccountsPageContent />
+    </Suspense>
   );
 }

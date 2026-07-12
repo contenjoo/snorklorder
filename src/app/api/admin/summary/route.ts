@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { desc, eq, ne, inArray, sql, and } from "drizzle-orm";
+import { desc, eq, ne, inArray, sql, and, gte, isNotNull } from "drizzle-orm";
 import { db } from "@/db";
 import { schools, teachers, upgradeBatches, emailLogs, teams, accountRequests, domainRequests } from "@/db/schema";
 import { checkAuth } from "@/lib/auth";
@@ -29,7 +29,11 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const [schoolRows, countRows, pendingRows, recentRows, recentBatchRows, recentFailedEmails, teamRows, openAccountRequests, openDomainRequests, approvalQueueRows, pipelineRows] = await Promise.all([
+  const monthStart = new Date();
+  monthStart.setDate(1);
+  monthStart.setHours(0, 0, 0, 0);
+
+  const [schoolRows, countRows, pendingRows, recentRows, recentBatchRows, recentFailedEmails, teamRows, openAccountRequests, openDomainRequests, approvalQueueRows, pipelineRows, monthlyBatchRows, activityEmailRows, activityConfirmRows, billingStatusRows] = await Promise.all([
     db
       .select({
         id: schools.id,
@@ -177,6 +181,42 @@ export async function GET() {
         sentToJon: sql<number>`count(*) filter (where ${teachers.status} = 'sent' and ${teachers.verificationStatus} = 'approved')::int`,
       })
       .from(teachers),
+    // KPI: 이번 달 확정 배치 (업그레이드 인원·학교 수 집계용)
+    db
+      .select({ confirmedIds: upgradeBatches.confirmedIds })
+      .from(upgradeBatches)
+      .where(and(eq(upgradeBatches.status, "confirmed"), gte(upgradeBatches.confirmedAt, monthStart))),
+    // 활동 피드: 최근 메일 발송 로그 (성공/실패)
+    db
+      .select({
+        id: emailLogs.id,
+        toEmail: emailLogs.toEmail,
+        subject: emailLogs.subject,
+        kind: emailLogs.kind,
+        status: emailLogs.status,
+        createdAt: emailLogs.createdAt,
+      })
+      .from(emailLogs)
+      .where(and(ne(emailLogs.kind, "email_verify"), inArray(emailLogs.status, ["success", "failed"])))
+      .orderBy(desc(emailLogs.createdAt))
+      .limit(15),
+    // 활동 피드: Jon confirm 최근 건
+    db
+      .select({
+        id: accountRequests.id,
+        schoolName: accountRequests.schoolName,
+        schoolNameEn: accountRequests.schoolNameEn,
+        confirmedAt: accountRequests.confirmedAt,
+      })
+      .from(accountRequests)
+      .where(isNotNull(accountRequests.confirmedAt))
+      .orderBy(desc(accountRequests.confirmedAt))
+      .limit(10),
+    // 정산 파이프라인: 상태별 건수 (paid 포함 전체)
+    db
+      .select({ status: accountRequests.status, count: sql<number>`count(*)::int` })
+      .from(accountRequests)
+      .groupBy(accountRequests.status),
   ]);
 
   // Hydrate recent confirmed batches with school summaries — one query covers all batches
@@ -306,6 +346,66 @@ export async function GET() {
     .sort((a, b) => b.teachers - a.teachers)
     .slice(0, 6);
 
+  // 이번 달 업그레이드: 확정 배치의 teacher id를 모아 인원 수 + 학교 수 산출
+  const monthlyTeacherIds = [
+    ...new Set(
+      monthlyBatchRows.flatMap((batch) => {
+        try {
+          return batch.confirmedIds ? (JSON.parse(batch.confirmedIds) as number[]) : [];
+        } catch {
+          return [];
+        }
+      })
+    ),
+  ];
+  let monthlySchoolCount = 0;
+  if (monthlyTeacherIds.length > 0) {
+    const rows = await db
+      .selectDistinct({ schoolId: teachers.schoolId })
+      .from(teachers)
+      .where(inArray(teachers.id, monthlyTeacherIds));
+    monthlySchoolCount = rows.length;
+  }
+  const monthlyUpgrades = { teachers: monthlyTeacherIds.length, schools: monthlySchoolCount };
+
+  // 활동 피드: 메일 로그 + Jon confirm 두 쿼리를 merge 후 시간순 정렬
+  type ActivityItem = {
+    id: string;
+    type: "email" | "confirm";
+    at: Date;
+    status?: string;
+    kind?: string;
+    toEmail?: string;
+    subject?: string;
+    schoolName?: string;
+    schoolNameEn?: string | null;
+  };
+  const activity: ActivityItem[] = [
+    ...activityEmailRows.map((e) => ({
+      id: `e-${e.id}`,
+      type: "email" as const,
+      at: e.createdAt,
+      status: e.status,
+      kind: e.kind,
+      toEmail: e.toEmail,
+      subject: e.subject,
+    })),
+    ...activityConfirmRows
+      .filter((c): c is typeof c & { confirmedAt: Date } => c.confirmedAt !== null)
+      .map((c) => ({
+        id: `c-${c.id}`,
+        type: "confirm" as const,
+        at: c.confirmedAt,
+        schoolName: c.schoolName,
+        schoolNameEn: c.schoolNameEn,
+      })),
+  ]
+    .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
+    .slice(0, 15);
+
+  const billingStatusCounts: Record<string, number> = {};
+  for (const row of billingStatusRows) billingStatusCounts[row.status] = Number(row.count);
+
   return NextResponse.json({
     stats,
     teamGroups,
@@ -319,5 +419,8 @@ export async function GET() {
     regions,
     approvalQueue: approvalQueueRows,
     pipeline: pipelineRows[0] ?? { awaitingApproval: 0, readyForJon: 0, sentToJon: 0 },
+    monthlyUpgrades,
+    activity,
+    billingStatusCounts,
   });
 }

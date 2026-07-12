@@ -1,7 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
+import { SearchIcon } from "lucide-react";
+import { CommandPalette } from "@/components/admin/command-palette";
 
 const navItems = [
   { href: "/admin", label: "대시보드", icon: "grid" },
@@ -23,42 +26,81 @@ const icons: Record<string, React.ReactNode> = {
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const [paletteOpen, setPaletteOpen] = useState(false);
+
+  // Global ⌘K / Ctrl+K toggles the command palette from anywhere in the admin section.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((prev) => !prev);
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   return (
     <div className="min-h-screen bg-gray-50/80">
       {/* Header */}
       <header className="bg-white/80 backdrop-blur-lg border-b border-gray-200/60 sticky top-0 z-20">
-        <div className="max-w-[1400px] mx-auto px-6 flex items-center justify-between h-14">
+        <div className="max-w-[1400px] mx-auto px-6 flex items-center justify-between h-14 gap-3">
           <Link href="/admin" className="flex items-center gap-2.5">
             <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center">
               <span className="text-white text-xs font-bold">S</span>
             </div>
             <span className="font-bold text-gray-900 tracking-tight">Snorkl 주문관리</span>
           </Link>
-          {/* Desktop nav - hidden on mobile */}
-          <nav className="hidden md:flex gap-0.5">
-            {navItems.map((item) => {
-              const isActive = item.href === "/admin" ? pathname === "/admin" : pathname.startsWith(item.href);
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                    isActive
-                      ? "bg-gray-900 text-white shadow-sm"
-                      : "text-gray-500 hover:text-gray-900 hover:bg-gray-100"
-                  }`}
-                >
-                  <span className={`[&>svg]:w-4 [&>svg]:h-4 ${isActive ? "text-white/80" : "text-gray-400"}`}>
-                    {icons[item.icon]}
-                  </span>
-                  {item.label}
-                </Link>
-              );
-            })}
-          </nav>
+
+          <div className="flex items-center gap-2">
+            {/* Desktop nav - hidden on mobile */}
+            <nav className="hidden md:flex gap-0.5">
+              {navItems.map((item) => {
+                const isActive = item.href === "/admin" ? pathname === "/admin" : pathname.startsWith(item.href);
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                      isActive
+                        ? "bg-gray-900 text-white shadow-sm"
+                        : "text-gray-500 hover:text-gray-900 hover:bg-gray-100"
+                    }`}
+                  >
+                    <span className={`[&>svg]:w-4 [&>svg]:h-4 ${isActive ? "text-white/80" : "text-gray-400"}`}>
+                      {icons[item.icon]}
+                    </span>
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </nav>
+
+            {/* Command palette trigger - full pill on desktop, icon-only on mobile */}
+            <button
+              type="button"
+              onClick={() => setPaletteOpen(true)}
+              className="hidden md:flex items-center gap-2 h-8 min-w-[180px] px-3 rounded-lg border border-gray-200 bg-gray-50 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+            >
+              <SearchIcon className="w-3.5 h-3.5 shrink-0" />
+              <span className="text-xs">검색</span>
+              <kbd className="ml-auto rounded border border-gray-300 bg-white px-1.5 py-0.5 text-[10px] font-medium text-gray-400">
+                ⌘K
+              </kbd>
+            </button>
+            <button
+              type="button"
+              onClick={() => setPaletteOpen(true)}
+              aria-label="검색"
+              className="md:hidden flex items-center justify-center w-8 h-8 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+            >
+              <SearchIcon className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </header>
+
+      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
 
       {/* Main content - extra bottom padding on mobile for tab bar */}
       <main className="max-w-[1400px] mx-auto px-6 py-6 pb-24 md:pb-6">{children}</main>
