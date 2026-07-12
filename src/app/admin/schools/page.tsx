@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useSchoolData } from "@/lib/use-data";
 import { teamColor } from "@/lib/teams";
 import { Button } from "@/components/ui/button";
@@ -116,6 +116,14 @@ export default function SchoolsPage() {
   const [fteam, setFteam] = useState("");
   const [ferror, setFerror] = useState("");
   const [translating, setTranslating] = useState(false);
+
+  // Command palette can deep-link here with ?focus=<schoolId> to auto-expand a school.
+  useEffect(() => {
+    const focus = new URLSearchParams(window.location.search).get("focus");
+    if (!focus) return;
+    const id = parseInt(focus, 10);
+    if (!Number.isNaN(id)) setExpandedSchool(id);
+  }, []);
 
   // Computed data
   const { teamGroups, individualSchools, totalTeachers, confirmedCount, pendingCount } = useMemo(() => {

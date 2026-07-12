@@ -75,6 +75,12 @@ export default function TeachersPage() {
       .catch(() => {});
   }, []);
 
+  // Command palette can deep-link here with ?q=<query> to pre-fill the search box.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("q");
+    if (q) setSearch(q);
+  }, []);
+
   const individualTeachers = useMemo(() => {
     const result: IndividualTeacher[] = [];
     for (const r of accountRequests) {
