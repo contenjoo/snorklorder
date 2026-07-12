@@ -9,10 +9,6 @@
       "schedule": "0 0 * * *"
     },
     {
-      "path": "/api/cron/payment-followup",
-      "schedule": "15 0 * * *"
-    },
-    {
       "path": "/api/cron/sync-stripe",
       "schedule": "50 23 * * *"
     }
