@@ -101,6 +101,18 @@ interface OpenDomainRequest {
   confirmedAt: string | null;
 }
 
+interface ActivityItem {
+  id: string;
+  type: "email" | "confirm";
+  at: string;
+  status?: string;
+  kind?: string;
+  toEmail?: string;
+  subject?: string;
+  schoolName?: string;
+  schoolNameEn?: string | null;
+}
+
 function parseAmount(s?: string | null): number {
   if (!s) return 0;
   const n = Number(String(s).replace(/[^\d.]/g, ""));
@@ -108,7 +120,7 @@ function parseAmount(s?: string | null): number {
 }
 
 // D-day 뱃지: 결제 기한 기준 (account는 'YYYY-MM-DD' date, domain은 자유 텍스트일 수 있어 파싱 실패 시 null)
-function dDayInfo(invoiceDueDate: string | null | undefined): { label: string; cls: string } | null {
+function dDayInfo(invoiceDueDate: string | null | undefined): { label: string; cls: string; diff: number } | null {
   if (!invoiceDueDate) return null;
   const due = /^\d{4}-\d{2}-\d{2}/.test(invoiceDueDate)
     ? new Date(`${invoiceDueDate.slice(0, 10)}T00:00:00`)
@@ -117,9 +129,9 @@ function dDayInfo(invoiceDueDate: string | null | undefined): { label: string; c
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const diff = Math.round((due.getTime() - today.getTime()) / 86400000);
-  if (diff < 0) return { label: `D+${-diff}`, cls: "bg-red-100 text-red-700" }; // 기한 초과
-  if (diff <= 3) return { label: `D-${diff}`, cls: "bg-orange-100 text-orange-700" }; // 임박
-  return { label: `D-${diff}`, cls: "bg-gray-100 text-gray-500" };
+  if (diff < 0) return { label: `D+${-diff}`, cls: "bg-red-100 text-red-700", diff }; // 기한 초과
+  if (diff <= 3) return { label: `D-${diff}`, cls: "bg-orange-100 text-orange-700", diff }; // 임박
+  return { label: `D-${diff}`, cls: "bg-gray-100 text-gray-500", diff };
 }
 
 function classifyAccount(r: OpenAccountRequest): "JON_PROCESS" | "JON_INVOICE" | "ME_PAY" | "JON_CONFIRM" {
@@ -171,9 +183,55 @@ interface DashboardData {
   openAccountRequests: OpenAccountRequest[];
   openDomainRequests: OpenDomainRequest[];
   regions: RegionSummary[];
+  monthlyUpgrades: { teachers: number; schools: number };
+  activity: ActivityItem[];
+  billingStatusCounts: Record<string, number>;
 }
 
 const teamColorMap = TEAM_COLORS;
+
+const REQ_TYPE_CHIP: Record<string, string> = {
+  upgrade: "⬆️",
+  email_change: "✉️",
+  type_change: "🔄",
+  extension: "📅",
+};
+
+const EMAIL_KIND_LABEL: Record<string, string> = {
+  batch_notification: "Jon 발송",
+  teacher_upgraded: "완료 안내",
+  account_email: "정산 메일",
+  account_confirm: "confirm 안내",
+  stale_reminder: "리마인드",
+  daily_digest: "다이제스트",
+  school_code: "학교 코드",
+  admin_request: "관리자 알림",
+};
+
+const PIPE_STAGES = [
+  { value: "draft", label: "작성" },
+  { value: "sent", label: "발송됨" },
+  { value: "processed", label: "처리완료" },
+  { value: "invoiced", label: "인보이스" },
+  { value: "paid", label: "결제완료" },
+];
+
+// 활동 피드 시간: 오늘=HH:MM, 어제, 그 외 M/D
+function feedTime(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "—";
+  const now = new Date();
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (d >= startToday) return d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false });
+  const startYesterday = new Date(startToday);
+  startYesterday.setDate(startYesterday.getDate() - 1);
+  if (d >= startYesterday) return "어제";
+  return d.toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" });
+}
+
+function ageText(days: number): string {
+  return days <= 0 ? "오늘" : `${days}일째`;
+}
 
 export default function AdminDashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
@@ -227,14 +285,24 @@ export default function AdminDashboard() {
     );
   }
 
-  const { stats, pipeline, teamGroups, approvalQueue, upgradeNeeded, recentTeachers, recentBatches, recentFailedEmails, openAccountRequests, openDomainRequests, regions } = data;
+  const { stats, pipeline, teamGroups, approvalQueue, upgradeNeeded, recentTeachers, recentBatches, recentFailedEmails, openAccountRequests, openDomainRequests, regions, monthlyUpgrades, activity, billingStatusCounts } = data;
 
-  // Billing pipeline 분류 (account + domain 통합)
-  type BillingItem = { id: string; source: "account" | "domain"; rawId: number; schoolName: string; schoolNameEn: string | null; team: string | null; amount: number; amountText: string; paymentLink: string | null; invoiceNumber: string | null; invoiceDueDate: string | null; status: string; bucket: "JON_PROCESS" | "JON_INVOICE" | "ME_PAY" | "JON_CONFIRM"; updatedAt: string; ageDays: number };
+  // Billing pipeline 분류 (account + domain 통합) — 기존 classify 로직 재사용
+  type BillingItem = {
+    id: string; source: "account" | "domain"; rawId: number;
+    schoolName: string; schoolNameEn: string | null; team: string | null;
+    reqType: string; applicantType: string; emailCount: number;
+    amount: number; amountText: string;
+    paymentLink: string | null; invoiceNumber: string | null; invoiceDueDate: string | null;
+    status: string; bucket: "JON_PROCESS" | "JON_INVOICE" | "ME_PAY" | "JON_CONFIRM";
+    updatedAt: string; ageDays: number;
+  };
   const items: BillingItem[] = [];
   for (const r of (openAccountRequests || [])) {
     items.push({
       id: `a-${r.id}`, source: "account", rawId: r.id, schoolName: r.schoolName, schoolNameEn: r.schoolNameEn, team: null,
+      reqType: r.type, applicantType: r.applicantType || "school",
+      emailCount: r.emails.split(/[,;\n]+/).filter((e) => e.trim() && e.includes("@")).length,
       amount: parseAmount(r.invoiceAmount), amountText: r.invoiceAmount || "",
       paymentLink: r.paymentLink, invoiceNumber: r.invoiceNumber, invoiceDueDate: r.invoiceDueDate,
       status: r.status, bucket: classifyAccount(r),
@@ -244,6 +312,7 @@ export default function AdminDashboard() {
   for (const r of (openDomainRequests || [])) {
     items.push({
       id: `d-${r.id}`, source: "domain", rawId: r.id, schoolName: r.schoolName, schoolNameEn: r.schoolNameEn, team: r.team,
+      reqType: "domain", applicantType: "school", emailCount: 0,
       amount: parseAmount(r.invoiceAmount), amountText: r.invoiceAmount || "",
       paymentLink: r.paymentLink, invoiceNumber: r.invoiceNumber, invoiceDueDate: r.invoiceDueDate,
       status: r.status, bucket: classifyDomain(r),
@@ -256,7 +325,32 @@ export default function AdminDashboard() {
     ME_PAY: items.filter((i) => i.bucket === "ME_PAY"),
     JON_CONFIRM: items.filter((i) => i.bucket === "JON_CONFIRM"),
   };
+
+  // 오늘 할 일 그룹: 내 차례 → Jon 차례 → 승인 대기
+  const myDrafts = buckets.JON_PROCESS.filter((i) => i.source === "account" && i.status === "draft")
+    .sort((a, b) => b.ageDays - a.ageDays);
+  const mePay = [...buckets.ME_PAY].sort((a, b) => {
+    const da = dDayInfo(a.invoiceDueDate)?.diff ?? Infinity;
+    const db_ = dDayInfo(b.invoiceDueDate)?.diff ?? Infinity;
+    return da - db_;
+  });
+  const jonWaiting = buckets.JON_PROCESS.filter((i) => !(i.source === "account" && i.status === "draft"))
+    .sort((a, b) => b.ageDays - a.ageDays);
+  const jonInvoice = [...buckets.JON_INVOICE].sort((a, b) => b.ageDays - a.ageDays);
+  const jonConfirm = [...buckets.JON_CONFIRM].sort((a, b) => b.ageDays - a.ageDays);
+
+  const myTurnCount = myDrafts.length + mePay.length;
+  const jonTurnItems = [...jonWaiting, ...jonInvoice, ...jonConfirm];
+  const todoCount = myTurnCount + jonTurnItems.length + approvalQueue.length;
+
+  // KPI 계산
   const outstanding = buckets.ME_PAY.reduce((s, i) => s + i.amount, 0);
+  const dueDiffs = buckets.ME_PAY
+    .map((i) => dDayInfo(i.invoiceDueDate)?.diff)
+    .filter((d): d is number => d !== undefined);
+  const nearestDue = dueDiffs.length > 0 ? Math.min(...dueDiffs) : null;
+  const nearestDueLabel = nearestDue === null ? null : nearestDue < 0 ? `D+${-nearestDue}` : `D-${nearestDue}`;
+
   // Jon 발송 대기/발송됨 = 검증 승인(approved)된 교사만 (목록과 카운트 일치)
   const needUpgrade = pipeline.readyForJon + pipeline.sentToJon;
   const upgradeRate = stats.totalTeachers > 0 ? Math.round((stats.confirmed / stats.totalTeachers) * 100) : 0;
@@ -321,307 +415,219 @@ export default function AdminDashboard() {
     }
   }
 
-  return (
-    <div className="space-y-6 pb-20 md:pb-0">
-      {recentFailedEmails && recentFailedEmails.length > 0 && (
-        <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-4">
-          <div className="flex items-start gap-3">
-            <span className="text-2xl">⚠️</span>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between gap-2 mb-1.5">
-                <p className="text-sm font-bold text-red-900">최근 메일 발송 실패 {recentFailedEmails.length}건</p>
-                <span className="text-[10px] text-red-600">최근 10건 표시</span>
-              </div>
-              <div className="space-y-1 max-h-32 overflow-y-auto">
-                {recentFailedEmails.map((f) => (
-                  <div key={f.id} className="flex items-center gap-2 text-[11px] bg-white rounded px-2 py-1 border border-red-100">
-                    <span className="font-mono text-red-700 shrink-0">{f.kind}</span>
-                    <span className="text-gray-600 truncate flex-1" title={f.subject}>{f.subject}</span>
-                    <span className="font-mono text-gray-500 shrink-0">→ {f.toEmail}</span>
-                    <span className="text-gray-400 shrink-0">{new Date(f.createdAt).toLocaleString("ko-KR", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
+  // 할 일 행 공통: 학교명(영문 병기) + 타입 칩 + 상세 1줄 + 경과일 + 인라인 액션
+  function renderBillingRow(i: BillingItem, group: "MY_DRAFT" | "MY_PAY" | "JON") {
+    const dday = group === "MY_PAY" ? dDayInfo(i.invoiceDueDate) : null;
+    const stale = i.ageDays >= 3;
+    const typeChip = i.source === "domain"
+      ? "🌐 도메인"
+      : i.reqType === "upgrade" && i.emailCount > 0
+        ? `⬆️ ${i.emailCount}명`
+        : `${REQ_TYPE_CHIP[i.reqType] || "📚"} ${i.reqType === "email_change" ? "이메일 변경" : i.reqType === "type_change" ? "타입 변경" : i.reqType === "extension" ? "연장" : "정산"}`;
+    const jonChip = i.bucket === "JON_PROCESS" ? { label: "처리 대기", cls: "bg-purple-50 text-purple-700" }
+      : i.bucket === "JON_INVOICE" ? { label: "인보이스 대기", cls: "bg-amber-50 text-amber-700" }
+        : { label: "확인 대기", cls: "bg-blue-50 text-blue-700" };
+    const detail = group === "MY_DRAFT"
+      ? `draft — Jon에게 아직 발송 안 됨`
+      : group === "MY_PAY"
+        ? [i.invoiceNumber, i.invoiceDueDate ? `기한 ${i.invoiceDueDate.slice(0, 10)}` : null, i.paymentLink ? "결제 링크 있음" : "결제 링크 없음"].filter(Boolean).join(" · ")
+        : i.bucket === "JON_PROCESS"
+          ? `${i.status === "sent" ? "Jon에게 발송됨" : "처리 요청됨"} — 처리 대기 중`
+          : i.bucket === "JON_INVOICE"
+            ? "처리 완료 · 인보이스 아직"
+            : "결제 완료 · Jon confirm 대기";
+    return (
+      <div key={i.id} className="flex items-center gap-3 px-4 md:px-5 py-2.5 border-t hover:bg-gray-50/70">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[13px] font-bold text-gray-900 truncate">
+              {i.applicantType === "individual" ? `개인 · ${i.schoolName}` : i.schoolName}
+            </span>
+            {i.schoolNameEn && <span className="text-[11px] text-gray-400 truncate hidden sm:inline">{i.schoolNameEn}</span>}
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 whitespace-nowrap">{typeChip}</span>
+            {group === "MY_PAY" && i.amountText && (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-50 text-red-700 whitespace-nowrap">💳 {i.amountText}</span>
+            )}
+            {group === "JON" && (
+              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${jonChip.cls}`}>{jonChip.label}</span>
+            )}
           </div>
+          <div className="text-[11px] text-gray-500 truncate mt-0.5">{detail}</div>
         </div>
-      )}
-      {items.length > 0 && (
-        <div className="bg-white rounded-2xl border p-4 md:p-5 space-y-3">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="flex items-center gap-3">
-              <span className="text-lg">💳</span>
-              <h2 className="font-bold text-gray-900">Billing Action Center</h2>
-            </div>
-            <Link href="/admin/accounts" className="text-xs text-blue-600 hover:underline">정산 전체 →</Link>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-            <div className={`rounded-xl border p-3 ${buckets.JON_PROCESS.length ? "bg-amber-50 border-amber-200" : "bg-gray-50 border-gray-100"}`}>
-              <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Jon 처리대기</div>
-              <div className="text-xl font-bold text-gray-900 mt-0.5">{buckets.JON_PROCESS.length}</div>
-              <div className="text-[10px] text-gray-500 mt-0.5">draft + sent</div>
-            </div>
-            <div className={`rounded-xl border p-3 ${buckets.JON_INVOICE.length ? "bg-orange-50 border-orange-200" : "bg-gray-50 border-gray-100"}`}>
-              <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Jon 인보이스 대기</div>
-              <div className="text-xl font-bold text-gray-900 mt-0.5">{buckets.JON_INVOICE.length}</div>
-              <div className="text-[10px] text-gray-500 mt-0.5">처리완료 · 미발급</div>
-            </div>
-            <div className={`rounded-xl border p-3 ${buckets.ME_PAY.length ? "bg-red-50 border-red-200" : "bg-gray-50 border-gray-100"}`}>
-              <div className="text-[10px] font-bold text-red-700 uppercase tracking-wider">내 차례 · 결제</div>
-              <div className="text-xl font-bold text-red-700 mt-0.5">{buckets.ME_PAY.length}</div>
-              <div className="text-[10px] text-red-600 mt-0.5">미수금 {outstanding > 0 ? `~${outstanding.toLocaleString()}` : "—"}</div>
-            </div>
-            <div className={`rounded-xl border p-3 ${buckets.JON_CONFIRM.length ? "bg-blue-50 border-blue-200" : "bg-gray-50 border-gray-100"}`}>
-              <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Jon 확인 대기</div>
-              <div className="text-xl font-bold text-gray-900 mt-0.5">{buckets.JON_CONFIRM.length}</div>
-              <div className="text-[10px] text-gray-500 mt-0.5">paid · 미확인</div>
-            </div>
-          </div>
-          {buckets.ME_PAY.length > 0 && (
-            <div className="rounded-xl bg-red-50/50 border border-red-100 p-3 space-y-1.5">
-              <div className="text-[11px] font-bold text-red-900">⚡ 내가 결제할 것</div>
-              {buckets.ME_PAY.sort((a, b) => b.ageDays - a.ageDays).slice(0, 5).map((i) => {
-                const dday = dDayInfo(i.invoiceDueDate);
-                return (
-                <div key={i.id} className="flex items-center gap-2 text-xs bg-white rounded px-2 py-1.5 border border-red-100">
-                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 font-medium shrink-0">{i.source === "domain" ? "🌐 도메인" : "📚 정산"}</span>
-                  <span className="text-gray-700 truncate flex-1">{i.schoolNameEn || i.schoolName}</span>
-                  {i.amountText && <span className="font-mono text-gray-900 shrink-0">{i.amountText}</span>}
-                  {dday && <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${dday.cls}`} title={`결제 기한: ${i.invoiceDueDate}`}>{dday.label}</span>}
-                  <span className={`text-[10px] shrink-0 ${i.ageDays >= 7 ? "text-red-600 font-bold" : i.ageDays >= 3 ? "text-orange-600" : "text-gray-500"}`}>{i.ageDays}d</span>
-                  {i.paymentLink && <a href={i.paymentLink} target="_blank" rel="noopener noreferrer" className="text-[10px] bg-red-600 text-white rounded px-2 py-0.5 font-bold shrink-0 hover:bg-red-700">💳 결제</a>}
-                </div>
-                );
-              })}
-            </div>
-          )}
-          {(buckets.JON_PROCESS.some((i) => i.ageDays >= 3) || buckets.JON_INVOICE.some((i) => i.ageDays >= 5)) && (
-            <div className="rounded-xl bg-amber-50/50 border border-amber-100 p-3 space-y-1.5">
-              <div className="text-[11px] font-bold text-amber-900">⏰ Jon 차례 · 오래된 건</div>
-              {[...buckets.JON_PROCESS, ...buckets.JON_INVOICE].filter((i) => (i.bucket === "JON_PROCESS" ? i.ageDays >= 3 : i.ageDays >= 5)).sort((a, b) => b.ageDays - a.ageDays).slice(0, 5).map((i) => (
-                <div key={i.id} className="flex items-center gap-2 text-xs bg-white rounded px-2 py-1.5 border border-amber-100">
-                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 font-medium shrink-0">{i.source === "domain" ? "🌐" : "📚"}</span>
-                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium shrink-0">{i.bucket === "JON_PROCESS" ? "처리대기" : "인보이스대기"}</span>
-                  <span className="text-gray-700 truncate flex-1">{i.schoolNameEn || i.schoolName}</span>
-                  <span className={`text-[10px] shrink-0 ${i.ageDays >= 7 ? "text-red-600 font-bold" : "text-orange-600"}`}>{i.ageDays}d</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-      <div className="grid grid-cols-2 gap-3 md:flex md:items-center md:gap-6 bg-white rounded-2xl border p-4 md:p-5">
-        <div className="flex items-center gap-3 md:pr-6 md:border-r">
-          <div className="w-10 h-10 rounded-xl bg-slate-900 flex items-center justify-center">
-            <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4.26 10.147a60.438 60.438 0 00-.491 6.347A48.627 48.627 0 0112 20.904a48.627 48.627 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.57 50.57 0 00-2.658-.813A59.905 59.905 0 0112 3.493a59.902 59.902 0 0110.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.697 50.697 0 0112 13.489a50.702 50.702 0 017.74-3.342" /></svg>
-          </div>
-          <div>
-            <p className="text-2xl font-bold text-gray-900">{stats.totalSchools}</p>
-            <p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">학교</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-3 md:pr-6 md:border-r">
-          <div className="w-10 h-10 rounded-xl bg-indigo-500 flex items-center justify-center">
-            <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" /></svg>
-          </div>
-          <div>
-            <p className="text-2xl font-bold text-gray-900">{stats.totalTeachers}</p>
-            <p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">교사</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-3 md:pr-6 md:border-r">
-          <div className="relative w-12 h-12">
-            <svg className="w-12 h-12 -rotate-90" viewBox="0 0 36 36">
-              <path d="M18 2.0845a 15.9155 15.9155 0 0 1 0 31.831a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#e5e7eb" strokeWidth="3" />
-              <path d="M18 2.0845a 15.9155 15.9155 0 0 1 0 31.831a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#10b981" strokeWidth="3" strokeDasharray={`${upgradeRate}, 100`} strokeLinecap="round" />
-            </svg>
-            <span className="absolute inset-0 flex items-center justify-center text-xs font-bold text-gray-900">{upgradeRate}%</span>
-          </div>
-          <div>
-            <p className="text-sm font-semibold text-gray-900">확정률</p>
-            <p className="text-[10px] text-gray-400">{stats.confirmed} / {stats.totalTeachers}</p>
-          </div>
-        </div>
-        {(pipeline.awaitingApproval + needUpgrade) > 0 ? (
-          <div className="col-span-2 md:col-span-1 flex items-center gap-4 bg-amber-50 rounded-xl px-4 py-2.5 border border-amber-200">
-            <div className="text-center">
-              <p className="text-lg font-bold text-purple-700 leading-none">{pipeline.awaitingApproval}</p>
-              <p className="text-[10px] text-purple-600 mt-0.5">승인 대기</p>
-            </div>
-            <div className="w-px h-7 bg-amber-200" />
-            <div className="text-center">
-              <p className="text-lg font-bold text-amber-900 leading-none">{needUpgrade}</p>
-              <p className="text-[10px] text-amber-700 mt-0.5">Jon 발송 ({pipeline.sentToJon} 발송됨)</p>
-            </div>
-          </div>
+        {group === "MY_PAY" && dday ? (
+          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${dday.cls}`} title={`결제 기한: ${i.invoiceDueDate}`}>{dday.label}</span>
         ) : (
-          <div className="col-span-2 md:col-span-1 flex items-center gap-3 bg-emerald-50 rounded-xl px-4 py-2.5 border border-emerald-200">
-            <svg className="w-5 h-5 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-            <span className="text-sm font-semibold text-emerald-700">처리할 항목 없음</span>
-          </div>
+          <span className={`text-[11px] shrink-0 tabular-nums ${stale ? "text-red-600 font-bold" : "text-gray-400"}`}>
+            {ageText(i.ageDays)}{stale ? " 🔥" : ""}
+          </span>
         )}
-        <div className="col-span-2 md:col-span-1 md:ml-auto flex gap-2">
-          <Link href="/admin/schools" className="text-xs text-gray-500 hover:text-gray-900 border rounded-lg px-3 py-2 hover:bg-gray-50 transition-colors">학교 관리</Link>
-          <Link href="/admin/teachers" className="text-xs text-gray-500 hover:text-gray-900 border rounded-lg px-3 py-2 hover:bg-gray-50 transition-colors">교사 관리</Link>
+        {group === "MY_DRAFT" && (
+          <Link
+            href={`/admin/accounts?focus=${i.rawId}`}
+            className="shrink-0 text-xs font-semibold bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap"
+          >
+            📧 발송
+          </Link>
+        )}
+        {group === "MY_PAY" && (
+          i.paymentLink ? (
+            <a
+              href={i.paymentLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="shrink-0 text-xs font-semibold bg-red-600 text-white px-3 py-1.5 rounded-lg hover:bg-red-700 transition-colors whitespace-nowrap"
+            >
+              결제 열기
+            </a>
+          ) : i.source === "account" ? (
+            <Link
+              href={`/admin/accounts?focus=${i.rawId}`}
+              className="shrink-0 text-xs font-semibold border text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors whitespace-nowrap"
+            >
+              상세
+            </Link>
+          ) : null
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4 pb-20 md:pb-0">
+      {/* ── KPI 스트립 ── */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+        <div className={`bg-white rounded-xl border p-3.5 ${myTurnCount > 0 ? "border-red-300 shadow-[inset_3px_0_0_#dc2626]" : ""}`}>
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">지금 내 차례</p>
+          <p className={`text-2xl font-extrabold tabular-nums leading-tight mt-0.5 ${myTurnCount > 0 ? "text-red-600" : "text-gray-900"}`}>{myTurnCount}</p>
+          <p className="text-[11px] text-gray-500">발송 대기 {myDrafts.length} · 결제 {mePay.length}</p>
+        </div>
+        <div className="bg-white rounded-xl border p-3.5">
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Jon 차례</p>
+          <p className="text-2xl font-extrabold tabular-nums text-gray-900 leading-tight mt-0.5">{jonWaiting.length + jonInvoice.length}</p>
+          <p className="text-[11px] text-gray-500">처리 대기 {jonWaiting.length} · 인보이스 {jonInvoice.length}</p>
+        </div>
+        <div className="bg-white rounded-xl border p-3.5">
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">결제 예정 금액</p>
+          <p className="text-2xl font-extrabold tabular-nums text-gray-900 leading-tight mt-0.5">{outstanding > 0 ? `$${outstanding.toLocaleString()}` : "—"}</p>
+          <p className="text-[11px] text-gray-500">인보이스 {mePay.length}건{nearestDueLabel ? ` · 최근접 ${nearestDueLabel}` : ""}</p>
+        </div>
+        <div className="bg-white rounded-xl border p-3.5">
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">이번 달 업그레이드</p>
+          <p className="text-2xl font-extrabold tabular-nums text-gray-900 leading-tight mt-0.5">
+            {monthlyUpgrades?.teachers ?? 0}<span className="text-sm font-semibold text-gray-400">명</span>
+          </p>
+          <p className="text-[11px] text-gray-500">{monthlyUpgrades?.schools ?? 0}개교</p>
         </div>
       </div>
 
-      <div className="grid lg:grid-cols-5 gap-6">
-        <div className="lg:col-span-3 flex flex-col gap-4">
-          <div className="bg-white rounded-2xl border overflow-hidden order-3">
-            <div className="flex items-center justify-between px-5 py-4 border-b">
-              <div className="flex items-center gap-3">
-                <h2 className="font-bold text-gray-900">공동구매팀</h2>
-                <span className="text-xs text-gray-400">{teamGroups.length}팀</span>
-              </div>
-              <Link href="/admin/schools" className="text-xs text-blue-600 hover:underline">전체 보기</Link>
+      {/* ── 메인 2컬럼 ── */}
+      <div className="grid lg:grid-cols-[1.6fr_1fr] gap-4 items-start">
+        {/* 좌측: 오늘 할 일 */}
+        <div className="space-y-4">
+          <section className="bg-white rounded-2xl border overflow-hidden">
+            <div className="flex items-center gap-2.5 px-4 md:px-5 py-3.5 border-b">
+              <h2 className="font-bold text-gray-900 text-[15px]">오늘 할 일</h2>
+              <span className="text-[11px] font-bold text-gray-500 bg-gray-100 rounded-full px-2.5 py-0.5 tabular-nums">{todoCount}</span>
+              <Link href="/admin/accounts" className="ml-auto text-xs text-blue-600 hover:underline font-medium">전체 보기 →</Link>
             </div>
-            <div className="divide-y">
-              {teamGroups.map((group) => {
-                const tc = teamColorMap[group.team] || { bg: "bg-gray-50", text: "text-gray-600", dot: "bg-gray-400", border: "border-gray-200" };
-                const rate = group.teacherCount > 0 ? Math.round((group.confirmedCount / group.teacherCount) * 100) : 0;
-                const isOpen = expandedTeam === group.team;
 
-                return (
-                  <div key={group.team}>
-                    <button
-                      type="button"
-                      className="w-full flex flex-wrap md:flex-nowrap items-center gap-2 md:gap-4 px-4 md:px-5 py-3 md:py-3.5 text-left hover:bg-gray-50/80 transition-colors"
-                      onClick={() => setExpandedTeam(isOpen ? null : group.team)}
-                    >
-                      <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${tc.dot}`} />
-                      <span className="font-semibold text-sm text-gray-900 w-20 shrink-0">{group.team}</span>
-                      <div className="hidden md:flex items-center gap-1.5 flex-1 flex-wrap overflow-hidden">
-                        {group.schools.slice(0, 5).map((school) => (
-                          <span key={school.id} className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded truncate max-w-[100px]">{school.name}</span>
-                        ))}
-                        {group.schools.length > 5 && <span className="text-[10px] text-gray-400">+{group.schools.length - 5}</span>}
-                      </div>
-                      <span className="text-[10px] text-gray-400 md:hidden">{group.schoolCount}교</span>
-                      <div className="ml-auto flex items-center gap-2">
-                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${rate === 100 ? "text-emerald-600 bg-emerald-50 border-emerald-200" : "text-amber-600 bg-amber-50 border-amber-200"}`}>{rate === 100 ? "완성" : `${rate}%`}</span>
-                        <svg className={`w-4 h-4 text-gray-300 transition-transform shrink-0 ${isOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                        </svg>
-                      </div>
-                      <div className="flex md:hidden items-center gap-2 w-full pl-[22px]">
-                        <span className="text-xs font-mono text-gray-500">{group.confirmedCount}/{group.teacherCount}</span>
-                        <div className="h-1.5 flex-1 rounded-full bg-gray-100 overflow-hidden">
-                          <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${rate}%` }} />
-                        </div>
-                      </div>
-                      <span className="hidden md:inline text-xs font-mono text-gray-500">{group.confirmedCount}/{group.teacherCount}</span>
-                      <div className="hidden md:block h-1.5 w-16 rounded-full bg-gray-100 overflow-hidden">
-                        <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${rate}%` }} />
-                      </div>
-                    </button>
-                    {isOpen && (
-                      <div className="bg-gray-50/60 border-t px-5 py-2 divide-y divide-gray-100">
-                        {group.schools.map((school) => (
-                          <div key={school.id} className="py-2">
-                            <div className="flex items-center gap-2">
-                              <span className={`w-1.5 h-1.5 rounded-full ${school.teacherCount > 0 && school.confirmedCount === school.teacherCount ? "bg-emerald-400" : school.teacherCount > 0 ? "bg-amber-400" : "bg-gray-300"}`} />
-                              <span className="text-xs font-medium text-gray-800">{school.name}</span>
-                              <span className="text-[10px] text-gray-400">{school.nameEn}</span>
-                              <span className="text-[10px] font-mono text-gray-400 ml-auto">{school.confirmedCount}/{school.teacherCount}</span>
-                            </div>
-                            {(school.pendingCount > 0 || school.sentCount > 0) && (
-                              <div className="flex gap-1 ml-3.5 mt-1.5">
-                                {school.pendingCount > 0 && <span className="text-[10px] bg-amber-50 text-amber-600 border border-amber-200 rounded px-1.5 py-0.5">대기 {school.pendingCount}</span>}
-                                {school.sentCount > 0 && <span className="text-[10px] bg-blue-50 text-blue-600 border border-blue-200 rounded px-1.5 py-0.5">발송 {school.sentCount}</span>}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="bg-white rounded-2xl border overflow-hidden order-1">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-4 md:px-5 py-3 md:py-4 border-b">
-              <div className="flex items-center gap-3 flex-wrap">
-                <h2 className="font-bold text-gray-900">승인 대기 / Approval queue</h2>
-                <span className="text-xs font-medium text-purple-700 bg-purple-50 px-2.5 py-1 rounded-full border border-purple-200">{approvalQueue.length}명</span>
-                {approvalQueue.length > 0 && (() => {
-                  const allChecked = approvalSelected.size === approvalQueue.length && approvalQueue.length > 0;
-                  return (
-                    <button
-                      type="button"
-                      onClick={() => setApprovalSelected(allChecked ? new Set() : new Set(approvalQueue.map((t) => t.id)))}
-                      className="text-[11px] font-medium text-blue-600 hover:text-blue-700 hover:underline"
-                    >
-                      {allChecked ? "전체 해제" : "전체 선택"}
-                    </button>
-                  );
-                })()}
-                {approvalSelected.size > 0 && <span className="text-[11px] text-gray-500">{approvalSelected.size}명 선택됨</span>}
-              </div>
-              {approvalQueue.length > 0 && (
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    disabled={approving}
-                    onClick={() => reviewHqTeacher(approvalSelected.size > 0 ? [...approvalSelected] : approvalQueue.map((t) => t.id), "approve")}
-                    className="text-xs font-semibold bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors"
-                  >
-                    {approving ? "처리 중..." : approvalSelected.size > 0 ? `선택한 ${approvalSelected.size}명 승인` : `전체 ${approvalQueue.length}명 승인`}
-                  </button>
-                  {approvalSelected.size > 0 && (
-                    <button
-                      type="button"
-                      disabled={approving}
-                      onClick={() => reviewHqTeacher([...approvalSelected], "reject")}
-                      className="text-xs font-semibold bg-red-50 text-red-700 border border-red-200 px-3 py-2 rounded-lg hover:bg-red-100 disabled:opacity-50 transition-colors"
-                    >
-                      거절
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-            <p className="text-[11px] text-gray-400 px-4 md:px-5 pt-2">학교 도메인과 일치하지 않아 승인이 필요한 자가등록입니다. 승인하면 Jon 발송 대기로 넘어갑니다.</p>
-            {approvalQueue.length === 0 ? (
-              <div className="px-5 py-6 text-sm text-gray-400 text-center">승인 대기 중인 등록이 없습니다.</div>
+            {todoCount === 0 ? (
+              <div className="px-5 py-10 text-center text-sm text-gray-400">오늘 할 일 없음 ✓</div>
             ) : (
-              <div className="divide-y max-h-[400px] overflow-y-auto">
+              <>
+                {myTurnCount > 0 && (
+                  <div className="flex items-center gap-1.5 px-4 md:px-5 pt-3 pb-1 text-[10px] font-extrabold uppercase tracking-widest text-blue-700">
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-700" />내 차례
+                  </div>
+                )}
+                {myDrafts.map((i) => renderBillingRow(i, "MY_DRAFT"))}
+                {mePay.map((i) => renderBillingRow(i, "MY_PAY"))}
+
+                {jonTurnItems.length > 0 && (
+                  <div className="flex items-center gap-1.5 px-4 md:px-5 pt-3 pb-1 text-[10px] font-extrabold uppercase tracking-widest text-purple-700">
+                    <span className="w-1.5 h-1.5 rounded-full bg-purple-700" />Jon 차례
+                    <span className="font-medium normal-case tracking-normal text-gray-400">— 3일 넘으면 🔥</span>
+                  </div>
+                )}
+                {jonTurnItems.map((i) => renderBillingRow(i, "JON"))}
+
+                {approvalQueue.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2 px-4 md:px-5 pt-3 pb-1">
+                    <div className="flex items-center gap-1.5 text-[10px] font-extrabold uppercase tracking-widest text-emerald-700">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-700" />승인 대기 (거짓등록 방지)
+                    </div>
+                    {(() => {
+                      const allChecked = approvalSelected.size === approvalQueue.length && approvalQueue.length > 0;
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => setApprovalSelected(allChecked ? new Set() : new Set(approvalQueue.map((t) => t.id)))}
+                          className="text-[11px] font-medium text-blue-600 hover:text-blue-700 hover:underline"
+                        >
+                          {allChecked ? "전체 해제" : "전체 선택"}
+                        </button>
+                      );
+                    })()}
+                    <div className="ml-auto flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        disabled={approving}
+                        onClick={() => reviewHqTeacher(approvalSelected.size > 0 ? [...approvalSelected] : approvalQueue.map((t) => t.id), "approve")}
+                        className="text-[11px] font-semibold bg-emerald-600 text-white px-2.5 py-1 rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+                      >
+                        {approving ? "처리 중..." : approvalSelected.size > 0 ? `선택 ${approvalSelected.size}명 승인` : `전체 ${approvalQueue.length}명 승인`}
+                      </button>
+                      {approvalSelected.size > 0 && (
+                        <button
+                          type="button"
+                          disabled={approving}
+                          onClick={() => reviewHqTeacher([...approvalSelected], "reject")}
+                          className="text-[11px] font-semibold bg-red-50 text-red-700 border border-red-200 px-2.5 py-1 rounded-lg hover:bg-red-100 disabled:opacity-50 transition-colors"
+                        >
+                          거절
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
                 {approvalQueue.map((teacher) => {
                   const tc = teamColorMap[teacher.schoolTeam || ""] || { bg: "bg-gray-50", text: "text-gray-600", dot: "bg-gray-400", border: "border-gray-200" };
+                  const regDays = daysSince(teacher.createdAt) ?? 0;
                   return (
-                    <div key={teacher.id} className="flex flex-row items-start sm:items-center gap-2 px-4 md:px-5 py-3">
+                    <div key={teacher.id} className="flex items-center gap-2.5 px-4 md:px-5 py-2.5 border-t hover:bg-gray-50/70">
                       <input
                         type="checkbox"
                         checked={approvalSelected.has(teacher.id)}
                         onChange={() => toggleApproval(teacher.id)}
-                        className="w-4 h-4 mt-1 sm:mt-0 accent-emerald-600 cursor-pointer shrink-0"
+                        className="w-4 h-4 accent-emerald-600 cursor-pointer shrink-0"
                         aria-label={`${teacher.email} 선택`}
                       />
                       <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-                          <span className="text-sm font-bold text-gray-900 truncate">{teacher.email}</span>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-[13px] font-bold text-gray-900 truncate">{teacher.schoolName} · {teacher.name}</span>
+                          <span className="text-[11px] text-gray-400 truncate hidden sm:inline">{teacher.email}</span>
                           {teacher.schoolTeam && <span className={`text-[10px] px-2 py-0.5 rounded-full ${tc.bg} ${tc.text} border ${tc.border}`}>{teacher.schoolTeam}</span>}
                         </div>
-                        <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                          <span className="text-[11px] text-gray-500 truncate">{teacher.schoolNameEn ? `${teacher.schoolNameEn} (${teacher.schoolName})` : teacher.schoolName}</span>
-                          <span className="text-[10px] text-gray-400">· 등록 {new Date(teacher.createdAt).toLocaleDateString("ko-KR", { month: "short", day: "numeric" })}</span>
-                          {teacher.escalatedAt && <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-50 text-purple-600 border border-purple-200">본사 이관</span>}
+                        <div className="text-[11px] text-gray-500 truncate mt-0.5">
+                          {teacher.emailVerifiedAt ? "이메일 인증됨" : "미인증(레거시)"}
+                          {teacher.escalatedAt ? " · 학교 관리자 무응답 → 본사 이관" : ""}
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 shrink-0">
+                      <span className={`text-[11px] shrink-0 tabular-nums ${regDays >= 3 ? "text-red-600 font-bold" : "text-gray-400"}`}>{ageText(regDays)}</span>
+                      <div className="flex items-center gap-1.5 shrink-0">
                         <button
                           type="button"
+                          disabled={approving}
                           onClick={() => reviewHqTeacher([teacher.id], "approve")}
-                          className="text-xs font-semibold bg-emerald-600 text-white px-3 py-1.5 rounded-lg hover:bg-emerald-700 transition-colors"
+                          className="text-xs font-semibold bg-emerald-600 text-white px-3 py-1.5 rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors"
                         >
-                          승인
+                          ✓ 승인
                         </button>
                         <button
                           type="button"
+                          disabled={approving}
                           onClick={() => reviewHqTeacher([teacher.id], "reject")}
-                          className="text-xs font-semibold bg-red-50 text-red-700 border border-red-200 px-3 py-1.5 rounded-lg hover:bg-red-100 transition-colors"
+                          className="text-xs font-semibold bg-red-50 text-red-700 border border-red-200 px-3 py-1.5 rounded-lg hover:bg-red-100 disabled:opacity-50 transition-colors"
                         >
                           거절
                         </button>
@@ -629,12 +635,13 @@ export default function AdminDashboard() {
                     </div>
                   );
                 })}
-              </div>
+              </>
             )}
-          </div>
+          </section>
 
+          {/* Jon 발송 대기 큐 (교사 업그레이드) — 기존 기능 유지 */}
           {needUpgrade > 0 && (
-            <div className="bg-white rounded-2xl border overflow-hidden order-2">
+            <div className="bg-white rounded-2xl border overflow-hidden">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-4 md:px-5 py-3 md:py-4 border-b">
                 <div className="flex items-center gap-3 flex-wrap">
                   <h2 className="font-bold text-gray-900">Jon 발송 대기 / Upgrade</h2>
@@ -731,122 +738,303 @@ export default function AdminDashboard() {
                   );
                 })}
               </div>
-              {message && (
-                <div className={`px-5 py-2.5 text-sm font-medium border-t ${message.includes("완료") ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
-                  {message}
-                </div>
-              )}
             </div>
           )}
         </div>
 
-        <div className="lg:col-span-2 space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-white rounded-xl border p-4">
-              <p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">공동구매</p>
-              <p className="text-xl font-bold text-gray-900 mt-1">{teamGroups.reduce((sum, group) => sum + group.teacherCount, 0)}</p>
-              <p className="text-[10px] text-gray-400 mt-1">{teamGroups.length}팀 · {teamGroups.reduce((sum, group) => sum + group.schoolCount, 0)}교</p>
+        {/* 우측: 파이프라인 + 실패 메일 + 활동 피드 */}
+        <div className="space-y-4">
+          <section className="bg-white rounded-2xl border overflow-hidden">
+            <div className="flex items-center justify-between px-4 md:px-5 py-3.5 border-b">
+              <h2 className="font-bold text-gray-900 text-[15px]">정산 파이프라인</h2>
+              <Link href="/admin/accounts" className="text-xs text-blue-600 hover:underline font-medium">정산 →</Link>
             </div>
-            <div className="bg-white rounded-xl border p-4">
-              <p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">개별구매</p>
-              <p className="text-xl font-bold text-gray-900 mt-1">{stats.individual}</p>
-              <p className="text-[10px] text-gray-400 mt-1">개별 계정 구매</p>
+            <div className="grid grid-cols-5 gap-1.5 px-4 py-3.5">
+              {PIPE_STAGES.map((stage) => {
+                const count = billingStatusCounts?.[stage.value] ?? 0;
+                const stalled = stage.value !== "paid" && items.some(
+                  (i) => i.source === "account" && i.status === stage.value && i.ageDays >= 3
+                );
+                return (
+                  <Link
+                    key={stage.value}
+                    href={`/admin/accounts?filter=${stage.value}`}
+                    className={`rounded-lg px-1.5 py-2 text-center transition-colors ${stalled ? "bg-red-50 hover:bg-red-100" : "bg-gray-50 hover:bg-gray-100"}`}
+                    title={stalled ? "3일 이상 대기 중인 건 있음" : undefined}
+                  >
+                    <div className={`text-lg font-extrabold tabular-nums leading-tight ${stalled ? "text-red-600" : "text-gray-900"}`}>{count}</div>
+                    <div className="text-[10px] font-semibold text-gray-500 whitespace-nowrap">{stage.label}</div>
+                  </Link>
+                );
+              })}
+            </div>
+            <div className="flex justify-between px-5 pb-3 text-[10px] text-gray-400">
+              <span>← 내가 보냄</span><span>Jon 처리</span><span>결제 →</span>
+            </div>
+          </section>
+
+          {/* 실패 메일 배너 — 활동 피드 위 */}
+          {recentFailedEmails && recentFailedEmails.length > 0 && (
+            <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-4">
+              <div className="flex items-start gap-3">
+                <span className="text-2xl">⚠️</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <p className="text-sm font-bold text-red-900">최근 메일 발송 실패 {recentFailedEmails.length}건</p>
+                    <span className="text-[10px] text-red-600">최근 10건 표시</span>
+                  </div>
+                  <div className="space-y-1 max-h-32 overflow-y-auto">
+                    {recentFailedEmails.map((f) => (
+                      <div key={f.id} className="flex items-center gap-2 text-[11px] bg-white rounded px-2 py-1 border border-red-100">
+                        <span className="font-mono text-red-700 shrink-0">{f.kind}</span>
+                        <span className="text-gray-600 truncate flex-1" title={f.subject}>{f.subject}</span>
+                        <span className="font-mono text-gray-500 shrink-0">→ {f.toEmail}</span>
+                        <span className="text-gray-400 shrink-0">{new Date(f.createdAt).toLocaleString("ko-KR", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 활동 피드 */}
+          <section className="bg-white rounded-2xl border overflow-hidden">
+            <div className="flex items-center gap-2.5 px-4 md:px-5 py-3.5 border-b">
+              <h2 className="font-bold text-gray-900 text-[15px]">활동</h2>
+              <span className="text-[11px] font-bold text-gray-500 bg-gray-100 rounded-full px-2.5 py-0.5">최근 {activity?.length ?? 0}건</span>
+            </div>
+            {!activity || activity.length === 0 ? (
+              <div className="px-5 py-8 text-center text-sm text-gray-400">최근 활동이 없습니다.</div>
+            ) : (
+              <ul>
+                {activity.map((a, idx) => {
+                  const dot = a.type === "confirm"
+                    ? "bg-purple-500"
+                    : a.status === "failed"
+                      ? "bg-red-500"
+                      : a.kind === "account_email" || a.kind === "batch_notification"
+                        ? "bg-blue-500"
+                        : "bg-emerald-500";
+                  return (
+                    <li key={a.id} className={`flex gap-2.5 px-4 md:px-5 py-2 text-xs ${idx > 0 ? "border-t" : ""}`}>
+                      <span className="text-gray-400 tabular-nums whitespace-nowrap w-11 shrink-0">{feedTime(a.at)}</span>
+                      <span className={`w-2 h-2 rounded-full mt-1 shrink-0 ${dot}`} />
+                      {a.type === "confirm" ? (
+                        <span className="text-gray-500 min-w-0 truncate" title={a.schoolName || ""}>
+                          Jon이 <b className="text-gray-900 font-semibold">{a.schoolNameEn || a.schoolName}</b> confirm
+                        </span>
+                      ) : (
+                        <span className="text-gray-500 min-w-0 truncate" title={a.subject || ""}>
+                          <b className="text-gray-900 font-semibold">{a.toEmail}</b> {EMAIL_KIND_LABEL[a.kind || ""] || a.kind} {a.status === "failed" ? "발송 실패" : "발송 성공"}
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+        </div>
+      </div>
+
+      {/* ── 하단: 전체 현황 접기 카드 ── */}
+      <details className="bg-white rounded-2xl border overflow-hidden group">
+        <summary className="flex items-center gap-2 px-4 md:px-5 py-3.5 cursor-pointer font-bold text-gray-900 text-[15px] list-none [&::-webkit-details-marker]:hidden select-none">
+          📊 전체 현황 (팀 · 지역 · 누적)
+          <svg className="w-4 h-4 text-gray-400 ml-auto transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </summary>
+        <div className="border-t px-4 md:px-5 py-4 space-y-4">
+          {/* 누적 통계 */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2.5">
+            <div className="bg-gray-50 rounded-xl p-3">
+              <p className="text-lg font-extrabold tabular-nums text-gray-900">{stats.totalSchools}</p>
+              <p className="text-[11px] text-gray-500">등록 학교</p>
+            </div>
+            <div className="bg-gray-50 rounded-xl p-3">
+              <p className="text-lg font-extrabold tabular-nums text-gray-900">{stats.totalTeachers}</p>
+              <p className="text-[11px] text-gray-500">누적 교사</p>
+            </div>
+            <div className="bg-gray-50 rounded-xl p-3">
+              <p className="text-lg font-extrabold tabular-nums text-gray-900">{upgradeRate}%</p>
+              <p className="text-[11px] text-gray-500">확정률 ({stats.confirmed}/{stats.totalTeachers})</p>
+            </div>
+            <div className="bg-gray-50 rounded-xl p-3">
+              <p className="text-lg font-extrabold tabular-nums text-gray-900">{teamGroups.reduce((sum, group) => sum + group.teacherCount, 0)}</p>
+              <p className="text-[11px] text-gray-500">공동구매 ({teamGroups.length}팀 · {teamGroups.reduce((sum, group) => sum + group.schoolCount, 0)}교)</p>
+            </div>
+            <div className="bg-gray-50 rounded-xl p-3">
+              <p className="text-lg font-extrabold tabular-nums text-gray-900">{stats.individual}</p>
+              <p className="text-[11px] text-gray-500">개별구매</p>
             </div>
           </div>
 
-          {recentBatches.length > 0 && (
-            <div className="bg-white rounded-2xl border overflow-hidden">
-              <div className="flex items-center justify-between px-5 py-4 border-b">
+          <div className="grid lg:grid-cols-2 gap-4 items-start">
+            {/* 팀별 */}
+            <div className="rounded-xl border overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 border-b bg-gray-50/60">
                 <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                  <h2 className="font-bold text-gray-900">Jon 확인 내역</h2>
+                  <h3 className="font-bold text-gray-900 text-sm">공동구매팀</h3>
+                  <span className="text-xs text-gray-400">{teamGroups.length}팀</span>
                 </div>
-                <span className="text-[10px] text-gray-400">최근 {recentBatches.length}건</span>
+                <Link href="/admin/schools" className="text-xs text-blue-600 hover:underline">전체 보기</Link>
               </div>
               <div className="divide-y">
-                {recentBatches.map((batch) => {
-                  const when = batch.confirmedAt ? new Date(batch.confirmedAt) : null;
-                  const rel = when ? Math.max(0, Math.floor((Date.now() - when.getTime()) / 60000)) : null;
-                  const relText = rel === null ? "—" : rel < 1 ? "방금" : rel < 60 ? `${rel}분 전` : rel < 1440 ? `${Math.floor(rel / 60)}시간 전` : `${Math.floor(rel / 1440)}일 전`;
+                {teamGroups.map((group) => {
+                  const tc = teamColorMap[group.team] || { bg: "bg-gray-50", text: "text-gray-600", dot: "bg-gray-400", border: "border-gray-200" };
+                  const rate = group.teacherCount > 0 ? Math.round((group.confirmedCount / group.teacherCount) * 100) : 0;
+                  const isOpen = expandedTeam === group.team;
+
                   return (
-                    <div key={batch.id} className="px-4 md:px-5 py-3">
-                      <div className="flex items-center justify-between mb-1.5">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-semibold text-gray-900">+{batch.count}명 upgraded</span>
-                          <span className="text-[10px] text-gray-400">{batch.schools.length}교</span>
+                    <div key={group.team}>
+                      <button
+                        type="button"
+                        className="w-full flex flex-wrap items-center gap-2 px-4 py-2.5 text-left hover:bg-gray-50/80 transition-colors"
+                        onClick={() => setExpandedTeam(isOpen ? null : group.team)}
+                      >
+                        <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${tc.dot}`} />
+                        <span className="font-semibold text-sm text-gray-900 w-20 shrink-0">{group.team}</span>
+                        <span className="text-[10px] text-gray-400">{group.schoolCount}교</span>
+                        <div className="ml-auto flex items-center gap-2">
+                          <span className="text-xs font-mono text-gray-500">{group.confirmedCount}/{group.teacherCount}</span>
+                          <div className="h-1.5 w-16 rounded-full bg-gray-100 overflow-hidden">
+                            <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${rate}%` }} />
+                          </div>
+                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${rate === 100 ? "text-emerald-600 bg-emerald-50 border-emerald-200" : "text-amber-600 bg-amber-50 border-amber-200"}`}>{rate === 100 ? "완성" : `${rate}%`}</span>
+                          <svg className={`w-4 h-4 text-gray-300 transition-transform shrink-0 ${isOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
                         </div>
-                        <span className="text-[10px] text-gray-400" title={when?.toLocaleString("ko-KR") || ""}>{relText}</span>
-                      </div>
-                      <div className="flex flex-wrap gap-1">
-                        {batch.schools.slice(0, 4).map((school) => (
-                          <span key={school.name} className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 rounded px-1.5 py-0.5">
-                            {school.nameEn || school.name} <span className="text-emerald-500/70">×{school.count}</span>
-                          </span>
-                        ))}
-                        {batch.schools.length > 4 && <span className="text-[10px] text-gray-400 self-center">+{batch.schools.length - 4}</span>}
-                      </div>
+                      </button>
+                      {isOpen && (
+                        <div className="bg-gray-50/60 border-t px-4 py-2 divide-y divide-gray-100">
+                          {group.schools.map((school) => (
+                            <div key={school.id} className="py-2">
+                              <div className="flex items-center gap-2">
+                                <span className={`w-1.5 h-1.5 rounded-full ${school.teacherCount > 0 && school.confirmedCount === school.teacherCount ? "bg-emerald-400" : school.teacherCount > 0 ? "bg-amber-400" : "bg-gray-300"}`} />
+                                <span className="text-xs font-medium text-gray-800">{school.name}</span>
+                                <span className="text-[10px] text-gray-400">{school.nameEn}</span>
+                                <span className="text-[10px] font-mono text-gray-400 ml-auto">{school.confirmedCount}/{school.teacherCount}</span>
+                              </div>
+                              {(school.pendingCount > 0 || school.sentCount > 0) && (
+                                <div className="flex gap-1 ml-3.5 mt-1.5">
+                                  {school.pendingCount > 0 && <span className="text-[10px] bg-amber-50 text-amber-600 border border-amber-200 rounded px-1.5 py-0.5">대기 {school.pendingCount}</span>}
+                                  {school.sentCount > 0 && <span className="text-[10px] bg-blue-50 text-blue-600 border border-blue-200 rounded px-1.5 py-0.5">발송 {school.sentCount}</span>}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
               </div>
             </div>
-          )}
 
-          <div className="bg-white rounded-2xl border overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-4 border-b">
-              <h2 className="font-bold text-gray-900">최근 등록</h2>
-              <Link href="/admin/teachers" className="text-xs text-blue-600 hover:underline">전체 보기</Link>
-            </div>
-            <div className="divide-y">
-              {recentTeachers.map((teacher) => {
-                const sc: Record<string, string> = { upgraded: "bg-emerald-400", pending: "bg-amber-400", sent: "bg-blue-400", individual: "bg-purple-400" };
-                return (
-                  <div key={teacher.id} className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 px-4 md:px-5 py-3 hover:bg-gray-50/80 transition-colors">
-                    <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
-                      <span className={`w-2 h-2 rounded-full shrink-0 ${sc[teacher.status] || "bg-gray-300"}`} />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-medium text-gray-800 truncate">{teacher.name}</p>
-                        <p className="text-[10px] text-gray-400 font-mono truncate">{teacher.email}</p>
+            <div className="space-y-4">
+              {/* 지역별 */}
+              <div className="rounded-xl border overflow-hidden">
+                <div className="px-4 py-3 border-b bg-gray-50/60">
+                  <h3 className="font-bold text-gray-900 text-sm">지역별</h3>
+                </div>
+                <div className="px-4 py-3">
+                  <div className="space-y-2">
+                    {regions.map((region) => (
+                      <div key={region.region} className="flex items-center gap-3">
+                        <span className="text-xs text-gray-600 w-8">{region.region}</span>
+                        <div className="flex-1 h-4 rounded-full bg-gray-50 overflow-hidden">
+                          <div className="h-full bg-gradient-to-r from-blue-100 to-blue-200 rounded-full flex items-center justify-end pr-2 transition-all"
+                            style={{ width: `${(region.teachers / maxRegionTeachers) * 100}%`, minWidth: "40px" }}>
+                            <span className="text-[9px] font-medium text-blue-700">{region.teachers}</span>
+                          </div>
+                        </div>
+                        <span className="text-[10px] text-gray-400 w-8 text-right">{region.schools}교</span>
                       </div>
-                      <span className="sm:hidden text-[10px] text-gray-300 shrink-0">
-                        {new Date(teacher.createdAt).toLocaleDateString("ko-KR", { month: "short", day: "numeric" })}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between pl-4 sm:pl-0 sm:block sm:text-right shrink-0">
-                      <p className="text-[10px] text-gray-400 truncate max-w-[160px] sm:max-w-[120px]">{teacher.schoolName}</p>
-                      <p className="hidden sm:block text-[10px] text-gray-300">
-                        {new Date(teacher.createdAt).toLocaleDateString("ko-KR", { month: "short", day: "numeric" })}
-                      </p>
-                    </div>
+                    ))}
                   </div>
-                );
-              })}
-            </div>
-          </div>
+                </div>
+              </div>
 
-          <div className="bg-white rounded-2xl border overflow-hidden">
-            <div className="px-5 py-4 border-b">
-              <h2 className="font-bold text-gray-900">지역별</h2>
-            </div>
-            <div className="px-5 py-3">
-              <div className="space-y-2">
-                {regions.map((region) => (
-                  <div key={region.region} className="flex items-center gap-3">
-                    <span className="text-xs text-gray-600 w-8">{region.region}</span>
-                    <div className="flex-1 h-4 rounded-full bg-gray-50 overflow-hidden">
-                      <div className="h-full bg-gradient-to-r from-blue-100 to-blue-200 rounded-full flex items-center justify-end pr-2 transition-all"
-                        style={{ width: `${(region.teachers / maxRegionTeachers) * 100}%`, minWidth: "40px" }}>
-                        <span className="text-[9px] font-medium text-blue-700">{region.teachers}</span>
-                      </div>
+              {/* Jon 확인 내역 (최근 배치) */}
+              {recentBatches.length > 0 && (
+                <div className="rounded-xl border overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-3 border-b bg-gray-50/60">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                      <h3 className="font-bold text-gray-900 text-sm">Jon 확인 내역</h3>
                     </div>
-                    <span className="text-[10px] text-gray-400 w-8 text-right">{region.schools}교</span>
+                    <span className="text-[10px] text-gray-400">최근 {recentBatches.length}건</span>
                   </div>
-                ))}
+                  <div className="divide-y">
+                    {recentBatches.map((batch) => {
+                      const when = batch.confirmedAt ? new Date(batch.confirmedAt) : null;
+                      const rel = when ? Math.max(0, Math.floor((Date.now() - when.getTime()) / 60000)) : null;
+                      const relText = rel === null ? "—" : rel < 1 ? "방금" : rel < 60 ? `${rel}분 전` : rel < 1440 ? `${Math.floor(rel / 60)}시간 전` : `${Math.floor(rel / 1440)}일 전`;
+                      return (
+                        <div key={batch.id} className="px-4 py-3">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-semibold text-gray-900">+{batch.count}명 upgraded</span>
+                              <span className="text-[10px] text-gray-400">{batch.schools.length}교</span>
+                            </div>
+                            <span className="text-[10px] text-gray-400" title={when?.toLocaleString("ko-KR") || ""}>{relText}</span>
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            {batch.schools.slice(0, 4).map((school) => (
+                              <span key={school.name} className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 rounded px-1.5 py-0.5">
+                                {school.nameEn || school.name} <span className="text-emerald-500/70">×{school.count}</span>
+                              </span>
+                            ))}
+                            {batch.schools.length > 4 && <span className="text-[10px] text-gray-400 self-center">+{batch.schools.length - 4}</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* 최근 등록 */}
+              <div className="rounded-xl border overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3 border-b bg-gray-50/60">
+                  <h3 className="font-bold text-gray-900 text-sm">최근 등록</h3>
+                  <Link href="/admin/teachers" className="text-xs text-blue-600 hover:underline">전체 보기</Link>
+                </div>
+                <div className="divide-y">
+                  {recentTeachers.map((teacher) => {
+                    const sc: Record<string, string> = { upgraded: "bg-emerald-400", pending: "bg-amber-400", sent: "bg-blue-400", individual: "bg-purple-400" };
+                    return (
+                      <div key={teacher.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50/80 transition-colors">
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${sc[teacher.status] || "bg-gray-300"}`} />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-medium text-gray-800 truncate">{teacher.name}</p>
+                          <p className="text-[10px] text-gray-400 font-mono truncate">{teacher.email}</p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-[10px] text-gray-400 truncate max-w-[120px]">{teacher.schoolName}</p>
+                          <p className="text-[10px] text-gray-300">
+                            {new Date(teacher.createdAt).toLocaleDateString("ko-KR", { month: "short", day: "numeric" })}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
+      </details>
+
+      {/* 상태 메시지 토스트 */}
+      {message && (
+        <div className={`fixed bottom-20 md:bottom-4 right-4 px-4 py-2 rounded-lg text-sm font-medium shadow-lg z-50 ${message.includes("완료") ? "bg-emerald-600 text-white" : "bg-red-600 text-white"}`}>
+          {message}
+        </div>
+      )}
     </div>
   );
 }
