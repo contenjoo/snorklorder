@@ -20,8 +20,8 @@ export async function GET(
     return NextResponse.json({ error: "Invalid or expired link" }, { status: 404 });
   }
 
-  // 같은 학교에 처리 대기(draft/sent) 다른 요청들 — Jon이 한꺼번에 확인하도록 노출
-  const { and, ne, inArray: inArr } = await import("drizzle-orm");
+  // 같은 학교에 실제로 발송된(sent) 다른 요청들만 노출 — Jon이 받아보지 못한 draft까지 확인 페이지에 뜨는 것 방지
+  const { and, ne } = await import("drizzle-orm");
   const siblings = await db
     .select({
       id: accountRequests.id,
@@ -35,7 +35,7 @@ export async function GET(
       createdAt: accountRequests.createdAt,
     })
     .from(accountRequests)
-    .where(and(eq(accountRequests.schoolName, r.schoolName), ne(accountRequests.id, r.id), inArr(accountRequests.status, ["draft", "sent"])));
+    .where(and(eq(accountRequests.schoolName, r.schoolName), ne(accountRequests.id, r.id), eq(accountRequests.status, "sent")));
 
   return NextResponse.json({ request: r, siblings });
 }
@@ -61,18 +61,27 @@ export async function POST(
   // 형제 요청도 같은 학교에 한해서만 처리 (보안: 임의 id 처리 방지)
   const validSiblings = alsoConfirmIds.length > 0
     ? await db
-        .select({ id: accountRequests.id, emails: accountRequests.emails, schoolName: accountRequests.schoolName, schoolNameEn: accountRequests.schoolNameEn, type: accountRequests.type, applicantType: accountRequests.applicantType })
+        .select({ id: accountRequests.id, emails: accountRequests.emails, schoolName: accountRequests.schoolName, schoolNameEn: accountRequests.schoolNameEn, type: accountRequests.type, applicantType: accountRequests.applicantType, status: accountRequests.status })
         .from(accountRequests)
         .where(inArray(accountRequests.id, alsoConfirmIds))
     : [];
-  const sameSchoolIds = validSiblings.filter((s) => s.schoolName === r.schoolName).map((s) => s.id);
-  const finalIds = [r.id, ...sameSchoolIds];
+  const sameSchoolSiblings = validSiblings.filter((s) => s.schoolName === r.schoolName);
   void allIds;
 
-  await db
-    .update(accountRequests)
-    .set({ status: "processed", confirmedAt: new Date(), updatedAt: new Date() })
-    .where(inArray(accountRequests.id, finalIds));
+  // 이미 processed/invoiced/paid 인 요청은 재클릭해도 상태·확인시각을 덮어쓰지 않음 (정산 단계 후퇴 방지)
+  // — Jon 입장에선 "이미 처리됨"도 정상 완료이므로 아래에서 success 응답은 그대로 반환
+  const isMainUpdatable = ["draft", "sent"].includes(r.status);
+  const updatableSiblingIds = sameSchoolSiblings
+    .filter((s) => ["draft", "sent"].includes(s.status))
+    .map((s) => s.id);
+  const finalIds = [...(isMainUpdatable ? [r.id] : []), ...updatableSiblingIds];
+
+  if (finalIds.length > 0) {
+    await db
+      .update(accountRequests)
+      .set({ status: "processed", confirmedAt: new Date(), updatedAt: new Date() })
+      .where(inArray(accountRequests.id, finalIds));
+  }
 
   // 교사 환영 메일은 응답 후 백그라운드로 발송 (형제 요청 포함)
   const siblingEmailStrings = validSiblings
@@ -85,8 +94,8 @@ export async function POST(
     .map((e) => e.trim().toLowerCase())
     .filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
 
-  // 이미 처리완료(processed)였던 건을 다시 클릭하면 완료 메일 재발송 방지 (r.status는 이 확인 직전 상태)
-  if (emails.length > 0 && r.status !== "processed") {
+  // 이미 처리완료(processed/invoiced/paid)였던 건을 다시 클릭하면 완료 메일 재발송 방지 (r.status는 이 확인 직전 상태)
+  if (emails.length > 0 && ["draft", "sent"].includes(r.status)) {
     void (async () => {
       try {
         const { schools: schoolsTable } = await import("@/db/schema");

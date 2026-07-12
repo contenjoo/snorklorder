@@ -42,6 +42,7 @@ export async function POST(req: NextRequest) {
         id: accountRequests.id,
         confirmToken: accountRequests.confirmToken,
         emails: accountRequests.emails,
+        status: accountRequests.status,
       })
       .from(accountRequests)
       .where(inArray(accountRequests.id, requestIds));
@@ -101,11 +102,14 @@ export async function POST(req: NextRequest) {
       text: lines.join("\n"),
     });
 
-    // 모두 sent 처리
-    await db
-      .update(accountRequests)
-      .set({ status: "sent", updatedAt: new Date() })
-      .where(inArray(accountRequests.id, requestIds));
+    // sent 처리 — 단, 이미 processed/invoiced/paid 로 넘어간 건은 재발송해도 정산 단계가 sent로 되돌아가지 않도록 제외
+    const updatableIds = rows.filter((r) => ["draft", "sent"].includes(r.status)).map((r) => r.id);
+    if (updatableIds.length > 0) {
+      await db
+        .update(accountRequests)
+        .set({ status: "sent", updatedAt: new Date() })
+        .where(inArray(accountRequests.id, updatableIds));
+    }
 
     return NextResponse.json({ success: true, count: requestIds.length, totalEmails });
   } catch (err) {

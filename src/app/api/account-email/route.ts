@@ -82,12 +82,19 @@ export async function POST(req: NextRequest) {
       throw sendErr;
     }
 
-    // Update status to "sent" if requestId provided
+    // Update status to "sent" if requestId provided — 단, 이미 processed/invoiced/paid 로 넘어간 건은
+    // 재발송(예: Jon에게 다시 보내기)해도 정산 단계가 sent로 되돌아가지 않도록 유지
     if (requestId) {
-      await db
-        .update(accountRequests)
-        .set({ status: "sent", updatedAt: new Date() })
+      const [current] = await db
+        .select({ status: accountRequests.status })
+        .from(accountRequests)
         .where(eq(accountRequests.id, requestId));
+      if (current && ["draft", "sent"].includes(current.status)) {
+        await db
+          .update(accountRequests)
+          .set({ status: "sent", updatedAt: new Date() })
+          .where(eq(accountRequests.id, requestId));
+      }
     }
 
     return NextResponse.json({ success: true, confirmLink });
