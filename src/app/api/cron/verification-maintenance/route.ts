@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { teachers, schools, schoolAdmins } from "@/db/schema";
-import { eq, and, isNull, lt, inArray } from "drizzle-orm";
+import { eq, and, isNull, lt, inArray, ne } from "drizzle-orm";
 import { REMINDER_DAYS, ESCALATE_DAYS } from "@/lib/verification";
 import { sendVerificationReminderEmail } from "@/lib/verification-email";
 
@@ -28,6 +28,7 @@ async function run() {
     .where(
       and(
         eq(teachers.verificationStatus, "email_verified"),
+        ne(teachers.status, "upgraded"),
         isNull(teachers.escalatedAt),
         lt(teachers.emailVerifiedAt, daysAgo(ESCALATE_DAYS))
       )
@@ -72,7 +73,12 @@ async function run() {
     })
     .from(teachers)
     .innerJoin(schools, eq(teachers.schoolId, schools.id))
-    .where(eq(teachers.verificationStatus, "email_verified"));
+    .where(
+      and(
+        eq(teachers.verificationStatus, "email_verified"),
+        ne(teachers.status, "upgraded")
+      )
+    );
 
   // Don't nag brand-new registrations.
   const reminderCutoff = daysAgo(REMINDER_DAYS).getTime();

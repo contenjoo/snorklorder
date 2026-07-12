@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { upgradeBatches, teachers, schools } from "@/db/schema";
-import { eq, inArray, and, notInArray } from "drizzle-orm";
+import { eq, inArray, and, notInArray, ne } from "drizzle-orm";
 import { sendConfirmNotification, sendTeacherUpgradedEmail } from "@/lib/email";
 
 // GET: 배치 정보 + 교사 목록 조회
@@ -138,6 +138,22 @@ export async function POST(
       .update(teachers)
       .set({ status: "upgraded" })
       .where(inArray(teachers.id, normalizedConfirmedIds));
+
+    // verification_status 동기화: Jon 확인 = 승인 완료. 단, 이미 approved인 교사는
+    // approvedAt/approvedBy(누가 언제 승인했는지)를 hq_confirm으로 덮어쓰지 않는다.
+    await db
+      .update(teachers)
+      .set({
+        verificationStatus: "approved",
+        approvedAt: confirmedAt,
+        approvedBy: "hq_confirm",
+      })
+      .where(
+        and(
+          inArray(teachers.id, normalizedConfirmedIds),
+          ne(teachers.verificationStatus, "approved")
+        )
+      );
 
     // Notifications run after the response — Jon shouldn't wait on Gmail I/O
     void (async () => {
