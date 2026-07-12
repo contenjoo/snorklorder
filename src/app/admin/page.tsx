@@ -107,6 +107,21 @@ function parseAmount(s?: string | null): number {
   return isNaN(n) ? 0 : n;
 }
 
+// D-day 뱃지: 결제 기한 기준 (account는 'YYYY-MM-DD' date, domain은 자유 텍스트일 수 있어 파싱 실패 시 null)
+function dDayInfo(invoiceDueDate: string | null | undefined): { label: string; cls: string } | null {
+  if (!invoiceDueDate) return null;
+  const due = /^\d{4}-\d{2}-\d{2}/.test(invoiceDueDate)
+    ? new Date(`${invoiceDueDate.slice(0, 10)}T00:00:00`)
+    : new Date(invoiceDueDate);
+  if (isNaN(due.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const diff = Math.round((due.getTime() - today.getTime()) / 86400000);
+  if (diff < 0) return { label: `D+${-diff}`, cls: "bg-red-100 text-red-700" }; // 기한 초과
+  if (diff <= 3) return { label: `D-${diff}`, cls: "bg-orange-100 text-orange-700" }; // 임박
+  return { label: `D-${diff}`, cls: "bg-gray-100 text-gray-500" };
+}
+
 function classifyAccount(r: OpenAccountRequest): "JON_PROCESS" | "JON_INVOICE" | "ME_PAY" | "JON_CONFIRM" {
   if (r.status === "draft" || r.status === "sent") return "JON_PROCESS";
   if (r.status === "processed" && !r.invoiceNumber) return "JON_INVOICE";
@@ -365,15 +380,19 @@ export default function AdminDashboard() {
           {buckets.ME_PAY.length > 0 && (
             <div className="rounded-xl bg-red-50/50 border border-red-100 p-3 space-y-1.5">
               <div className="text-[11px] font-bold text-red-900">⚡ 내가 결제할 것</div>
-              {buckets.ME_PAY.sort((a, b) => b.ageDays - a.ageDays).slice(0, 5).map((i) => (
+              {buckets.ME_PAY.sort((a, b) => b.ageDays - a.ageDays).slice(0, 5).map((i) => {
+                const dday = dDayInfo(i.invoiceDueDate);
+                return (
                 <div key={i.id} className="flex items-center gap-2 text-xs bg-white rounded px-2 py-1.5 border border-red-100">
                   <span className="text-[9px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 font-medium shrink-0">{i.source === "domain" ? "🌐 도메인" : "📚 정산"}</span>
                   <span className="text-gray-700 truncate flex-1">{i.schoolNameEn || i.schoolName}</span>
                   {i.amountText && <span className="font-mono text-gray-900 shrink-0">{i.amountText}</span>}
+                  {dday && <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${dday.cls}`} title={`결제 기한: ${i.invoiceDueDate}`}>{dday.label}</span>}
                   <span className={`text-[10px] shrink-0 ${i.ageDays >= 7 ? "text-red-600 font-bold" : i.ageDays >= 3 ? "text-orange-600" : "text-gray-500"}`}>{i.ageDays}d</span>
                   {i.paymentLink && <a href={i.paymentLink} target="_blank" rel="noopener noreferrer" className="text-[10px] bg-red-600 text-white rounded px-2 py-0.5 font-bold shrink-0 hover:bg-red-700">💳 결제</a>}
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
           {(buckets.JON_PROCESS.some((i) => i.ageDays >= 3) || buckets.JON_INVOICE.some((i) => i.ageDays >= 5)) && (

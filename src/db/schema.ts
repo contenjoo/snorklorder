@@ -1,4 +1,4 @@
-import { index, integer, pgTable, serial, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { date, index, integer, pgTable, serial, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
 export const schools = pgTable("schools", {
@@ -76,9 +76,9 @@ export const accountRequests = pgTable("account_requests", {
   status: text("status").notNull().default("draft"), // draft | sent | processed | invoiced | paid
   invoiceNumber: text("invoice_number"),
   invoiceAmount: text("invoice_amount"),
-  invoiceDueDate: text("invoice_due_date"),
+  invoiceDueDate: date("invoice_due_date"), // 'YYYY-MM-DD' 문자열로 직렬화
   paymentLink: text("payment_link"),
-  paymentDate: text("payment_date"),
+  paymentDate: date("payment_date"), // 'YYYY-MM-DD' 문자열로 직렬화
   paymentMethod: text("payment_method"),
   confirmToken: text("confirm_token").unique(),
   confirmedAt: timestamp("confirmed_at"),

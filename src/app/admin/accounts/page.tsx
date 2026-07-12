@@ -45,6 +45,19 @@ function fmtMD(s: string | null | undefined) {
   return `${(d.getMonth() + 1).toString().padStart(2, "0")}/${d.getDate().toString().padStart(2, "0")}`;
 }
 
+// D-day 뱃지: 결제 기한이 있고 아직 결제 전일 때만 (API가 date를 'YYYY-MM-DD' 문자열로 내려줌)
+function dDayInfo(invoiceDueDate: string | null | undefined, paymentDate: string | null | undefined): { label: string; cls: string } | null {
+  if (!invoiceDueDate || paymentDate) return null;
+  const due = new Date(`${invoiceDueDate.slice(0, 10)}T00:00:00`);
+  if (isNaN(due.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const diff = Math.round((due.getTime() - today.getTime()) / 86400000);
+  if (diff < 0) return { label: `D+${-diff}`, cls: "bg-red-100 text-red-700" }; // 기한 초과
+  if (diff <= 3) return { label: `D-${diff}`, cls: "bg-orange-100 text-orange-700" }; // 임박
+  return { label: `D-${diff}`, cls: "bg-gray-100 text-gray-500" };
+}
+
 const TYPES = [
   { value: "upgrade", label: "업그레이드", icon: "⬆️", en: "Upgrade" },
   { value: "email_change", label: "이메일 변경", icon: "✉️", en: "Email Change" },
@@ -573,9 +586,9 @@ export default function AccountsPage() {
                     <div className="grid grid-cols-2 gap-2 mt-2">
                       <div className="space-y-1"><Label className="text-[10px]">인보이스 #</Label><Input value={fInvNum} onChange={(e) => setFInvNum(e.target.value)} className="h-7 text-xs" /></div>
                       <div className="space-y-1"><Label className="text-[10px]">금액</Label><Input value={fInvAmt} onChange={(e) => setFInvAmt(e.target.value)} placeholder="$80.00" className="h-7 text-xs" /></div>
-                      <div className="space-y-1"><Label className="text-[10px]">결제 기한</Label><Input value={fInvDue} onChange={(e) => setFInvDue(e.target.value)} placeholder="April 30, 2026" className="h-7 text-xs" /></div>
+                      <div className="space-y-1"><Label className="text-[10px]">결제 기한</Label><Input type="date" value={fInvDue} onChange={(e) => setFInvDue(e.target.value)} className="h-7 text-xs" /></div>
                       <div className="space-y-1"><Label className="text-[10px]">결제 링크</Label><Input value={fPayLink} onChange={(e) => setFPayLink(e.target.value)} className="h-7 text-xs" /></div>
-                      <div className="space-y-1"><Label className="text-[10px]">결제일</Label><Input value={fPayDate} onChange={(e) => setFPayDate(e.target.value)} className="h-7 text-xs" /></div>
+                      <div className="space-y-1"><Label className="text-[10px]">결제일</Label><Input type="date" value={fPayDate} onChange={(e) => setFPayDate(e.target.value)} className="h-7 text-xs" /></div>
                       <div className="space-y-1"><Label className="text-[10px]">결제 방법</Label><Input value={fPayMethod} onChange={(e) => setFPayMethod(e.target.value)} placeholder="MasterCard ••1234" className="h-7 text-xs" /></div>
                     </div>
                   </details>
@@ -640,6 +653,7 @@ export default function AccountsPage() {
           const typeInfo = TYPES.find((t) => t.value === r.type);
           const statusInfo = STATUSES.find((s) => s.value === r.status);
           const emails = r.emails.split(/[,;\n]+/).map((e) => e.trim()).filter(Boolean);
+          const dday = dDayInfo(r.invoiceDueDate, r.paymentDate);
 
           return (
             <div key={r.id} className="border-b last:border-b-0 hover:bg-gray-50/50">
@@ -688,6 +702,7 @@ export default function AccountsPage() {
                     </div>
                   ) : <span className="text-[10px] text-gray-300">—</span>}
                   {r.invoiceNumber && <div className="text-[9px] text-gray-400">{r.invoiceNumber}</div>}
+                  {dday && <span className={`inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-full mt-0.5 ${dday.cls}`} title={`결제 기한: ${r.invoiceDueDate}`}>{dday.label}</span>}
                 </div>
                 <div className="w-28 flex items-center justify-end gap-0.5">
                   <button onClick={() => setEmailPreview(r)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-blue-50 text-gray-400 hover:text-blue-600" title="미리보기">📧</button>
@@ -730,6 +745,7 @@ export default function AccountsPage() {
                   <button onClick={() => copyEmail(r)} className="text-[11px] text-gray-400 hover:text-blue-600 px-2 py-1 rounded bg-gray-50 min-h-[28px]">복사</button>
                   <button onClick={() => openEdit(r)} className="text-[11px] text-gray-400 hover:text-blue-600 px-2 py-1 rounded bg-gray-50 min-h-[28px]">수정</button>
                   {r.invoiceAmount && <span className="text-[10px] font-semibold text-gray-700 ml-auto">{r.invoiceAmount}{r.paymentDate && " ✓"}</span>}
+                  {dday && <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${dday.cls} ${r.invoiceAmount ? "" : "ml-auto"}`} title={`결제 기한: ${r.invoiceDueDate}`}>{dday.label}</span>}
                 </div>
               </div>
             </div>
