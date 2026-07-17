@@ -524,12 +524,15 @@ export default function AdminDashboard() {
       <div className="grid lg:grid-cols-[1.6fr_1fr] gap-4 items-start">
         {/* 좌측: 오늘 할 일 */}
         <div className="space-y-4">
-          <section className="bg-white rounded-2xl border overflow-hidden">
-            <div className="flex items-center gap-2.5 px-4 md:px-5 py-3.5 border-b">
+          <details open className="bg-white rounded-2xl border overflow-hidden group">
+            <summary className="flex items-center gap-2.5 px-4 md:px-5 py-3.5 border-b cursor-pointer list-none [&::-webkit-details-marker]:hidden select-none">
               <h2 className="font-bold text-gray-900 text-[15px]">오늘 할 일</h2>
               <span className="text-[11px] font-bold text-gray-500 bg-gray-100 rounded-full px-2.5 py-0.5 tabular-nums">{todoCount}</span>
-              <Link href="/admin/accounts" className="ml-auto text-xs text-blue-600 hover:underline font-medium">전체 보기 →</Link>
-            </div>
+              <span className="ml-auto flex items-center gap-2">
+                <Link href="/admin/accounts" onClick={(e) => e.stopPropagation()} className="text-xs text-blue-600 hover:underline font-medium">전체 보기 →</Link>
+                <span className="text-gray-400 text-xs transition-transform group-open:rotate-180">▾</span>
+              </span>
+            </summary>
 
             {todoCount === 0 ? (
               <div className="px-5 py-10 text-center text-sm text-gray-400">오늘 할 일 없음 ✓</div>
@@ -637,7 +640,7 @@ export default function AdminDashboard() {
                 })}
               </>
             )}
-          </section>
+          </details>
 
           {/* Jon 발송 대기 큐 (교사 업그레이드) — 기존 기능 유지 */}
           {needUpgrade > 0 && (
