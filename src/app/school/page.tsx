@@ -97,6 +97,7 @@ export default function SchoolDashboardPage() {
   const [addInput, setAddInput] = useState("");
   const [addBusy, setAddBusy] = useState(false);
   const [addMsg, setAddMsg] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
 
   const load = useCallback(async () => {
     const res = await fetch("/api/school/summary");
@@ -177,6 +178,30 @@ export default function SchoolDashboardPage() {
     [load]
   );
 
+  const removeTeacher = useCallback(
+    async (t: Teacher) => {
+      const message =
+        t.status === "upgraded"
+          ? "이미 업그레이드된 계정입니다. 목록에서 삭제해도 Snorkl 계정은 유지됩니다. 삭제할까요?"
+          : "삭제할까요?";
+      if (!window.confirm(message)) return;
+      setBusyId(t.id);
+      try {
+        const res = await fetch(`/api/school/teachers/${t.id}`, {
+          method: "DELETE",
+        });
+        if (res.status === 401) {
+          window.location.href = "/school/login";
+          return;
+        }
+        await load();
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [load]
+  );
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center text-gray-500">
@@ -188,6 +213,15 @@ export default function SchoolDashboardPage() {
   if (!data) return null;
 
   const { school, counts, queue, teachers, accountRequests } = data;
+  const query = search.trim().toLowerCase();
+  const filteredTeachers = query
+    ? teachers.filter(
+        (t) =>
+          t.name.toLowerCase().includes(query) ||
+          t.email.toLowerCase().includes(query) ||
+          (t.subject ?? "").toLowerCase().includes(query)
+      )
+    : teachers;
   const schoolTitle = school.nameEn
     ? `${school.nameEn} (${school.name})`
     : school.name;
@@ -324,43 +358,77 @@ export default function SchoolDashboardPage() {
 
       {/* All teachers */}
       <section className="mb-10">
-        <h2 className="mb-3 text-lg font-semibold text-slate-900">
-          전체 교사 / All teachers
-        </h2>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold text-slate-900">
+            전체 교사 / All teachers
+          </h2>
+          <div className="flex items-center gap-2">
+            {query && (
+              <span className="text-sm text-slate-500">
+                {filteredTeachers.length}건 일치
+              </span>
+            )}
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="이름·이메일·과목 검색"
+              className="w-56 rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-300"
+            />
+          </div>
+        </div>
         <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
           {teachers.length === 0 ? (
             <div className="p-6 text-center text-sm text-slate-500">
               등록된 교사가 없습니다
             </div>
+          ) : filteredTeachers.length === 0 ? (
+            <div className="p-6 text-center text-sm text-slate-500">
+              검색 결과가 없습니다
+            </div>
           ) : (
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
-                <tr>
-                  <th className="px-4 py-2 font-medium">Email</th>
-                  <th className="px-4 py-2 font-medium">Subject</th>
-                  <th className="px-4 py-2 font-medium">Verification</th>
-                  <th className="px-4 py-2 font-medium">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {teachers.map((t) => (
-                  <tr key={t.id}>
-                    <td className="px-4 py-3 font-medium text-slate-900">
-                      {t.email}
-                    </td>
-                    <td className="px-4 py-3 text-slate-600">
-                      {t.subject ?? "-"}
-                    </td>
-                    <td className="px-4 py-3">
-                      <VerificationBadge value={t.verificationStatus} />
-                    </td>
-                    <td className="px-4 py-3">
-                      <StatusBadge value={t.status} />
-                    </td>
+            <div className="max-h-[32rem] overflow-y-auto">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-slate-50 text-left text-xs uppercase text-slate-500">
+                  <tr>
+                    <th className="px-4 py-2 font-medium">Email</th>
+                    <th className="px-4 py-2 font-medium">Subject</th>
+                    <th className="px-4 py-2 font-medium">Verification</th>
+                    <th className="px-4 py-2 font-medium">Status</th>
+                    <th className="px-4 py-2 font-medium text-right">삭제</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredTeachers.map((t) => (
+                    <tr key={t.id}>
+                      <td className="px-4 py-3 font-medium text-slate-900">
+                        {t.email}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {t.subject ?? "-"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <VerificationBadge value={t.verificationStatus} />
+                      </td>
+                      <td className="px-4 py-3">
+                        <StatusBadge value={t.status} />
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          disabled={busyId === t.id}
+                          onClick={() => removeTeacher(t)}
+                          title="삭제"
+                          aria-label={`${t.email} 삭제`}
+                          className="rounded px-2 py-1 text-xs font-medium text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                        >
+                          ✕
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       </section>
