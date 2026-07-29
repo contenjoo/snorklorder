@@ -1,21 +1,10 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
-import nodemailer from "nodemailer";
 import { randomBytes } from "crypto";
 import { db } from "@/db";
 import { accountRequests } from "@/db/schema";
 import { eq } from "drizzle-orm";
-
-const HQ_EMAIL = "cailie@snorkl.app"; // Cailie가 처리, Jon은 CC
-const HQ_CC = "jon@snorkl.app";
-const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || "https://snorkl-teacher-reg.vercel.app";
-
-function getTransporter() {
-  const user = process.env.GMAIL_USER;
-  const pass = process.env.GMAIL_APP_PASSWORD;
-  if (!user || !pass) return null;
-  return nodemailer.createTransport({ service: "gmail", auth: { user, pass } });
-}
+import { getTransporter, logEmail, escapeHtml, BASE_URL, HQ_EMAIL, HQ_CC } from "@/lib/email";
 
 export async function POST(req: NextRequest) {
   try {
@@ -50,8 +39,6 @@ export async function POST(req: NextRequest) {
       confirmLink = `${BASE_URL}/account-confirm/${token}`;
     }
 
-    const escapeHtml = (s: string) =>
-      s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
     const bodyHtml = escapeHtml(body).replace(/\n/g, "<br>");
 
     const buttonBlock = confirmLink
@@ -65,7 +52,6 @@ export async function POST(req: NextRequest) {
          </div>`
       : "";
 
-    const { logEmail } = await import("@/lib/email");
     try {
       await transporter.sendMail({
         from,

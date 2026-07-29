@@ -1,21 +1,11 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
-import nodemailer from "nodemailer";
 import { randomBytes } from "crypto";
 import { db } from "@/db";
 import { accountRequests } from "@/db/schema";
 import { inArray, eq } from "drizzle-orm";
-
-const HQ_EMAIL = "cailie@snorkl.app"; // Cailie가 처리, Jon은 CC
-const HQ_CC = "jon@snorkl.app";
-const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || "https://snorkl-teacher-reg.vercel.app";
-
-function getTransporter() {
-  const user = process.env.GMAIL_USER;
-  const pass = process.env.GMAIL_APP_PASSWORD;
-  if (!user || !pass) return null;
-  return nodemailer.createTransport({ service: "gmail", auth: { user, pass } });
-}
+import { getTransporter, BASE_URL, HQ_EMAIL, HQ_CC } from "@/lib/email";
+import { parseEmailList } from "@/lib/security";
 
 interface Section {
   subject: string;
@@ -63,10 +53,7 @@ export async function POST(req: NextRequest) {
       tokenMap.set(id, token);
     }
 
-    const totalEmails = rows.reduce(
-      (s, r) => s + r.emails.split(/[,;\n]+/).filter((e) => e.trim()).length,
-      0,
-    );
+    const totalEmails = rows.reduce((s, r) => s + parseEmailList(r.emails).length, 0);
 
     const lines: string[] = [];
     lines.push("Hi Cailie,");

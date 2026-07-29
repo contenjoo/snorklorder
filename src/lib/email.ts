@@ -2,9 +2,8 @@ import nodemailer from "nodemailer";
 import { db } from "@/db";
 import { emailLogs } from "@/db/schema";
 // 본사 담당자: Cailie가 처리, Jon은 항상 CC (2026-07-18 사용자 지시)
-const HQ_EMAIL = "cailie@snorkl.app";
-const HQ_CC = "jon@snorkl.app";
-const DIGEST_RECIPIENTS = ["cailie@snorkl.app", "jeff@snorkl.app"];
+export const HQ_EMAIL = "cailie@snorkl.app";
+export const HQ_CC = "jon@snorkl.app";
 const ADMIN_EMAIL = process.env.GMAIL_USER || "";
 export const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || "https://snorkl-teacher-reg.vercel.app";
 
@@ -20,10 +19,10 @@ export type EmailKind =
   | "account_confirm"
   | "account_email"
   | "stale_reminder"
-  | "daily_digest"
+  | "daily_digest" // 레거시 — 발송 코드는 제거됨, 과거 email_logs 행 + /admin 라벨용으로 유지
   | "school_code"
   | "admin_request"
-  | "email_verify" // 교사 등록 이메일 OTP/매직링크
+  | "email_verify" // 레거시(OTP/매직링크) — 발송 코드는 제거됨, admin/summary 필터 + 과거 로그용으로 유지
   | "school_login" // 학교 관리자 매직링크 로그인
   | "verification_reminder"; // 승인 대기 교사 리마인더 (학교 관리자/본사)
 
@@ -86,7 +85,8 @@ export async function logEmail(args: {
   }
 }
 
-function escapeHtml(value: string) {
+export function escapeHtml(value: string | null | undefined) {
+  if (!value) return "";
   return value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -122,6 +122,7 @@ interface TeacherInfo {
 }
 
 import { teamLabelEn, isGroupPurchaseTeam } from "@/lib/teams";
+import { parseEmailList } from "@/lib/security";
 
 // 선택 교사 일괄 발송 (Jon에게만 + 확인 링크 포함)
 export async function sendBatchNotification(
@@ -270,7 +271,7 @@ export async function sendAdminNotification(request: { name: string; contactName
         <p><b>학교명:</b> ${safe(request.name)}</p>
         <p><b>지역:</b> ${safe(request.region, "미입력")}</p>
         <p><b>담당자:</b> ${safe(request.contactName)} (${safe(request.contactEmail)})</p>
-        <p><a href="https://snorkl-teacher-reg.vercel.app/admin/requests">승인하러 가기 →</a></p>
+        <p><a href="${BASE_URL}/admin/requests">승인하러 가기 →</a></p>
       `,
     });
     return { success: true };
@@ -334,7 +335,7 @@ export async function sendSchoolCodeEmail(email: string, name: string, schoolNam
             <p style="font-size:32px;font-weight:bold;color:#1e3a5f;letter-spacing:4px;margin:0">${safe(code)}</p>
           </div>
           <p>아래 링크를 동료 선생님들에게 공유해주세요:</p>
-          <p><a href="https://snorkl-teacher-reg.vercel.app" style="color:#2563eb">https://snorkl-teacher-reg.vercel.app</a></p>
+          <p><a href="${BASE_URL}" style="color:#2563eb">${BASE_URL}</a></p>
           <p style="color:#666;font-size:13px">선생님들이 위 링크에서 학교 코드를 입력하고 Snorkl 프리미엄 등록을 하시면 됩니다.</p>
           <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
           <p style="color:#999;font-size:11px">이 메일은 Snorkl 주문관리 시스템에서 자동 발송되었습니다.</p>
@@ -389,9 +390,7 @@ export async function sendAccountUpgradeCompletion(req: {
   schoolName: string;
   schoolNameEn?: string | null;
 }): Promise<{ sent: number; failed: number; total: number }> {
-  const list = [...new Set(
-    req.emails.split(/[\n,;]+/).map((e) => e.trim().toLowerCase()).filter((e) => e && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e))
-  )];
+  const list = parseEmailList(req.emails);
   let sent = 0, failed = 0;
   for (let i = 0; i < list.length; i++) {
     const res = await sendTeacherUpgradedEmail({
@@ -537,41 +536,6 @@ export async function sendStaleSentReminder(items: { email: string; name: string
           </table>
           <p style="margin:16px 0 0"><a href="${BASE_URL}/admin" style="color:#2563eb">대시보드 열기 →</a></p>
         </div>
-      `,
-    });
-    return { success: true };
-  } catch (err) {
-    return { success: false, error: String(err) };
-  }
-}
-
-// 매일 자동 digest
-export async function sendDailyDigest(teachers: { teacherName: string; teacherEmail: string; subject: string | null; schoolName: string; schoolCode: string }[]): Promise<EmailResult> {
-  const t = getTransporter();
-  if (!t) return { success: false, skipped: true };
-  // Group by school
-  const bySchool = new Map<string, typeof teachers>();
-  for (const tc of teachers) {
-    if (!bySchool.has(tc.schoolName)) bySchool.set(tc.schoolName, []);
-    bySchool.get(tc.schoolName)!.push(tc);
-  }
-  const body = Array.from(bySchool.entries()).map(([school, tcs]) => {
-    const lines = tcs
-      .map((tc, i) => `${i + 1}. ${safe(tc.teacherName)} - ${safe(tc.teacherEmail)}${tc.subject ? ` (${safe(tc.subject)})` : ""}`)
-      .join("<br>");
-    return `<h3>${safe(school)} (${tcs.length})</h3><p>${lines}</p>`;
-  }).join("<hr>");
-  try {
-    await t.sendMail({
-      from: ADMIN_EMAIL,
-      to: DIGEST_RECIPIENTS.join(", "),
-      cc: HQ_CC,
-      subject: `[Snorkl] Daily Digest - ${teachers.length} new teachers`,
-      html: `
-        <h2>Daily Teacher Registration Digest</h2>
-        <p>New registrations in the last 24 hours: <b>${teachers.length}</b></p>
-        <hr>${body}
-        <hr><p style="color:#666;font-size:12px">Auto-sent from Snorkl Teacher Registration Manager</p>
       `,
     });
     return { success: true };

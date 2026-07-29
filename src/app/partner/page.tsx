@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { teamLabelEn as teamLabel, isGroupPurchaseTeam } from "@/lib/teams";
 import { canConfirmUpgrades } from "@/lib/partner-roles";
+import { SUBJECT_EN, daysSince, copyEmails as copyEmailsTo } from "@/lib/ui-format";
 
 interface Teacher {
   id: number;
@@ -53,19 +54,10 @@ interface BillingDomain {
 
 type Tab = "action" | "schools" | "recent" | "billing";
 
+/** 갱신 후 경과 일수. 파싱 실패 시 0으로 표시. */
 function daysAgo(iso: string): number {
-  return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+  return daysSince(iso) ?? 0;
 }
-
-const SUBJECT_EN: Record<string, string> = {
-  "수학": "Math", "국어": "Korean", "영어": "English", "과학": "Science",
-  "역사": "History", "사회": "Social Studies", "미술": "Art", "음악": "Music",
-  "체육": "PE", "기술": "Technology", "생명과학": "Biology", "제2외국어": "2nd Language",
-  "담임": "Homeroom", "상담": "Counseling", "사서": "Librarian", "환경": "Environment",
-  "물리": "Physics", "화학": "Chemistry", "지리": "Geography", "도덕": "Ethics",
-  "정보": "IT", "가정": "Home Ec", "일본어": "Japanese", "중국어": "Chinese",
-};
-
 
 export default function PartnerDashboard() {
   const [schools, setSchools] = useState<School[]>([]);
@@ -221,9 +213,7 @@ export default function PartnerDashboard() {
   }
 
   function copyEmails(emails: string[], label: string) {
-    navigator.clipboard.writeText(emails.join("\n"));
-    setCopied(label);
-    setTimeout(() => setCopied(""), 2500);
+    copyEmailsTo(emails, label, setCopied);
   }
 
   function toggleTeam(key: string) {

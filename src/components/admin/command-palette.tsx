@@ -45,9 +45,6 @@ interface TeacherItem {
 type PaletteItem = ActionItem | SchoolItem | TeacherItem;
 
 const DEFAULT_ACTIONS: ActionItem[] = [
-  // TODO: /admin/accounts is owned by another in-flight change. It does not yet read
-  // `?new=1` to auto-open the "new request" dialog — this link currently just navigates
-  // to the accounts page. Wire up the auto-open once that page settles.
   { type: "action", key: "new-account", icon: "➕", label: "새 정산 요청", hint: "이동", href: "/admin/accounts?new=1" },
   { type: "action", key: "goto-accounts", icon: "🧾", label: "정산으로 이동", hint: "이동", href: "/admin/accounts" },
   { type: "action", key: "pending-teachers", icon: "⏳", label: "교사 승인 대기 보기", hint: "이동", href: "/admin" },

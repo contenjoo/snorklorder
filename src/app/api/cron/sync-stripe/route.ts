@@ -12,6 +12,7 @@ import {
   type MatchableRequest,
   type ParsedStripeEmail,
 } from "@/lib/stripe-email";
+import { authorizeCron } from "@/lib/cron-auth";
 
 // Stripe 인보이스/영수증 Gmail 자동 감지 크론 (구 snorkl-manager sync-gmail 이식)
 // - 인보이스 메일: processed 요청 매칭 → invoice_* 채우고 status='invoiced'
@@ -192,30 +193,15 @@ async function run(req: NextRequest) {
   });
 }
 
-function authorize(req: NextRequest): boolean {
-  // 1) Vercel 크론: Authorization: Bearer ${CRON_SECRET} (자동 전송) — 기존 크론과 동일
-  const cronSecret = process.env.CRON_SECRET?.trim();
-  if (cronSecret && req.headers.get("authorization") === `Bearer ${cronSecret}`) {
-    return true;
-  }
-  // 2) 수동 트리거: x-api-key 헤더 또는 ?key= (INTEGRATION_API_KEY)
-  const apiKey = process.env.INTEGRATION_API_KEY;
-  if (apiKey) {
-    const provided = req.headers.get("x-api-key") ?? req.nextUrl.searchParams.get("key");
-    if (provided === apiKey) return true;
-  }
-  return false;
-}
-
 export async function GET(req: NextRequest) {
-  if (!authorize(req)) {
+  if (!authorizeCron(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   return run(req);
 }
 
 export async function POST(req: NextRequest) {
-  if (!authorize(req)) {
+  if (!authorizeCron(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   return run(req);

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { TEAM_COLORS } from "@/lib/teams";
+import { daysSince, dDayInfo } from "@/lib/ui-format";
 
 interface DashboardTeacher {
   id: number;
@@ -15,11 +16,6 @@ interface DashboardTeacher {
   schoolName: string;
   schoolNameEn: string | null;
   schoolTeam: string | null;
-}
-
-function daysSince(iso: string | null | undefined): number | null {
-  if (!iso) return null;
-  return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
 }
 
 interface SchoolSummary {
@@ -117,21 +113,6 @@ function parseAmount(s?: string | null): number {
   if (!s) return 0;
   const n = Number(String(s).replace(/[^\d.]/g, ""));
   return isNaN(n) ? 0 : n;
-}
-
-// D-day 뱃지: 결제 기한 기준 (account는 'YYYY-MM-DD' date, domain은 자유 텍스트일 수 있어 파싱 실패 시 null)
-function dDayInfo(invoiceDueDate: string | null | undefined): { label: string; cls: string; diff: number } | null {
-  if (!invoiceDueDate) return null;
-  const due = /^\d{4}-\d{2}-\d{2}/.test(invoiceDueDate)
-    ? new Date(`${invoiceDueDate.slice(0, 10)}T00:00:00`)
-    : new Date(invoiceDueDate);
-  if (isNaN(due.getTime())) return null;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const diff = Math.round((due.getTime() - today.getTime()) / 86400000);
-  if (diff < 0) return { label: `D+${-diff}`, cls: "bg-red-100 text-red-700", diff }; // 기한 초과
-  if (diff <= 3) return { label: `D-${diff}`, cls: "bg-orange-100 text-orange-700", diff }; // 임박
-  return { label: `D-${diff}`, cls: "bg-gray-100 text-gray-500", diff };
 }
 
 function classifyAccount(r: OpenAccountRequest): "JON_PROCESS" | "JON_INVOICE" | "ME_PAY" | "JON_CONFIRM" {
@@ -1008,7 +989,7 @@ export default function AdminDashboard() {
                 </div>
                 <div className="divide-y">
                   {recentTeachers.map((teacher) => {
-                    const sc: Record<string, string> = { upgraded: "bg-emerald-400", pending: "bg-amber-400", sent: "bg-blue-400", individual: "bg-purple-400" };
+                    const sc: Record<string, string> = { upgraded: "bg-emerald-400", pending: "bg-amber-400", sent: "bg-blue-400", individual: "bg-violet-400" };
                     return (
                       <div key={teacher.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50/80 transition-colors">
                         <span className={`w-2 h-2 rounded-full shrink-0 ${sc[teacher.status] || "bg-gray-300"}`} />

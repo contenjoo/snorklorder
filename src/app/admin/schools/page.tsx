@@ -3,6 +3,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { useSchoolData } from "@/lib/use-data";
 import { teamColor } from "@/lib/teams";
+import { copyEmails as copyEmailsTo } from "@/lib/ui-format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -217,9 +218,7 @@ export default function SchoolsPage() {
     setSelected(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   }
   function copyEmails(emails: string[], label: string) {
-    navigator.clipboard.writeText(emails.join("\n"));
-    setCopied(label);
-    setTimeout(() => setCopied(null), 2000);
+    copyEmailsTo(emails, label, setCopied);
   }
   async function sendTeachers(ids: number[], label?: string) {
     if (ids.length === 0) return;

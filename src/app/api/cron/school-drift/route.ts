@@ -4,15 +4,13 @@ import { db } from "@/db";
 import { schools } from "@/db/schema";
 import { neon } from "@neondatabase/serverless";
 import nodemailer from "nodemailer";
+import { authorizeCron } from "@/lib/cron-auth";
 
 const ADMIN_EMAIL = process.env.GMAIL_USER || "";
 const MARKET_DB_URL = process.env.MARKET_DATABASE_URL || "";
 
 export async function GET(req: Request) {
-  const authHeader = req.headers.get("authorization");
-  const cronSecret = process.env.CRON_SECRET?.trim();
-  if (!cronSecret) return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 500 });
-  if (authHeader !== `Bearer ${cronSecret}`) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!authorizeCron(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!MARKET_DB_URL) return NextResponse.json({ skipped: true, reason: "MARKET_DATABASE_URL not configured" });
 
   const mkDb = neon(MARKET_DB_URL);

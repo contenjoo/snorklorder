@@ -36,13 +36,11 @@ async function fetchSchools(): Promise<School[]> {
 
 export function useSchoolData() {
   const [schools, setSchools] = useState<School[]>(_cache?.data || []);
-  const [loading, setLoading] = useState(!_cache);
 
   const load = useCallback(async (force = false) => {
     // Return cache if fresh
     if (!force && _cache && Date.now() - _cache.timestamp < CLIENT_CACHE_TTL) {
       setSchools(_cache.data);
-      setLoading(false);
       return;
     }
 
@@ -51,11 +49,9 @@ export function useSchoolData() {
       _promise = fetchSchools().finally(() => { _promise = null; });
     }
 
-    setLoading(true);
     const data = await _promise;
     _cache = { data, timestamp: Date.now() };
     setSchools(data);
-    setLoading(false);
   }, []);
 
   const refresh = useCallback(() => {
@@ -71,7 +67,7 @@ export function useSchoolData() {
     return () => window.clearTimeout(timer);
   }, [load]);
 
-  return { schools, loading, refresh };
+  return { schools, refresh };
 }
 
 export type { School, Teacher };
