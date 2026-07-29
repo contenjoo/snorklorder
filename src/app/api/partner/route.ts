@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { schools, teachers, accountRequests, domainRequests } from "@/db/schema";
 import { desc, inArray } from "drizzle-orm";
+import { canConfirmUpgrades } from "@/lib/partner-roles";
 
 // GET: partner dashboard data
 export async function GET() {
@@ -91,7 +92,7 @@ export async function GET() {
 export async function PATCH(req: NextRequest) {
   // Check role — only Jon or Cailie can upgrade
   const cookie = req.cookies.get("snorkl-partner-auth");
-  if (cookie?.value !== "jon" && cookie?.value !== "cailie") {
+  if (!canConfirmUpgrades(cookie?.value)) {
     return NextResponse.json({ error: "Only Jon or Cailie can mark upgrades" }, { status: 403 });
   }
 

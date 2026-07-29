@@ -23,10 +23,6 @@ function getCailiePassword() {
   return password && password.length > 0 ? password : null;
 }
 
-/** 파트너 포털에서 업그레이드 확정 권한이 있는 역할 (Cailie가 담당, Jon도 유지) */
-export const PARTNER_UPGRADE_ROLES = ["jon", "cailie"] as const;
-export const PARTNER_ROLES = ["jon", "jeff", "cailie"] as const;
-
 /** Returns "jon" | "jeff" | "cailie" | null */
 export function verifyPartnerPassword(password: string): string | null {
   const trimmed = password.trim();

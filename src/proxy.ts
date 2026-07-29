@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isPartnerRole } from "@/lib/partner-roles";
 
 function isPublicApiRequest(request: NextRequest, pathname: string) {
   if (pathname.startsWith("/api/auth")) return true;
@@ -39,7 +40,7 @@ export function proxy(request: NextRequest) {
   // Protect /partner routes
   if (pathname.startsWith("/partner") && !pathname.startsWith("/partner/login")) {
     const auth = request.cookies.get("snorkl-partner-auth");
-    if (auth?.value !== "jon" && auth?.value !== "jeff") {
+    if (!isPartnerRole(auth?.value)) {
       return NextResponse.redirect(new URL("/partner/login", request.url));
     }
   }
@@ -48,7 +49,7 @@ export function proxy(request: NextRequest) {
   if (pathname.startsWith("/api/partner") && !pathname.startsWith("/api/partner/auth")) {
     const partnerAuth = request.cookies.get("snorkl-partner-auth");
     const adminAuth = request.cookies.get("snorkl-admin-auth");
-    if ((partnerAuth?.value !== "jon" && partnerAuth?.value !== "jeff") && adminAuth?.value !== "authenticated") {
+    if (!isPartnerRole(partnerAuth?.value) && adminAuth?.value !== "authenticated") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     return NextResponse.next();

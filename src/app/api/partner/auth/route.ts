@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyPartnerPassword, PARTNER_COOKIE_NAME } from "@/lib/auth";
+import { isPartnerRole } from "@/lib/partner-roles";
 import { checkRateLimit, createRateLimitResponse } from "@/lib/security";
 
 export async function POST(req: NextRequest) {
@@ -41,7 +42,7 @@ export async function POST(req: NextRequest) {
 export async function GET(req: NextRequest) {
   const cookie = req.cookies.get(PARTNER_COOKIE_NAME);
   const role = cookie?.value;
-  if (role === "jon" || role === "jeff" || role === "cailie") {
+  if (isPartnerRole(role)) {
     return NextResponse.json({ role });
   }
   return NextResponse.json({ role: null }, { status: 401 });

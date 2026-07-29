@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { teamLabelEn as teamLabel, isGroupPurchaseTeam } from "@/lib/teams";
+import { canConfirmUpgrades } from "@/lib/partner-roles";
 
 interface Teacher {
   id: number;
@@ -98,7 +99,7 @@ export default function PartnerDashboard() {
     });
   }, []);
 
-  const isJon = role === "jon" || role === "cailie"; // 업그레이드 확정 권한 (Jon·Cailie 동일)
+  const isJon = canConfirmUpgrades(role); // 업그레이드 확정 권한 (Jon·Cailie 동일)
 
   const stats = useMemo(() => {
     const all = schools.flatMap((s) => s.teachers);
@@ -257,8 +258,11 @@ export default function PartnerDashboard() {
       if (data.success) {
         setMsg(`${data.upgraded} teacher(s) marked as upgraded`);
         setSelected(new Set());
+        // GET /api/partner 는 { schools, accountRequests, domainRequests } 객체를 반환
         const fresh = await fetch("/api/partner").then((r) => r.json());
-        setSchools(fresh);
+        setSchools(Array.isArray(fresh?.schools) ? fresh.schools : []);
+        if (Array.isArray(fresh?.accountRequests)) setBillingAccounts(fresh.accountRequests);
+        if (Array.isArray(fresh?.domainRequests)) setBillingDomains(fresh.domainRequests);
       } else {
         setMsg("Failed: " + (data.error || "Unknown error"));
       }
