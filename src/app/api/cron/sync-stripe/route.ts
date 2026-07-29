@@ -71,7 +71,8 @@ async function run(req: NextRequest) {
       paymentDate: accountRequests.paymentDate,
     })
     .from(accountRequests)
-    .where(inArray(accountRequests.status, ["processed", "invoiced", "paid"]));
+    // sent 포함 — 본사 처리 확인(processed) 전에 인보이스가 먼저 오는 경우가 있다 (구 snorkl-manager 와 동일 범위)
+    .where(inArray(accountRequests.status, ["sent", "processed", "invoiced", "paid"]));
 
   let invoicesFound = 0;
   let receiptsFound = 0;

@@ -360,7 +360,11 @@ export type MatchResult =
   | { kind: "already_synced"; requestId: number }
   | { kind: "unmatched"; reason: string };
 
-/** 인보이스 메일 → status='processed' 요청 매칭 */
+// 인보이스가 도착할 수 있는 단계: 본사에 요청 발송(sent) 직후에도 인보이스가 먼저 올 수 있고,
+// 처리 확인(processed) 후에 오기도 한다. 구 snorkl-manager 도 두 상태를 모두 매칭 대상으로 삼았다.
+const INVOICE_MATCHABLE_STATUSES = ["sent", "processed"];
+
+/** 인보이스 메일 → status='sent'|'processed' 요청 매칭 */
 export function matchInvoice(invoice: StripeInvoiceData, requests: MatchableRequest[]): MatchResult {
   const invNum = normalizeInvoiceNumber(invoice.invoiceNumber);
 
@@ -368,8 +372,8 @@ export function matchInvoice(invoice: StripeInvoiceData, requests: MatchableRequ
   if (invNum) {
     const byNumber = requests.find((r) => normalizeInvoiceNumber(r.invoiceNumber) === invNum);
     if (byNumber) {
-      // processed 상태면 (수동 선기입 등) 이 요청으로 확정, 이미 invoiced/paid 면 재실행 중복 — 스킵
-      return byNumber.status === "processed"
+      // 매칭 가능 상태면 (수동 선기입 등) 이 요청으로 확정, 이미 invoiced/paid 면 재실행 중복 — 스킵
+      return INVOICE_MATCHABLE_STATUSES.includes(byNumber.status)
         ? { kind: "matched", requestId: byNumber.id, via: "invoice_number" }
         : { kind: "already_synced", requestId: byNumber.id };
     }
@@ -380,19 +384,18 @@ export function matchInvoice(invoice: StripeInvoiceData, requests: MatchableRequ
   if (!amount) {
     return { kind: "unmatched", reason: "인보이스 금액 파싱 실패 — 수동 확인 필요" };
   }
-  const candidates = requests.filter(
-    (r) => r.status === "processed" && normalizeAmount(r.invoiceAmount) === amount
-  );
-  // invoice_amount 는 인보이스 수신 전엔 비어있는 게 정상 → 미기입 processed 요청도 후보에 포함하되,
+  const matchable = requests.filter((r) => INVOICE_MATCHABLE_STATUSES.includes(r.status));
+  const candidates = matchable.filter((r) => normalizeAmount(r.invoiceAmount) === amount);
+  // invoice_amount 는 인보이스 수신 전엔 비어있는 게 정상 → 미기입 요청도 후보에 포함하되,
   // 금액이 기입돼 있으면 반드시 일치해야 함.
-  const blankCandidates = requests.filter((r) => r.status === "processed" && !r.invoiceAmount?.trim());
+  const blankCandidates = matchable.filter((r) => !r.invoiceAmount?.trim());
   const pool = candidates.length > 0 ? candidates : blankCandidates;
 
   if (pool.length === 1) {
     return { kind: "matched", requestId: pool[0].id, via: "amount" };
   }
   if (pool.length === 0) {
-    return { kind: "unmatched", reason: "금액 일치하는 processed 요청 없음" };
+    return { kind: "unmatched", reason: "금액 일치하는 sent/processed 요청 없음" };
   }
   return { kind: "unmatched", reason: `후보 ${pool.length}개 — 단일 확정 불가` };
 }
