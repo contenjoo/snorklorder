@@ -50,26 +50,30 @@ git commit --allow-empty -q -m "chore: ${KEYS[*]} 로테이트 반영 재배포"
 git push origin "$(git branch --show-current)" >/dev/null 2>&1
 
 # 4) 검증
-echo "→ 배포 대기 (최대 4분)"
+# 주의: 새 배포가 뜨기 전까지 구 배포가 계속 200 을 돌려준다.
+# 따라서 정적 페이지 200 만으로 "배포 완료"를 판단하면 안 되고,
+# 실제 DB 를 타는 경로가 200 이 될 때까지 기다려야 한다 (2026-07-30 실사고 반영).
+echo "→ 배포 및 반영 대기 (최대 6분)"
 BASE="https://snorkl-teacher-reg.vercel.app"
-for _ in $(seq 1 24); do
+PROBE="$BASE/api/schools/search?q=%ED%8F%AC%EA%B3%A1"   # DB 조회를 타는 공개 엔드포인트
+
+OK=0
+for _ in $(seq 1 36); do
   sleep 10
-  CODE=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/school" || echo 000)
-  if [ "$CODE" = "200" ]; then
-    echo "✓ 배포 완료 — /school 200"
-    case " ${KEYS[*]} " in
-      *" DATABASE_URL "*)
-        # 실제 DB 쿼리가 도는 경로로 연결 확인 (존재하지 않는 주소라 메일 발송은 없음)
-        LOGIN=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" \
-          -d '{"email":"rotation-check@example.invalid"}' "$BASE/api/school/login" || echo 000)
-        [ "$LOGIN" = "200" ] && echo "✓ DB 연결 확인 (school/login 200)" \
-                             || echo "✗ DB 연결 실패 (HTTP $LOGIN) — Vercel 로그 확인 필요"
-        ;;
-    esac
-    exit 0
-  fi
+  CODE=$(curl -s -o /dev/null -w "%{http_code}" "$PROBE" || echo 000)
+  if [ "$CODE" = "200" ]; then OK=1; break; fi
   printf '.'
 done
 echo ""
-echo "✗ 4분 내 확인 실패 — Vercel 대시보드에서 배포 상태 확인 요망" >&2
+
+if [ "$OK" = "1" ]; then
+  echo "✓ 배포 반영 확인 — DB 조회 경로 200"
+  SCHOOL=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/school" || echo 000)
+  echo "  /school: $SCHOOL"
+  exit 0
+fi
+
+echo "✗ 6분 내 DB 조회 경로가 살아나지 않음 (마지막 HTTP $CODE)" >&2
+echo "  확인: vercel ls snorkl-teacher-reg  /  Vercel 대시보드 로그" >&2
+echo "  값이 잘못됐다면 같은 명령을 다시 실행하면 된다." >&2
 exit 1
