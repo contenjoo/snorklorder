@@ -2,7 +2,7 @@
 // teams DB 테이블은 데이터 기록용, 렌더링용 라벨/색상은 여기서 관리.
 // Tailwind v4가 이 파일의 리터럴 클래스 문자열을 자동 스캔하므로 purge 안전.
 
-export interface TeamColor {
+interface TeamColor {
   bg: string;
   text: string;
   dot: string;
@@ -10,7 +10,7 @@ export interface TeamColor {
   hex: string; // 차트/인라인 스타일용
 }
 
-export const TEAM_EN: Record<string, string> = {
+const TEAM_EN: Record<string, string> = {
   "서울1팀": "Seoul Team 1",
   "서울4팀": "Seoul Team 4",
   "서울8팀": "Seoul Team 8",
@@ -34,7 +34,7 @@ export const TEAM_COLORS: Record<string, TeamColor> = {
   "경기9팀": { bg: "bg-amber-50", text: "text-amber-700", dot: "bg-amber-500", border: "border-amber-200", hex: "#f59e0b" },
 };
 
-export const DEFAULT_TEAM_COLOR: TeamColor = {
+const DEFAULT_TEAM_COLOR: TeamColor = {
   bg: "bg-gray-50", text: "text-gray-600", dot: "bg-gray-400", border: "border-gray-200", hex: "#9ca3af",
 };
 

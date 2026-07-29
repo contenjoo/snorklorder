@@ -5,6 +5,7 @@ import { teachers, schools, schoolAdmins } from "@/db/schema";
 import { eq, and, isNull, lt, inArray, ne } from "drizzle-orm";
 import { REMINDER_DAYS, ESCALATE_DAYS } from "@/lib/verification";
 import { sendVerificationReminderEmail } from "@/lib/verification-email";
+import { authorizeCron } from "@/lib/cron-auth";
 
 type PendingTeacher = {
   id: number;
@@ -165,30 +166,15 @@ async function run() {
   return NextResponse.json({ ok: true, escalated, remindersSent });
 }
 
-function authorize(req: NextRequest): boolean {
-  // 1) Vercel 크론: Authorization: Bearer ${CRON_SECRET} (자동 전송) — 기존 크론과 동일
-  const cronSecret = process.env.CRON_SECRET?.trim();
-  if (cronSecret && req.headers.get("authorization") === `Bearer ${cronSecret}`) {
-    return true;
-  }
-  // 2) 수동 트리거: x-api-key 헤더 또는 ?key= (INTEGRATION_API_KEY)
-  const apiKey = process.env.INTEGRATION_API_KEY;
-  if (apiKey) {
-    const provided = req.headers.get("x-api-key") ?? req.nextUrl.searchParams.get("key");
-    if (provided === apiKey) return true;
-  }
-  return false;
-}
-
 export async function GET(req: NextRequest) {
-  if (!authorize(req)) {
+  if (!authorizeCron(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   return run();
 }
 
 export async function POST(req: NextRequest) {
-  if (!authorize(req)) {
+  if (!authorizeCron(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   return run();

@@ -4,17 +4,10 @@ import { db } from "@/db";
 import { teachers, schools } from "@/db/schema";
 import { sql, desc, eq } from "drizzle-orm";
 import { sendStaleSentReminder } from "@/lib/email";
+import { authorizeCron } from "@/lib/cron-auth";
 
 export async function GET(req: Request) {
-  // Verify cron secret (Vercel cron sends this header)
-  const authHeader = req.headers.get("authorization");
-  const cronSecret = process.env.CRON_SECRET?.trim();
-
-  if (!cronSecret) {
-    return NextResponse.json({ error: "CRON_SECRET is not configured" }, { status: 500 });
-  }
-
-  if (authHeader !== `Bearer ${cronSecret}`) {
+  if (!authorizeCron(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

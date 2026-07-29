@@ -4,16 +4,12 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { isGroupPurchaseTeam } from "@/lib/teams";
 
 type Step = "choose" | "schoolFind" | "schoolForm" | "batchForm" | "success" | "batchSuccess" | "request" | "requestSent" | "purchaseForm";
 type FindMode = "search" | "code";
 
 interface SchoolResult { id: number; name: string; nameEn: string | null; code: string; team?: string | null; }
-
-function isGroupPurchaseTeam(team: string | null | undefined): boolean {
-  if (!team) return false;
-  return !team.includes("개별") && team !== "미배정";
-}
 
 export default function TeacherRegistration() {
   const [step, setStep] = useState<Step>("choose");

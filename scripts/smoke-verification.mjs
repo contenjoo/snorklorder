@@ -27,7 +27,7 @@ try {
   // (B) 도메인 불일치 교사 → email_verified (큐). 관리자 없으니 escalated 즉시
   const [tMiss] = await sql`INSERT INTO teachers (school_id, name, email, status, verification_status) VALUES (${school.id}, 'B', 'b@gmail.com', 'pending', 'unverified') RETURNING id`;
 
-  // 토큰 생성 (createTeacherVerification 로직)
+  // 토큰 생성 (구 OTP/매직링크 발급 로직 모사 — 앱 코드에서는 제거됨, 테이블만 잔존)
   const otp = String(Math.floor(Math.random() * 1e6)).padStart(6, "0");
   await sql`INSERT INTO email_verification_tokens (teacher_id, code, token, expires_at) VALUES (${tMatch.id}, ${otp}, ${"tok_" + tMatch.id}, ${new Date(Date.now() + 8.64e7)})`;
   ok(true, "email_verification_tokens insert 성공");

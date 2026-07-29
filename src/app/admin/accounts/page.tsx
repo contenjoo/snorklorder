@@ -12,6 +12,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { dDayInfo } from "@/lib/ui-format";
 
 interface AccountRequest {
   id: number;
@@ -46,24 +47,11 @@ function fmtMD(s: string | null | undefined) {
   return `${(d.getMonth() + 1).toString().padStart(2, "0")}/${d.getDate().toString().padStart(2, "0")}`;
 }
 
-// D-day 뱃지: 결제 기한이 있고 아직 결제 전일 때만 (API가 date를 'YYYY-MM-DD' 문자열로 내려줌)
-function dDayInfo(invoiceDueDate: string | null | undefined, paymentDate: string | null | undefined): { label: string; cls: string } | null {
-  if (!invoiceDueDate || paymentDate) return null;
-  const due = new Date(`${invoiceDueDate.slice(0, 10)}T00:00:00`);
-  if (isNaN(due.getTime())) return null;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const diff = Math.round((due.getTime() - today.getTime()) / 86400000);
-  if (diff < 0) return { label: `D+${-diff}`, cls: "bg-red-100 text-red-700" }; // 기한 초과
-  if (diff <= 3) return { label: `D-${diff}`, cls: "bg-orange-100 text-orange-700" }; // 임박
-  return { label: `D-${diff}`, cls: "bg-gray-100 text-gray-500" };
-}
-
 const TYPES = [
-  { value: "upgrade", label: "업그레이드", icon: "⬆️", en: "Upgrade" },
-  { value: "email_change", label: "이메일 변경", icon: "✉️", en: "Email Change" },
-  { value: "type_change", label: "타입 변경", icon: "🔄", en: "Type Change" },
-  { value: "extension", label: "연장", icon: "📅", en: "Extension" },
+  { value: "upgrade", label: "업그레이드", icon: "⬆️" },
+  { value: "email_change", label: "이메일 변경", icon: "✉️" },
+  { value: "type_change", label: "타입 변경", icon: "🔄" },
+  { value: "extension", label: "연장", icon: "📅" },
 ];
 
 const CHANNELS = [
@@ -77,11 +65,11 @@ const APPLICANT_TYPES = [
 ];
 
 const STATUSES = [
-  { value: "draft", label: "작성 중", color: "bg-gray-100 text-gray-600", dot: "bg-gray-400" },
-  { value: "sent", label: "요청 완료", color: "bg-amber-100 text-amber-700", dot: "bg-amber-400" },
-  { value: "processed", label: "처리 완료", color: "bg-green-100 text-green-700", dot: "bg-green-400" },
-  { value: "invoiced", label: "인보이스", color: "bg-blue-100 text-blue-700", dot: "bg-blue-400" },
-  { value: "paid", label: "결제 완료", color: "bg-purple-100 text-purple-700", dot: "bg-purple-400" },
+  { value: "draft", label: "작성 중", color: "bg-gray-100 text-gray-600" },
+  { value: "sent", label: "요청 완료", color: "bg-amber-100 text-amber-700" },
+  { value: "processed", label: "처리 완료", color: "bg-green-100 text-green-700" },
+  { value: "invoiced", label: "인보이스", color: "bg-blue-100 text-blue-700" },
+  { value: "paid", label: "결제 완료", color: "bg-purple-100 text-purple-700" },
 ];
 
 // 이메일 본문 생성 (snorkl-manager 그대로)
@@ -117,10 +105,12 @@ function generateEmail(r: AccountRequest) {
 }
 
 function AccountsPageContent() {
-  // 대시보드 연동: ?filter=상태 로 초기 필터, ?focus=id 로 해당 행 스크롤+강조
+  // 대시보드/커맨드 팔레트 연동: ?filter=상태 로 초기 필터, ?focus=id 로 해당 행 스크롤+강조,
+  // ?new=1 로 새 요청 다이얼로그 자동 오픈
   const searchParams = useSearchParams();
   const filterParam = searchParams.get("filter");
   const focusId = Number(searchParams.get("focus")) || null;
+  const newParam = searchParams.get("new") === "1";
 
   const [requests, setRequests] = useState<AccountRequest[]>([]);
   const [filter, setFilter] = useState(
@@ -128,6 +118,7 @@ function AccountsPageContent() {
   );
   const [focusHighlight, setFocusHighlight] = useState<number | null>(null);
   const focusedOnce = useRef(false);
+  const openedNewOnce = useRef(false);
   const [filterChannel, setFilterChannel] = useState("all");
   const [filterApplicant, setFilterApplicant] = useState("all");
   const [filterType, setFilterType] = useState("all");
@@ -187,6 +178,13 @@ function AccountsPageContent() {
       document.getElementById(`account-row-${focusId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
     });
   }, [requests, focusId]);
+
+  // ?new=1 이면 새 요청 다이얼로그를 자동으로 연다 (최초 1회)
+  useEffect(() => {
+    if (!newParam || openedNewOnce.current) return;
+    openedNewOnce.current = true;
+    setOpen(true);
+  }, [newParam]);
 
   useEffect(() => {
     if (fApplicant === "individual") { setSchoolMatches([]); return; }

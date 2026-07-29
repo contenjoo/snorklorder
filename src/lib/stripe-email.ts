@@ -28,7 +28,7 @@ export type ParsedStripeEmail =
 // ─── Gmail OAuth env ─────────────────────────────────────────────────────────
 
 // snorkl-manager 와 동일한 키 이름 사용 (Gmail OAuth2 readonly)
-export const REQUIRED_GMAIL_ENV = ["GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "GMAIL_REFRESH_TOKEN"] as const;
+const REQUIRED_GMAIL_ENV = ["GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "GMAIL_REFRESH_TOKEN"] as const;
 
 export function missingGmailEnv(): string[] {
   return REQUIRED_GMAIL_ENV.filter((key) => !process.env[key]?.trim());
@@ -37,7 +37,7 @@ export function missingGmailEnv(): string[] {
 // ─── HTML Utility ────────────────────────────────────────────────────────────
 
 /** HTML 태그 제거 + 흔한 엔티티 디코드 + 공백 정규화 */
-export function stripHtml(html: string): string {
+function stripHtml(html: string): string {
   return html
     .replace(/<[^>]*>/g, " ")
     .replace(/&amp;/g, "&")
@@ -56,7 +56,7 @@ export function stripHtml(html: string): string {
  * Stripe 이메일을 invoice / receipt / unknown 으로 분류.
  * "Snorkl" 키워드로 다른 서비스(Paldet 등) 메일은 걸러냄.
  */
-export function classifyStripeEmail(body: string): StripeEmailType {
+function classifyStripeEmail(body: string): StripeEmailType {
   if (!/snorkl/i.test(body)) return "unknown";
   if (body.includes("Pay this invoice")) return "invoice";
   if (body.includes("View purchase")) return "receipt";
@@ -85,12 +85,12 @@ export function toIsoDate(englishDate: string): string | null {
 }
 
 /** 금액 문자열 비교용 정규화: "$1,240.00" → "1240.00" */
-export function normalizeAmount(amount: string | null | undefined): string {
+function normalizeAmount(amount: string | null | undefined): string {
   return (amount || "").replace(/[$,\s]/g, "");
 }
 
 /** 인보이스 번호 비교용 정규화: "#3d3776b4-0120" → "3D3776B4-0120" */
-export function normalizeInvoiceNumber(num: string | null | undefined): string {
+function normalizeInvoiceNumber(num: string | null | undefined): string {
   return (num || "").replace(/^#/, "").trim().toUpperCase();
 }
 
@@ -114,7 +114,7 @@ function extractInvoiceNumber(stripped: string, body: string): string {
  * Stripe 인보이스 이메일 본문(HTML/텍스트)을 구조화 데이터로 파싱.
  * 핵심 필드인 paymentLink 를 못 찾으면 null.
  */
-export function parseInvoiceEmail(body: string): StripeInvoiceData | null {
+function parseInvoiceEmail(body: string): StripeInvoiceData | null {
   const stripped = stripHtml(body);
 
   // --- 결제 링크 (필수) ---
@@ -192,7 +192,7 @@ export function parseInvoiceEmail(body: string): StripeInvoiceData | null {
  * Stripe 영수증(결제 확인) 이메일 본문을 구조화 데이터로 파싱.
  * 금액을 못 찾으면 null.
  */
-export function parseReceiptEmail(body: string): StripeReceiptData | null {
+function parseReceiptEmail(body: string): StripeReceiptData | null {
   const stripped = stripHtml(body);
 
   // --- 금액 (필수) — "Snorkl" 주변 500자 창에서 우선 탐색 ---

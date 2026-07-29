@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { schoolLoginTokens } from "@/db/schema";
 
-export const SCHOOL_COOKIE_NAME = "snorkl-school-auth";
+const SCHOOL_COOKIE_NAME = "snorkl-school-auth";
 const LOGIN_TOKEN_TTL_MS = 1000 * 60 * 30; // 매직링크 30분
 const SESSION_MAX_AGE = 60 * 60 * 24 * 14; // 세션 14일
 
@@ -17,14 +17,14 @@ function secret(): string {
 }
 
 /** schoolId 를 HMAC 서명한 쿠키 값으로 인코딩 */
-export function signSchoolSession(schoolId: number): string {
+function signSchoolSession(schoolId: number): string {
   const payload = String(schoolId);
   const sig = createHmac("sha256", secret()).update(payload).digest("hex");
   return `${payload}.${sig}`;
 }
 
 /** 쿠키 값 검증 → schoolId | null */
-export function verifySchoolSession(value: string | undefined | null): number | null {
+function verifySchoolSession(value: string | undefined | null): number | null {
   if (!value) return null;
   const dot = value.lastIndexOf(".");
   if (dot < 0) return null;

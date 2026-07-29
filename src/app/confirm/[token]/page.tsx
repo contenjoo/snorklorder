@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { SUBJECT_EN, copyEmails as copyEmailsTo } from "@/lib/ui-format";
 
 interface Teacher {
   id: number;
@@ -14,18 +15,8 @@ interface Teacher {
   schoolTeam: string | null;
 }
 
-const SUBJECT_EN: Record<string, string> = {
-  "수학": "Math", "국어": "Korean", "영어": "English", "과학": "Science",
-  "역사": "History", "사회": "Social Studies", "미술": "Art", "음악": "Music",
-  "체육": "PE", "기술": "Technology", "생명과학": "Biology", "제2외국어": "2nd Language",
-  "담임": "Homeroom", "상담": "Counseling", "사서": "Librarian", "환경": "Environment",
-  "물리": "Physics", "화학": "Chemistry", "지리": "Geography", "도덕": "Ethics",
-  "정보": "IT", "가정": "Home Ec", "일본어": "Japanese", "중국어": "Chinese",
-};
-
 interface Stats {
   totalSchools: number;
-  totalTeachers: number;
   pending: number;
   sent: number;
   upgraded: number;
@@ -80,9 +71,7 @@ export default function ConfirmPage() {
   };
 
   const copyEmails = (emails: string[], label: string) => {
-    navigator.clipboard.writeText(emails.join("\n"));
-    setCopied(label);
-    setTimeout(() => setCopied(""), 2500);
+    copyEmailsTo(emails, label, setCopied);
   };
 
   const copyAllEmails = () => {
