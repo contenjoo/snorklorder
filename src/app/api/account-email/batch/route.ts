@@ -6,7 +6,8 @@ import { db } from "@/db";
 import { accountRequests } from "@/db/schema";
 import { inArray, eq } from "drizzle-orm";
 
-const JON_EMAIL = "jon@snorkl.app";
+const HQ_EMAIL = "cailie@snorkl.app"; // Cailie가 처리, Jon은 CC
+const HQ_CC = "jon@snorkl.app";
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || "https://snorkl-teacher-reg.vercel.app";
 
 function getTransporter() {
@@ -68,7 +69,7 @@ export async function POST(req: NextRequest) {
     );
 
     const lines: string[] = [];
-    lines.push("Hi Jon,");
+    lines.push("Hi Cailie,");
     lines.push("");
     lines.push(
       `Below ${requestIds.length === 1 ? "is 1 account request" : `are ${requestIds.length} account requests`}` +
@@ -97,7 +98,8 @@ export async function POST(req: NextRequest) {
 
     await transporter.sendMail({
       from: process.env.GMAIL_USER || "",
-      to: JON_EMAIL,
+      to: HQ_EMAIL,
+      cc: HQ_CC,
       subject,
       text: lines.join("\n"),
     });

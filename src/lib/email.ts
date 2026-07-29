@@ -1,8 +1,10 @@
 import nodemailer from "nodemailer";
 import { db } from "@/db";
 import { emailLogs } from "@/db/schema";
-const JON_EMAIL = "jon@snorkl.app";
-const DIGEST_RECIPIENTS = ["jon@snorkl.app", "jeff@snorkl.app"];
+// 본사 담당자: Cailie가 처리, Jon은 항상 CC (2026-07-18 사용자 지시)
+const HQ_EMAIL = "cailie@snorkl.app";
+const HQ_CC = "jon@snorkl.app";
+const DIGEST_RECIPIENTS = ["cailie@snorkl.app", "jeff@snorkl.app"];
 const ADMIN_EMAIL = process.env.GMAIL_USER || "";
 export const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || "https://snorkl-teacher-reg.vercel.app";
 
@@ -233,7 +235,8 @@ export async function sendBatchNotification(
 
   return sendAndLog(t, {
     from: ADMIN_EMAIL,
-    to: JON_EMAIL,
+    to: HQ_EMAIL,
+    cc: HQ_CC,
     subject: `[Snorkl] Upgrade Request — ${total} teacher${total !== 1 ? "s" : ""}, ${groups.length} school(s)${districtLabel}`,
     html: `
       <div style="max-width:600px;margin:0 auto;font-family:-apple-system,sans-serif">
@@ -458,11 +461,12 @@ export async function sendDomainPaidRequest(payload: {
     : "";
   return sendAndLog(t, {
     from: ADMIN_EMAIL,
-    to: JON_EMAIL,
+    to: HQ_EMAIL,
+    cc: HQ_CC,
     subject,
     html: `
       <div style="max-width:560px;margin:0 auto;font-family:-apple-system,sans-serif;color:#1f2937">
-        <h3 style="margin:0 0 12px">Hi Jon,</h3>
+        <h3 style="margin:0 0 12px">Hi Cailie,</h3>
         <p style="margin:0 0 12px">Could you please enable the following <b>domain</b> as a paid Snorkl domain?
           All teachers signing up with this domain should be automatically upgraded to premium.</p>
         <div style="background:#f0f7ff;border:1px solid #dbeafe;border-radius:10px;padding:14px 16px;margin:16px 0">
@@ -476,7 +480,7 @@ export async function sendDomainPaidRequest(payload: {
         <p style="color:#9ca3af;font-size:11px;margin:0">Sent from Snorkl 주문관리 · LearnToday</p>
       </div>
     `,
-    text: `Hi Jon,\n\nCould you please enable the following domain as a paid Snorkl domain?\nAll teachers signing up with this domain should be automatically upgraded to premium.\n\nDomain: @${payload.domain}\nSchool: ${payload.schoolNameEn || payload.schoolName}${payload.team ? ` [${payload.team}]` : ""}${payload.note ? `\nNote: ${payload.note}` : ""}${payload.confirmLink ? `\n\nOnce enabled, please click to confirm:\n${payload.confirmLink}` : ""}\n\nThanks,\nBanghyun`,
+    text: `Hi Cailie,\n\nCould you please enable the following domain as a paid Snorkl domain?\nAll teachers signing up with this domain should be automatically upgraded to premium.\n\nDomain: @${payload.domain}\nSchool: ${payload.schoolNameEn || payload.schoolName}${payload.team ? ` [${payload.team}]` : ""}${payload.note ? `\nNote: ${payload.note}` : ""}${payload.confirmLink ? `\n\nOnce enabled, please click to confirm:\n${payload.confirmLink}` : ""}\n\nThanks,\nBanghyun`,
   }, { kind: "account_email", relatedType: "school" });
 }
 
@@ -561,6 +565,7 @@ export async function sendDailyDigest(teachers: { teacherName: string; teacherEm
     await t.sendMail({
       from: ADMIN_EMAIL,
       to: DIGEST_RECIPIENTS.join(", "),
+      cc: HQ_CC,
       subject: `[Snorkl] Daily Digest - ${teachers.length} new teachers`,
       html: `
         <h2>Daily Teacher Registration Digest</h2>

@@ -6,7 +6,8 @@ import { db } from "@/db";
 import { accountRequests } from "@/db/schema";
 import { eq } from "drizzle-orm";
 
-const JON_EMAIL = "jon@snorkl.app";
+const HQ_EMAIL = "cailie@snorkl.app"; // Cailie가 처리, Jon은 CC
+const HQ_CC = "jon@snorkl.app";
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || "https://snorkl-teacher-reg.vercel.app";
 
 function getTransporter() {
@@ -68,7 +69,8 @@ export async function POST(req: NextRequest) {
     try {
       await transporter.sendMail({
         from,
-        to: JON_EMAIL,
+        to: HQ_EMAIL,
+        cc: HQ_CC,
         subject,
         text: confirmLink ? `${body}\n\n---\nOnce the upgrade is done, please click to confirm:\n${confirmLink}\n` : body,
         html: `<div style="max-width:560px;margin:0 auto;font-family:-apple-system,sans-serif;color:#1f2937;font-size:14px;line-height:1.6">
@@ -76,9 +78,9 @@ export async function POST(req: NextRequest) {
                  <div>${bodyHtml}</div>
                </div>`,
       });
-      await logEmail({ to: JON_EMAIL, subject, kind: "account_email", status: "success", relatedType: "account_request", relatedId: requestId || null });
+      await logEmail({ to: HQ_EMAIL, subject, kind: "account_email", status: "success", relatedType: "account_request", relatedId: requestId || null });
     } catch (sendErr) {
-      await logEmail({ to: JON_EMAIL, subject, kind: "account_email", status: "failed", error: String(sendErr), relatedType: "account_request", relatedId: requestId || null });
+      await logEmail({ to: HQ_EMAIL, subject, kind: "account_email", status: "failed", error: String(sendErr), relatedType: "account_request", relatedId: requestId || null });
       throw sendErr;
     }
 

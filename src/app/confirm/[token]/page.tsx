@@ -213,7 +213,7 @@ export default function ConfirmPage() {
         </div>
 
         <p className="text-gray-600 text-sm mb-4 px-1">
-          Hi Jon! Please check the teachers you&apos;ve upgraded, then click <b>Confirm</b>.
+          Hi Cailie! Please check the teachers you&apos;ve upgraded, then click <b>Confirm</b>.
         </p>
 
         <div className="flex items-center justify-between mb-3 px-1">

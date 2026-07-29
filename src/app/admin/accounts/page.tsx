@@ -98,20 +98,20 @@ function generateEmail(r: AccountRequest) {
       : `Teacher Upgrade Request – ${school} (${r.quantity || 1} ${accLabel})`;
     const emailList = r.emails.split(/[,;\n]+/).map((e) => e.trim()).filter(Boolean).map((e) => `- Email: ${e}`).join("\n");
     body = isSchool
-      ? `Hi Jon,\n\nI'd like to request a school-wide upgrade for ${school}.\n\n${emailList}${r.notes ? `\n\nNote: ${r.notes}` : ""}\n\nPlease let me know once it's done. Thank you.\n\nBanghyun`
-      : `Hi Jon,\n\nI'd like to request an upgrade for ${r.quantity || 1} ${accLabel} account${(r.quantity || 1) > 1 ? "s" : ""} for ${school}.\n\n${emailList}${r.notes ? `\n\nNote: ${r.notes}` : ""}\n\nPlease let me know once it's done. Thank you.\n\nBanghyun`;
+      ? `Hi Cailie,\n\nI'd like to request a school-wide upgrade for ${school}.\n\n${emailList}${r.notes ? `\n\nNote: ${r.notes}` : ""}\n\nPlease let me know once it's done. Thank you.\n\nBanghyun`
+      : `Hi Cailie,\n\nI'd like to request an upgrade for ${r.quantity || 1} ${accLabel} account${(r.quantity || 1) > 1 ? "s" : ""} for ${school}.\n\n${emailList}${r.notes ? `\n\nNote: ${r.notes}` : ""}\n\nPlease let me know once it's done. Thank you.\n\nBanghyun`;
   } else if (r.type === "email_change") {
     subject = `Account Email Change Request – ${school}`;
-    body = `Hi Jon,\n\nCould you please update the email for the account at ${school}?\n\n- Old email: ${r.oldEmail || ""}\n- New email: ${r.emails || ""}${r.notes ? `\n\nNote: ${r.notes}` : ""}\n\nThank you.\n\nBanghyun`;
+    body = `Hi Cailie,\n\nCould you please update the email for the account at ${school}?\n\n- Old email: ${r.oldEmail || ""}\n- New email: ${r.emails || ""}${r.notes ? `\n\nNote: ${r.notes}` : ""}\n\nThank you.\n\nBanghyun`;
   } else if (r.type === "type_change") {
     subject = `Account Type Change Request - ${r.emails}`;
-    body = `Hi Jon,\n\nThe account ${r.emails || ""} was registered as a ${r.fromType === "teacher" ? "teacher" : "student"}, but this user is a ${r.fromType === "teacher" ? "student" : "teacher"}. Could you please change the account type?${r.notes ? `\n\nNote: ${r.notes}` : ""}\n\nThank you.\n\nBanghyun`;
+    body = `Hi Cailie,\n\nThe account ${r.emails || ""} was registered as a ${r.fromType === "teacher" ? "teacher" : "student"}, but this user is a ${r.fromType === "teacher" ? "student" : "teacher"}. Could you please change the account type?${r.notes ? `\n\nNote: ${r.notes}` : ""}\n\nThank you.\n\nBanghyun`;
   } else if (r.type === "extension") {
     subject = `Account Extension Request – ${school}`;
-    body = `Hi Jon,\n\nCould you extend the ${r.emails || ""} account through ${r.extensionDate || "[DATE]"}?\n\nPlease send me an invoice for that too.${r.notes ? `\n\nNote: ${r.notes}` : ""}\n\nThanks,\n\nBanghyun`;
+    body = `Hi Cailie,\n\nCould you extend the ${r.emails || ""} account through ${r.extensionDate || "[DATE]"}?\n\nPlease send me an invoice for that too.${r.notes ? `\n\nNote: ${r.notes}` : ""}\n\nThanks,\n\nBanghyun`;
   } else {
     subject = `Snorkl Request – ${school}`;
-    body = `Hi Jon,\n\n${r.notes || ""}\n\nBanghyun`;
+    body = `Hi Cailie,\n\n${r.notes || ""}\n\nBanghyun`;
   }
   return { subject, body };
 }
@@ -351,7 +351,7 @@ function AccountsPageContent() {
   // Gmail 열기
   function openGmail(r: AccountRequest) {
     const { subject, body } = generateEmail(r);
-    const mailto = `mailto:jon@snorkl.app?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    const mailto = `mailto:cailie@snorkl.app?cc=jon@snorkl.app&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     window.open(mailto, "_blank");
   }
 
@@ -799,11 +799,11 @@ function AccountsPageContent() {
             <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
               <div className="p-4 border-b bg-gray-50 rounded-t-xl">
                 <div className="flex items-center justify-between mb-2">
-                  <h3 className="font-bold text-sm">Jon에게 보낼 이메일</h3>
+                  <h3 className="font-bold text-sm">Cailie에게 보낼 이메일</h3>
                   <button onClick={() => setEmailPreview(null)} className="text-gray-400 hover:text-gray-600">✕</button>
                 </div>
                 <div className="text-xs text-gray-500 space-y-0.5">
-                  <div><b>To:</b> jon@snorkl.app</div>
+                  <div><b>To:</b> cailie@snorkl.app <span className="text-gray-400">· CC: jon@snorkl.app</span></div>
                   <div><b>Subject:</b> {subject}</div>
                 </div>
               </div>
@@ -841,7 +841,7 @@ function AccountsPageContent() {
         );
         const subject = `[Snorkl] Batch Request — ${ids.length} request${ids.length !== 1 ? "s" : ""}, ${totalEmails} email${totalEmails !== 1 ? "s" : ""}`;
         const lines: string[] = [];
-        lines.push("Hi Jon,");
+        lines.push("Hi Cailie,");
         lines.push("");
         lines.push(`Below ${ids.length === 1 ? "is 1 account request" : `are ${ids.length} account requests`}` + (totalEmails > ids.length ? ` (${totalEmails} emails total):` : ":"));
         lines.push("");
@@ -866,7 +866,7 @@ function AccountsPageContent() {
                   <button onClick={() => setBatchPreviewOpen(false)} className="text-gray-400 hover:text-gray-600">✕</button>
                 </div>
                 <div className="text-xs text-gray-500 space-y-0.5">
-                  <div><b>To:</b> jon@snorkl.app</div>
+                  <div><b>To:</b> cailie@snorkl.app <span className="text-gray-400">· CC: jon@snorkl.app</span></div>
                   <div><b>Subject:</b> {subject}</div>
                 </div>
               </div>
