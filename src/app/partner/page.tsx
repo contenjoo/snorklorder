@@ -71,7 +71,7 @@ export default function PartnerDashboard() {
   const [billingAccounts, setBillingAccounts] = useState<BillingAccount[]>([]);
   const [billingDomains, setBillingDomains] = useState<BillingDomain[]>([]);
   const [loading, setLoading] = useState(true);
-  const [role, setRole] = useState<"jon" | "jeff" | null>(null);
+  const [role, setRole] = useState<"jon" | "jeff" | "cailie" | null>(null);
   const [tab, setTab] = useState<Tab>("action");
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [upgrading, setUpgrading] = useState(false);
@@ -98,7 +98,7 @@ export default function PartnerDashboard() {
     });
   }, []);
 
-  const isJon = role === "jon";
+  const isJon = role === "jon" || role === "cailie"; // 업그레이드 확정 권한 (Jon·Cailie 동일)
 
   const stats = useMemo(() => {
     const all = schools.flatMap((s) => s.teachers);
@@ -274,7 +274,7 @@ export default function PartnerDashboard() {
     return <div className="py-20 text-center text-slate-400 text-lg">Loading dashboard...</div>;
   }
 
-  const greeting = isJon ? "Hi Jon" : "Hi Jeff";
+  const greeting = role === "cailie" ? "Hi Cailie" : role === "jon" ? "Hi Jon" : "Hi Jeff";
   const confirmedTotal = stats.upgraded + stats.individual;
   const confirmRate = stats.teachers > 0 ? Math.round((confirmedTotal / stats.teachers) * 100) : 0;
 

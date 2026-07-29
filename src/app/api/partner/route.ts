@@ -87,12 +87,12 @@ export async function GET() {
   return NextResponse.json({ schools: result, accountRequests: acctRows, domainRequests: domRows });
 }
 
-// PATCH: Jon marks teachers as upgraded
+// PATCH: Jon/Cailie marks teachers as upgraded
 export async function PATCH(req: NextRequest) {
-  // Check role — only Jon can upgrade
+  // Check role — only Jon or Cailie can upgrade
   const cookie = req.cookies.get("snorkl-partner-auth");
-  if (cookie?.value !== "jon") {
-    return NextResponse.json({ error: "Only Jon can mark upgrades" }, { status: 403 });
+  if (cookie?.value !== "jon" && cookie?.value !== "cailie") {
+    return NextResponse.json({ error: "Only Jon or Cailie can mark upgrades" }, { status: 403 });
   }
 
   const body = await req.json();

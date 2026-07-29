@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
 export async function GET(req: NextRequest) {
   const cookie = req.cookies.get(PARTNER_COOKIE_NAME);
   const role = cookie?.value;
-  if (role === "jon" || role === "jeff") {
+  if (role === "jon" || role === "jeff" || role === "cailie") {
     return NextResponse.json({ role });
   }
   return NextResponse.json({ role: null }, { status: 401 });
