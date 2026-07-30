@@ -4,7 +4,8 @@ import { randomBytes } from "crypto";
 import { db } from "@/db";
 import { accountRequests } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { getTransporter, logEmail, escapeHtml, BASE_URL, HQ_EMAIL, HQ_CC } from "@/lib/email";
+import { getTransporter, logEmail, escapeHtml, formatLogRecipients, BASE_URL, HQ_EMAIL, HQ_INVOICE_CC } from "@/lib/email";
+import { withHqGreeting, defaultNeedsInvoice } from "@/lib/account-email-template";
 
 export async function POST(req: NextRequest) {
   try {
@@ -22,12 +23,22 @@ export async function POST(req: NextRequest) {
     const from = process.env.GMAIL_USER || "";
 
     // 확인 링크용 토큰 발급 (update된 request에 저장). 이미 있으면 재사용.
+    // 동시에 인보이스 필요 여부를 읽어 수신자(CC)와 인사말을 결정한다.
     let confirmLink = "";
+    let needsInvoice = true; // requestId 없는 임시 발송은 보수적으로 인보이스 담당 포함
     if (requestId) {
       const [existing] = await db
-        .select({ confirmToken: accountRequests.confirmToken })
+        .select({
+          confirmToken: accountRequests.confirmToken,
+          needsInvoice: accountRequests.needsInvoice,
+          type: accountRequests.type,
+        })
         .from(accountRequests)
         .where(eq(accountRequests.id, requestId));
+      needsInvoice =
+        typeof existing?.needsInvoice === "boolean"
+          ? existing.needsInvoice
+          : defaultNeedsInvoice(existing?.type || "upgrade");
       let token = existing?.confirmToken || null;
       if (!token) {
         token = randomBytes(16).toString("hex");
@@ -39,7 +50,9 @@ export async function POST(req: NextRequest) {
       confirmLink = `${BASE_URL}/account-confirm/${token}`;
     }
 
-    const bodyHtml = escapeHtml(body).replace(/\n/g, "<br>");
+    // 클라이언트가 보낸 본문의 인사말을 실제 수신자에 맞춰 치환한다 (SSOT: account-email-template).
+    const finalBody = withHqGreeting(String(body), needsInvoice);
+    const bodyHtml = escapeHtml(finalBody).replace(/\n/g, "<br>");
 
     const buttonBlock = confirmLink
       ? `<div style="text-align:center;margin:24px 0;padding:20px;background:#f0f7ff;border-radius:12px;border:1px solid #dbeafe">
@@ -52,21 +65,25 @@ export async function POST(req: NextRequest) {
          </div>`
       : "";
 
+    // 인보이스가 필요한 건에만 정산 담당(Cailie)을 CC. 처리 담당 Jon 은 항상 To.
+    const cc = needsInvoice ? HQ_INVOICE_CC : undefined;
+    const logTo = formatLogRecipients(HQ_EMAIL, cc);
+
     try {
       await transporter.sendMail({
         from,
         to: HQ_EMAIL,
-        cc: HQ_CC,
+        ...(cc ? { cc } : {}),
         subject,
-        text: confirmLink ? `${body}\n\n---\nOnce the upgrade is done, please click to confirm:\n${confirmLink}\n` : body,
+        text: confirmLink ? `${finalBody}\n\n---\nOnce the upgrade is done, please click to confirm:\n${confirmLink}\n` : finalBody,
         html: `<div style="max-width:560px;margin:0 auto;font-family:-apple-system,sans-serif;color:#1f2937;font-size:14px;line-height:1.6">
                  ${buttonBlock}
                  <div>${bodyHtml}</div>
                </div>`,
       });
-      await logEmail({ to: HQ_EMAIL, subject, kind: "account_email", status: "success", relatedType: "account_request", relatedId: requestId || null });
+      await logEmail({ to: logTo, subject, kind: "account_email", status: "success", relatedType: "account_request", relatedId: requestId || null });
     } catch (sendErr) {
-      await logEmail({ to: HQ_EMAIL, subject, kind: "account_email", status: "failed", error: String(sendErr), relatedType: "account_request", relatedId: requestId || null });
+      await logEmail({ to: logTo, subject, kind: "account_email", status: "failed", error: String(sendErr), relatedType: "account_request", relatedId: requestId || null });
       throw sendErr;
     }
 

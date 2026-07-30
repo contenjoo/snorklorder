@@ -1,4 +1,4 @@
-import { date, index, integer, pgTable, serial, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { boolean, date, index, integer, pgTable, serial, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
 export const schools = pgTable("schools", {
@@ -74,6 +74,9 @@ export const accountRequests = pgTable("account_requests", {
   extensionDate: text("extension_date"),
   notes: text("notes"),
   status: text("status").notNull().default("draft"), // draft | sent | processed | invoiced | paid
+  // 인보이스가 필요한 요청인지 — true 일 때만 본사 정산 담당(Cailie)을 CC 에 포함한다.
+  // 기본값 true: 빠뜨렸을 때 인보이스 누락 손실 > 메일 한 통 더 가는 비용.
+  needsInvoice: boolean("needs_invoice").notNull().default(true),
   invoiceNumber: text("invoice_number"),
   invoiceAmount: text("invoice_amount"),
   invoiceDueDate: date("invoice_due_date"), // 'YYYY-MM-DD' 문자열로 직렬화
