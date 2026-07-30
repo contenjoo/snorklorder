@@ -13,6 +13,15 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { dDayInfo } from "@/lib/ui-format";
+// 미리보기 = 실제 발송. 수신자 규칙과 본문 생성은 전부 이 SSOT 모듈에서만 가져온다.
+import {
+  HQ_TO,
+  HQ_INVOICE_CC,
+  defaultNeedsInvoice,
+  generateAccountEmail,
+  buildBatchEmail,
+  type BatchEmailItem,
+} from "@/lib/account-email-template";
 
 interface AccountRequest {
   id: number;
@@ -28,6 +37,7 @@ interface AccountRequest {
   fromType: string | null;
   extensionDate: string | null;
   notes: string | null;
+  needsInvoice: boolean;
   status: string;
   invoiceNumber: string | null;
   invoiceAmount: string | null;
@@ -72,36 +82,15 @@ const STATUSES = [
   { value: "paid", label: "결제 완료", color: "bg-purple-100 text-purple-700" },
 ];
 
-// 이메일 본문 생성 (snorkl-manager 그대로)
-function generateEmail(r: AccountRequest) {
-  const accLabel = r.accountType === "teacher" ? "teacher" : r.accountType === "student" ? "student" : "school";
-  const school = r.schoolNameEn || r.schoolName;
-  let subject = "";
-  let body = "";
-
-  if (r.type === "upgrade") {
-    const isSchool = r.accountType === "school";
-    subject = isSchool
-      ? `School Upgrade Request – ${school}`
-      : `Teacher Upgrade Request – ${school} (${r.quantity || 1} ${accLabel})`;
-    const emailList = r.emails.split(/[,;\n]+/).map((e) => e.trim()).filter(Boolean).map((e) => `- Email: ${e}`).join("\n");
-    body = isSchool
-      ? `Hi Cailie,\n\nI'd like to request a school-wide upgrade for ${school}.\n\n${emailList}${r.notes ? `\n\nNote: ${r.notes}` : ""}\n\nPlease let me know once it's done. Thank you.\n\nBanghyun`
-      : `Hi Cailie,\n\nI'd like to request an upgrade for ${r.quantity || 1} ${accLabel} account${(r.quantity || 1) > 1 ? "s" : ""} for ${school}.\n\n${emailList}${r.notes ? `\n\nNote: ${r.notes}` : ""}\n\nPlease let me know once it's done. Thank you.\n\nBanghyun`;
-  } else if (r.type === "email_change") {
-    subject = `Account Email Change Request – ${school}`;
-    body = `Hi Cailie,\n\nCould you please update the email for the account at ${school}?\n\n- Old email: ${r.oldEmail || ""}\n- New email: ${r.emails || ""}${r.notes ? `\n\nNote: ${r.notes}` : ""}\n\nThank you.\n\nBanghyun`;
-  } else if (r.type === "type_change") {
-    subject = `Account Type Change Request - ${r.emails}`;
-    body = `Hi Cailie,\n\nThe account ${r.emails || ""} was registered as a ${r.fromType === "teacher" ? "teacher" : "student"}, but this user is a ${r.fromType === "teacher" ? "student" : "teacher"}. Could you please change the account type?${r.notes ? `\n\nNote: ${r.notes}` : ""}\n\nThank you.\n\nBanghyun`;
-  } else if (r.type === "extension") {
-    subject = `Account Extension Request – ${school}`;
-    body = `Hi Cailie,\n\nCould you extend the ${r.emails || ""} account through ${r.extensionDate || "[DATE]"}?\n\nPlease send me an invoice for that too.${r.notes ? `\n\nNote: ${r.notes}` : ""}\n\nThanks,\n\nBanghyun`;
-  } else {
-    subject = `Snorkl Request – ${school}`;
-    body = `Hi Cailie,\n\n${r.notes || ""}\n\nBanghyun`;
-  }
-  return { subject, body };
+// 묶음 제목의 "N emails" 는 서버(parseEmailList)와 같은 규칙으로 세어야 미리보기 제목이 실제와 일치한다.
+// security.ts 는 next/server 를 import 하므로 클라이언트에서 쓸 수 없어 동일 규칙만 여기서 반복한다.
+function countEmails(raw: string): number {
+  return new Set(
+    raw
+      .split(/[,;\n]+/)
+      .map((e) => e.trim().toLowerCase())
+      .filter((e) => e && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)),
+  ).size;
 }
 
 function AccountsPageContent() {
@@ -122,6 +111,7 @@ function AccountsPageContent() {
   const [filterChannel, setFilterChannel] = useState("all");
   const [filterApplicant, setFilterApplicant] = useState("all");
   const [filterType, setFilterType] = useState("all");
+  const [filterInvoice, setFilterInvoice] = useState("all");
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<AccountRequest | null>(null);
@@ -149,6 +139,7 @@ function AccountsPageContent() {
   const [fFromType, setFFromType] = useState("teacher");
   const [fExtDate, setFExtDate] = useState("");
   const [fNotes, setFNotes] = useState("");
+  const [fNeedsInvoice, setFNeedsInvoice] = useState(defaultNeedsInvoice("upgrade"));
   const [fInvNum, setFInvNum] = useState("");
   const [fInvAmt, setFInvAmt] = useState("");
   const [fInvDue, setFInvDue] = useState("");
@@ -216,8 +207,16 @@ function AccountsPageContent() {
   function resetForm() {
     setFChannel("company"); setFApplicant("school"); setFBulk(false); setFBulkText(""); setFType("upgrade"); setFSchool(""); setFSchoolEn(""); setFEmails(""); setFAccType("teacher");
     setFQty(1); setFOldEmail(""); setFFromType("teacher"); setFExtDate("");
-    setFNotes(""); setFInvNum(""); setFInvAmt(""); setFInvDue("");
+    setFNotes(""); setFNeedsInvoice(defaultNeedsInvoice("upgrade"));
+    setFInvNum(""); setFInvAmt(""); setFInvDue("");
     setFPayLink(""); setFPayDate(""); setFPayMethod(""); setEditing(null);
+  }
+
+  // 유형 버튼 클릭: 인보이스 필요 여부를 해당 유형의 스마트 기본값으로 되돌린다.
+  // (수동 토글은 다음 유형 변경 전까지 유지된다 — 여기서만 덮어쓰므로)
+  function selectType(value: string) {
+    setFType(value);
+    setFNeedsInvoice(defaultNeedsInvoice(value));
   }
 
   function openEdit(r: AccountRequest) {
@@ -226,6 +225,7 @@ function AccountsPageContent() {
     setFAccType(r.accountType || "teacher"); setFQty(r.quantity || 1);
     setFOldEmail(r.oldEmail || ""); setFFromType(r.fromType || "teacher");
     setFExtDate(r.extensionDate || ""); setFNotes(r.notes || "");
+    setFNeedsInvoice(r.needsInvoice ?? defaultNeedsInvoice(r.type));
     setFInvNum(r.invoiceNumber || ""); setFInvAmt(r.invoiceAmount || "");
     setFInvDue(r.invoiceDueDate || ""); setFPayLink(r.paymentLink || "");
     setFPayDate(r.paymentDate || ""); setFPayMethod(r.paymentMethod || "");
@@ -263,7 +263,7 @@ function AccountsPageContent() {
           schoolName: e.name, schoolNameEn: null, emails: e.email,
           accountType: fAccType, quantity: 1,
           oldEmail: null, fromType: null, extensionDate: fExtDate || null,
-          notes: fNotes || null,
+          notes: fNotes || null, needsInvoice: fNeedsInvoice,
         };
         const res = await fetch("/api/account-requests", {
           method: "POST", headers: { "Content-Type": "application/json" },
@@ -280,6 +280,7 @@ function AccountsPageContent() {
       channel: fChannel, applicantType: fApplicant, type: fType, schoolName: fSchool, schoolNameEn: fSchoolEn || null, emails: fEmails, accountType: fAccType,
       quantity: fQty, oldEmail: fOldEmail || null, fromType: fFromType || null,
       extensionDate: fExtDate || null, notes: fNotes || null,
+      needsInvoice: fNeedsInvoice,
       invoiceNumber: fInvNum || null, invoiceAmount: fInvAmt || null,
       invoiceDueDate: fInvDue || null, paymentLink: fPayLink || null,
       paymentDate: fPayDate || null, paymentMethod: fPayMethod || null,
@@ -327,7 +328,7 @@ function AccountsPageContent() {
 
   // Jon에게 이메일 발송 (Nodemailer 통해)
   async function sendToJon(r: AccountRequest) {
-    const { subject, body } = generateEmail(r);
+    const { subject, body } = generateAccountEmail(r);
     setSending(true); setSendMsg("");
     try {
       const res = await fetch("/api/account-email", {
@@ -348,8 +349,9 @@ function AccountsPageContent() {
 
   // Gmail 열기
   function openGmail(r: AccountRequest) {
-    const { subject, body } = generateEmail(r);
-    const mailto = `mailto:cailie@snorkl.app?cc=jon@snorkl.app&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    const { subject, body } = generateAccountEmail(r);
+    const cc = r.needsInvoice ? `cc=${encodeURIComponent(HQ_INVOICE_CC)}&` : "";
+    const mailto = `mailto:${HQ_TO}?${cc}subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     window.open(mailto, "_blank");
   }
 
@@ -369,7 +371,7 @@ function AccountsPageContent() {
     const selectedRequests = ids
       .map((id) => requests.find((r) => r.id === id))
       .filter((r): r is AccountRequest => !!r);
-    const sections = selectedRequests.map((r) => generateEmail(r));
+    const sections = selectedRequests.map((r) => generateAccountEmail(r));
     setSending(true); setSendMsg("");
     try {
       const res = await fetch("/api/account-email/batch", {
@@ -391,7 +393,7 @@ function AccountsPageContent() {
 
   // 클립보드 복사
   function copyEmail(r: AccountRequest) {
-    const { subject, body } = generateEmail(r);
+    const { subject, body } = generateAccountEmail(r);
     navigator.clipboard.writeText(`Subject: ${subject}\n\n${body}`);
     setSendMsg("📋 복사됨");
     setTimeout(() => setSendMsg(""), 2000);
@@ -402,6 +404,8 @@ function AccountsPageContent() {
     if (filterChannel !== "all" && (r.channel || "company") !== filterChannel) return false;
     if (filterApplicant !== "all" && (r.applicantType || "school") !== filterApplicant) return false;
     if (filterType !== "all" && r.type !== filterType) return false;
+    // 값이 그대로 트리거에 표시되므로(공용 Select 동작) 읽히는 라벨을 값으로 쓴다
+    if (filterInvoice !== "all" && (r.needsInvoice ? "필요" : "불필요") !== filterInvoice) return false;
     if (search) {
       const q = search.toLowerCase();
       if (!r.schoolName.toLowerCase().includes(q) && !r.emails.toLowerCase().includes(q)) return false;
@@ -448,6 +452,14 @@ function AccountsPageContent() {
                 {TYPES.map((t) => <SelectItem key={t.value} value={t.value}>{t.icon} {t.label}</SelectItem>)}
               </SelectContent>
             </Select>
+            <Select value={filterInvoice} onValueChange={(v) => setFilterInvoice(v ?? "all")}>
+              <SelectTrigger className="w-24 h-7 text-[11px]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">인보이스</SelectItem>
+                <SelectItem value="필요">💳 필요</SelectItem>
+                <SelectItem value="불필요">— 불필요</SelectItem>
+              </SelectContent>
+            </Select>
             <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) resetForm(); }}>
               <DialogTrigger className="inline-flex items-center justify-center rounded-md text-xs font-semibold bg-gray-900 text-white h-7 px-3 hover:bg-gray-800 cursor-pointer whitespace-nowrap">
                 + 새 요청
@@ -487,7 +499,7 @@ function AccountsPageContent() {
                 </div>
                 <div className="grid grid-cols-4 gap-1">
                   {TYPES.map((t) => (
-                    <button key={t.value} onClick={() => setFType(t.value)}
+                    <button key={t.value} onClick={() => selectType(t.value)}
                       className={`p-2 rounded-lg text-xs text-center transition-colors ${fType === t.value ? "bg-blue-100 ring-1 ring-blue-400 font-semibold" : "bg-gray-50 hover:bg-gray-100"}`}>
                       {t.icon}<br />{t.label}
                     </button>
@@ -599,6 +611,20 @@ function AccountsPageContent() {
                   <Label className="text-xs">메모</Label>
                   <Textarea value={fNotes} onChange={(e) => setFNotes(e.target.value)} rows={2} placeholder="추가 메모" className="text-sm" />
                 </div>
+                <div className="space-y-1">
+                  <button
+                    type="button"
+                    aria-pressed={fNeedsInvoice}
+                    onClick={() => setFNeedsInvoice((v) => !v)}
+                    className={`w-full flex items-center justify-between py-2 px-3 rounded-lg text-xs transition-colors ${fNeedsInvoice ? "bg-blue-100 ring-1 ring-blue-400 font-semibold" : "bg-gray-50 hover:bg-gray-100 text-gray-500"}`}
+                  >
+                    <span>💳 인보이스 필요</span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${fNeedsInvoice ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-500"}`}>
+                      {fNeedsInvoice ? "ON" : "OFF"}
+                    </span>
+                  </button>
+                  <div className="text-[10px] text-gray-400">켜면 Cailie가 CC로 포함됩니다</div>
+                </div>
                 {editing && (
                   <details className="border rounded-lg p-3">
                     <summary className="text-xs font-medium cursor-pointer">💳 인보이스/결제 정보</summary>
@@ -701,6 +727,9 @@ function AccountsPageContent() {
                     {(r.channel || "company") === "school_store" && (
                       <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-medium">학교장터</span>
                     )}
+                    {r.needsInvoice && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 font-medium" title="인보이스 필요 — Cailie CC">💳</span>
+                    )}
                     <span className="text-[10px] text-gray-400">{emails.length > 1 ? `${emails.length}명` : ""}</span>
                   </div>
                   <div className="text-[11px] font-mono text-gray-500 truncate">
@@ -750,6 +779,7 @@ function AccountsPageContent() {
                   <span className="font-medium text-sm text-gray-900 truncate flex-1">
                     {(r.applicantType || "school") === "individual" && <span className="text-[9px] px-1 py-0.5 rounded bg-purple-50 text-purple-700 font-medium mr-1">개인</span>}
                     {r.schoolName}
+                    {r.needsInvoice && <span className="text-[9px] px-1 py-0.5 rounded bg-blue-50 text-blue-700 font-medium ml-1" title="인보이스 필요 — Cailie CC">💳</span>}
                   </span>
                   <select value={r.status} onChange={(e) => updateStatus(r.id, e.target.value)}
                     className={`text-[10px] font-medium rounded-full px-2 py-0.5 border-0 ${statusInfo?.color || "bg-gray-100"}`}>
@@ -791,17 +821,20 @@ function AccountsPageContent() {
 
       {/* Email Preview Modal */}
       {emailPreview && (() => {
-        const { subject, body } = generateEmail(emailPreview);
+        const { subject, body } = generateAccountEmail(emailPreview);
         return (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setEmailPreview(null)}>
             <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
               <div className="p-4 border-b bg-gray-50 rounded-t-xl">
                 <div className="flex items-center justify-between mb-2">
-                  <h3 className="font-bold text-sm">Cailie에게 보낼 이메일</h3>
+                  <h3 className="font-bold text-sm">본사에 보낼 이메일</h3>
                   <button onClick={() => setEmailPreview(null)} className="text-gray-400 hover:text-gray-600">✕</button>
                 </div>
                 <div className="text-xs text-gray-500 space-y-0.5">
-                  <div><b>To:</b> cailie@snorkl.app <span className="text-gray-400">· CC: jon@snorkl.app</span></div>
+                  <div>
+                    <b>To:</b> {HQ_TO}
+                    {emailPreview.needsInvoice && <span className="text-gray-400"> · CC: {HQ_INVOICE_CC}</span>}
+                  </div>
                   <div><b>Subject:</b> {subject}</div>
                 </div>
               </div>
@@ -833,28 +866,19 @@ function AccountsPageContent() {
         const selectedRequests = ids
           .map((id) => requests.find((r) => r.id === id))
           .filter((r): r is AccountRequest => !!r);
-        const sections = selectedRequests.map((r) => generateEmail(r));
-        const totalEmails = selectedRequests.reduce(
-          (s, r) => s + r.emails.split(/[,;\n]+/).filter((e) => e.trim()).length, 0,
-        );
-        const subject = `[Snorkl] Batch Request — ${ids.length} request${ids.length !== 1 ? "s" : ""}, ${totalEmails} email${totalEmails !== 1 ? "s" : ""}`;
-        const lines: string[] = [];
-        lines.push("Hi Cailie,");
-        lines.push("");
-        lines.push(`Below ${ids.length === 1 ? "is 1 account request" : `are ${ids.length} account requests`}` + (totalEmails > ids.length ? ` (${totalEmails} emails total):` : ":"));
-        lines.push("");
-        sections.forEach((s, i) => {
-          lines.push("═══════════════════════════════════════════");
-          lines.push(`[${i + 1}/${ids.length}] ${s.subject}`);
-          lines.push("");
-          lines.push(s.body);
-          lines.push("");
-          lines.push("(Confirm 링크는 발송 시 자동 생성됩니다)");
-          lines.push("");
+        const totalEmails = selectedRequests.reduce((s, r) => s + countEmails(r.emails), 0);
+        // 제목/본문/CC 판정은 전부 SSOT(buildBatchEmail) — 서버 발송과 같은 함수라 미리보기가 실제와 일치한다.
+        // 실제 발송에서 confirmLine 자리에 들어갈 confirm 링크만 미리보기용 안내 문구로 대체한다.
+        const items: BatchEmailItem[] = selectedRequests.map((r) => {
+          const { subject: s, body } = generateAccountEmail(r);
+          return {
+            subject: s,
+            body,
+            needsInvoice: r.needsInvoice ?? defaultNeedsInvoice(r.type),
+            confirmLine: "(Confirm 링크는 발송 시 자동 생성됩니다)",
+          };
         });
-        lines.push("Thank you,");
-        lines.push("Banghyun");
-        const previewBody = lines.join("\n");
+        const { subject, body: previewBody, needsInvoiceCc: batchNeedsInvoice } = buildBatchEmail(items, totalEmails);
         return (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setBatchPreviewOpen(false)}>
             <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
@@ -864,7 +888,10 @@ function AccountsPageContent() {
                   <button onClick={() => setBatchPreviewOpen(false)} className="text-gray-400 hover:text-gray-600">✕</button>
                 </div>
                 <div className="text-xs text-gray-500 space-y-0.5">
-                  <div><b>To:</b> cailie@snorkl.app <span className="text-gray-400">· CC: jon@snorkl.app</span></div>
+                  <div>
+                    <b>To:</b> {HQ_TO}
+                    {batchNeedsInvoice && <span className="text-gray-400"> · CC: {HQ_INVOICE_CC}</span>}
+                  </div>
                   <div><b>Subject:</b> {subject}</div>
                 </div>
               </div>

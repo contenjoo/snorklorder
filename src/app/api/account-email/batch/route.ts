@@ -4,7 +4,8 @@ import { randomBytes } from "crypto";
 import { db } from "@/db";
 import { accountRequests } from "@/db/schema";
 import { inArray, eq } from "drizzle-orm";
-import { getTransporter, BASE_URL, HQ_EMAIL, HQ_CC } from "@/lib/email";
+import { getTransporter, logEmail, formatLogRecipients, BASE_URL, HQ_EMAIL, HQ_INVOICE_CC } from "@/lib/email";
+import { buildBatchEmail, defaultNeedsInvoice, type BatchEmailItem } from "@/lib/account-email-template";
 import { parseEmailList } from "@/lib/security";
 
 interface Section {
@@ -12,7 +13,9 @@ interface Section {
   body: string;
 }
 
-// 여러 account_requests를 하나의 메일로 묶어 Jon에게 발송
+// 여러 account_requests를 하나의 메일로 묶어 Jon에게 발송.
+// 인보이스가 필요한 건이 하나라도 있으면 정산 담당(Cailie)을 CC 하고,
+// 본문을 ① 인보이스 필요 / ② 인보이스 불필요 두 섹션으로 나눠 Cailie 가 볼 범위를 명확히 한다.
 export async function POST(req: NextRequest) {
   try {
     const { requestIds, sections } = (await req.json()) as { requestIds?: number[]; sections?: Section[] };
@@ -34,6 +37,8 @@ export async function POST(req: NextRequest) {
         confirmToken: accountRequests.confirmToken,
         emails: accountRequests.emails,
         status: accountRequests.status,
+        type: accountRequests.type,
+        needsInvoice: accountRequests.needsInvoice,
       })
       .from(accountRequests)
       .where(inArray(accountRequests.id, requestIds));
@@ -55,41 +60,39 @@ export async function POST(req: NextRequest) {
 
     const totalEmails = rows.reduce((s, r) => s + parseEmailList(r.emails).length, 0);
 
-    const lines: string[] = [];
-    lines.push("Hi Cailie,");
-    lines.push("");
-    lines.push(
-      `Below ${requestIds.length === 1 ? "is 1 account request" : `are ${requestIds.length} account requests`}` +
-        (totalEmails > requestIds.length ? ` (${totalEmails} emails total):` : ":"),
-    );
-    lines.push("");
-
-    requestIds.forEach((id, i) => {
-      const section = sections[i];
+    // 요청별 인보이스 필요 여부. DB 에 행이 없는(삭제된) id 는 보수적으로 "필요"로 본다.
+    const items: BatchEmailItem[] = requestIds.map((id, i) => {
+      const row = rows.find((r) => r.id === id);
       const token = tokenMap.get(id);
-      lines.push("═══════════════════════════════════════════");
-      lines.push(`[${i + 1}/${requestIds.length}] ${section.subject}`);
-      lines.push("");
-      lines.push(section.body);
-      if (token) {
-        lines.push("");
-        lines.push(`Once done, confirm: ${BASE_URL}/account-confirm/${token}`);
-      }
-      lines.push("");
+      return {
+        subject: sections[i].subject,
+        body: sections[i].body,
+        needsInvoice: row
+          ? typeof row.needsInvoice === "boolean"
+            ? row.needsInvoice
+            : defaultNeedsInvoice(row.type)
+          : true,
+        confirmLine: token ? `Once done, confirm: ${BASE_URL}/account-confirm/${token}` : null,
+      };
     });
 
-    lines.push("Thank you,");
-    lines.push("Banghyun");
+    const { subject, body, needsInvoiceCc } = buildBatchEmail(items, totalEmails);
+    const cc = needsInvoiceCc ? HQ_INVOICE_CC : undefined;
+    const logTo = formatLogRecipients(HQ_EMAIL, cc);
 
-    const subject = `[Snorkl] Batch Request — ${requestIds.length} request${requestIds.length !== 1 ? "s" : ""}, ${totalEmails} email${totalEmails !== 1 ? "s" : ""}`;
-
-    await transporter.sendMail({
-      from: process.env.GMAIL_USER || "",
-      to: HQ_EMAIL,
-      cc: HQ_CC,
-      subject,
-      text: lines.join("\n"),
-    });
+    try {
+      await transporter.sendMail({
+        from: process.env.GMAIL_USER || "",
+        to: HQ_EMAIL,
+        ...(cc ? { cc } : {}),
+        subject,
+        text: body,
+      });
+      await logEmail({ to: logTo, subject, kind: "account_email", status: "success", relatedType: "account_request" });
+    } catch (sendErr) {
+      await logEmail({ to: logTo, subject, kind: "account_email", status: "failed", error: String(sendErr), relatedType: "account_request" });
+      throw sendErr;
+    }
 
     // sent 처리 — 단, 이미 processed/invoiced/paid 로 넘어간 건은 재발송해도 정산 단계가 sent로 되돌아가지 않도록 제외
     const updatableIds = rows.filter((r) => ["draft", "sent"].includes(r.status)).map((r) => r.id);

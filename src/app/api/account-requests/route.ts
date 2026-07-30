@@ -6,6 +6,8 @@ import { eq, desc } from "drizzle-orm";
 import { checkAuth } from "@/lib/auth";
 import { checkRateLimit, createRateLimitResponse, isValidEmail, normalizeText } from "@/lib/security";
 import { sendAccountUpgradeCompletion } from "@/lib/email";
+// 인보이스 필요 여부 기본값은 SSOT 한 곳에서만 정의한다 (미리보기/발송/저장이 갈라지지 않도록).
+import { defaultNeedsInvoice } from "@/lib/account-email-template";
 
 export async function GET() {
   if (!(await checkAuth())) {
@@ -74,6 +76,9 @@ export async function POST(req: NextRequest) {
         }
         data.quantity = q;
       }
+      if (data.needsInvoice !== undefined && typeof data.needsInvoice !== "boolean") {
+        return NextResponse.json({ error: "Invalid needsInvoice: must be a boolean" }, { status: 400 });
+      }
       // status is always forced to "draft" for API-key callers regardless of input
       data.status = "draft";
     }
@@ -105,6 +110,12 @@ export async function POST(req: NextRequest) {
     const insertedAccountType = isAuthenticated ? data.accountType || "teacher" : "teacher";
     const insertedQuantity = isAuthenticated ? data.quantity || 1 : uniqueValidEmails.length;
     const insertedChannel = isAuthenticated ? data.channel || "company" : "company";
+    // 인보이스 필요 여부: 미지정 시 유형별 스마트 기본값.
+    // 돈이 드는 유형(upgrade/extension)은 true, 단순 계정 정보 변경(email_change/type_change)은 false.
+    const insertedNeedsInvoice =
+      isAuthenticated && typeof data.needsInvoice === "boolean"
+        ? data.needsInvoice
+        : defaultNeedsInvoice(insertedType);
 
     const [item] = await db
       .insert(accountRequests)
@@ -121,6 +132,7 @@ export async function POST(req: NextRequest) {
         fromType: isAuthenticated ? data.fromType || null : null,
         extensionDate: isAuthenticated ? data.extensionDate || null : null,
         notes: normalizedNotes,
+        needsInvoice: insertedNeedsInvoice,
         status: "draft",
       })
       .returning();
@@ -136,7 +148,7 @@ export async function POST(req: NextRequest) {
   if (action === "update" && id) {
     const updates: Record<string, unknown> = { updatedAt: new Date() };
     const fields = ["channel", "applicantType", "type", "schoolName", "schoolNameEn", "emails", "accountType", "quantity", "oldEmail",
-      "fromType", "extensionDate", "notes", "status", "invoiceNumber", "invoiceAmount",
+      "fromType", "extensionDate", "notes", "needsInvoice", "status", "invoiceNumber", "invoiceAmount",
       "invoiceDueDate", "paymentLink", "paymentDate", "paymentMethod"];
     for (const f of fields) {
       if (data[f] !== undefined) updates[f] = data[f];

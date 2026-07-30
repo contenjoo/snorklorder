@@ -1,9 +1,12 @@
 import nodemailer from "nodemailer";
 import { db } from "@/db";
 import { emailLogs } from "@/db/schema";
-// 본사 담당자: Cailie가 처리, Jon은 항상 CC (2026-07-18 사용자 지시)
-export const HQ_EMAIL = "cailie@snorkl.app";
-export const HQ_CC = "jon@snorkl.app";
+// 본사 수신자: Jon 이 업그레이드 처리 담당이라 항상 To,
+// 정산 담당 Cailie 는 인보이스가 필요한 건에만 CC (2026-07-30 Jon 요청).
+// 주소 상수의 SSOT 는 클라이언트에서도 import 가능한 account-email-template.ts.
+import { HQ_TO, HQ_INVOICE_CC, hqGreeting } from "@/lib/account-email-template";
+export const HQ_EMAIL = HQ_TO;
+export { HQ_INVOICE_CC };
 const ADMIN_EMAIL = process.env.GMAIL_USER || "";
 export const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || "https://snorkl-teacher-reg.vercel.app";
 
@@ -34,12 +37,28 @@ function isTransientSmtpError(err: unknown): boolean {
   return /\b421\b|\b4\.\d\.\d\b|try again|temporar|rate limit|too many|throttl|greeting never received|connection|timed?\s*out|timeout|ETIMEDOUT|ECONNRESET|ECONNREFUSED|ESOCKET|EAI_AGAIN|ENOTFOUND|EPIPE/i.test(s);
 }
 
+// email_logs.to_email 은 한 컬럼뿐이라, CC 가 있으면 "to (cc: x)" 형태로 함께 남긴다.
+// (스키마 변경 없이 "이 건 Cailie가 받았나"를 사후 확인하기 위함)
+export function formatLogRecipients(to: nodemailer.SendMailOptions["to"], cc?: nodemailer.SendMailOptions["cc"]): string {
+  const flat = (v: unknown): string => {
+    if (!v) return "";
+    if (Array.isArray(v)) return v.map(flat).filter(Boolean).join(", ");
+    if (typeof v === "object" && "address" in (v as Record<string, unknown>)) {
+      return String((v as Record<string, unknown>).address ?? "");
+    }
+    return String(v);
+  };
+  const toStr = flat(to);
+  const ccStr = flat(cc);
+  return ccStr ? `${toStr} (cc: ${ccStr})` : toStr;
+}
+
 async function sendAndLog(
   transporter: nodemailer.Transporter,
   mail: nodemailer.SendMailOptions,
   meta: { kind: EmailKind; relatedType?: string | null; relatedId?: number | null }
 ): Promise<EmailResult> {
-  const toStr = Array.isArray(mail.to) ? mail.to.join(", ") : String(mail.to || "");
+  const toStr = formatLogRecipients(mail.to, mail.cc);
   const maxAttempts = 3;
   let lastErr: unknown;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -124,7 +143,8 @@ interface TeacherInfo {
 import { teamLabelEn, isGroupPurchaseTeam } from "@/lib/teams";
 import { parseEmailList } from "@/lib/security";
 
-// 선택 교사 일괄 발송 (Jon에게만 + 확인 링크 포함)
+// 선택 교사 일괄 발송 (Jon에게만 + 확인 링크 포함).
+// 기존 계정에 교사를 추가하는 경로라 인보이스가 발생하지 않는다 → Cailie CC 없음.
 export async function sendBatchNotification(
   groups: { schoolName: string; schoolNameEn?: string; team?: string; teachers: (TeacherInfo & { id?: number })[] }[],
   confirmToken?: string,
@@ -237,7 +257,6 @@ export async function sendBatchNotification(
   return sendAndLog(t, {
     from: ADMIN_EMAIL,
     to: HQ_EMAIL,
-    cc: HQ_CC,
     subject: `[Snorkl] Upgrade Request — ${total} teacher${total !== 1 ? "s" : ""}, ${groups.length} school(s)${districtLabel}`,
     html: `
       <div style="max-width:600px;margin:0 auto;font-family:-apple-system,sans-serif">
@@ -246,6 +265,7 @@ export async function sendBatchNotification(
           <p style="margin:4px 0 0;opacity:0.8;font-size:14px">${total} teacher${total !== 1 ? "s" : ""} from ${summaryParts.join(" + ")}</p>
         </div>
         <div style="background:white;padding:24px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px">
+          <p style="margin:0 0 16px;font-size:14px;color:#1f2937">${escapeHtml(hqGreeting(false))}</p>
           ${teamSections}
           ${individualSection}
           ${confirmSection}
@@ -458,14 +478,15 @@ export async function sendDomainPaidRequest(payload: {
          <p style="margin:12px 0 0;color:#888;font-size:11px">Or paste this in your browser:<br>${safe(payload.confirmLink)}</p>
        </div>`
     : "";
+  // 도메인 유료화는 인보이스가 발생하는 경로 → 정산 담당 Cailie 를 항상 CC.
   return sendAndLog(t, {
     from: ADMIN_EMAIL,
     to: HQ_EMAIL,
-    cc: HQ_CC,
+    cc: HQ_INVOICE_CC,
     subject,
     html: `
       <div style="max-width:560px;margin:0 auto;font-family:-apple-system,sans-serif;color:#1f2937">
-        <h3 style="margin:0 0 12px">Hi Cailie,</h3>
+        <h3 style="margin:0 0 12px">${escapeHtml(hqGreeting(true))}</h3>
         <p style="margin:0 0 12px">Could you please enable the following <b>domain</b> as a paid Snorkl domain?
           All teachers signing up with this domain should be automatically upgraded to premium.</p>
         <div style="background:#f0f7ff;border:1px solid #dbeafe;border-radius:10px;padding:14px 16px;margin:16px 0">
@@ -479,7 +500,7 @@ export async function sendDomainPaidRequest(payload: {
         <p style="color:#9ca3af;font-size:11px;margin:0">Sent from Snorkl 주문관리 · LearnToday</p>
       </div>
     `,
-    text: `Hi Cailie,\n\nCould you please enable the following domain as a paid Snorkl domain?\nAll teachers signing up with this domain should be automatically upgraded to premium.\n\nDomain: @${payload.domain}\nSchool: ${payload.schoolNameEn || payload.schoolName}${payload.team ? ` [${payload.team}]` : ""}${payload.note ? `\nNote: ${payload.note}` : ""}${payload.confirmLink ? `\n\nOnce enabled, please click to confirm:\n${payload.confirmLink}` : ""}\n\nThanks,\nBanghyun`,
+    text: `${hqGreeting(true)}\n\nCould you please enable the following domain as a paid Snorkl domain?\nAll teachers signing up with this domain should be automatically upgraded to premium.\n\nDomain: @${payload.domain}\nSchool: ${payload.schoolNameEn || payload.schoolName}${payload.team ? ` [${payload.team}]` : ""}${payload.note ? `\nNote: ${payload.note}` : ""}${payload.confirmLink ? `\n\nOnce enabled, please click to confirm:\n${payload.confirmLink}` : ""}\n\nThanks,\nBanghyun`,
   }, { kind: "account_email", relatedType: "school" });
 }
 
