@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useEffect } from "react";
 import { useSchoolData } from "@/lib/use-data";
+import { schoolLevel, levelBadgeCls, type SchoolLevel } from "@/lib/school-level";
 
 interface Teacher {
   id: number;
@@ -62,6 +63,7 @@ export default function TeachersPage() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
+  const [filterLevel, setFilterLevel] = useState<"all" | SchoolLevel>("all");
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState("");
   const [tab, setTab] = useState<"school" | "individual">("school");
@@ -108,20 +110,22 @@ export default function TeachersPage() {
 
   const filteredSchools = useMemo(() => {
     return schools
+      .filter((s) => filterLevel === "all" || schoolLevel(s.name, s.nameEn) === filterLevel)
       .map((s) => {
         let teachers = s.teachers;
         if (filterStatus !== "all") teachers = teachers.filter((t) => t.status === filterStatus);
         if (search) {
           const q = search.toLowerCase();
           teachers = teachers.filter((t) =>
-            t.name.toLowerCase().includes(q) || t.email.toLowerCase().includes(q) || s.name.toLowerCase().includes(q)
+            t.name.toLowerCase().includes(q) || t.email.toLowerCase().includes(q) || s.name.toLowerCase().includes(q) ||
+            (t.subject ?? "").toLowerCase().includes(q)
           );
         }
         return { ...s, teachers };
       })
       .filter((s) => s.teachers.length > 0)
       .sort((a, b) => b.teachers.length - a.teachers.length);
-  }, [schools, search, filterStatus]);
+  }, [schools, search, filterStatus, filterLevel]);
 
   // Stats
   const allTeachers = schools.flatMap(s => s.teachers);
@@ -132,6 +136,11 @@ export default function TeachersPage() {
     allTeachers.forEach(t => { c[t.status] = (c[t.status] || 0) + 1; });
     return c;
   }, [allTeachers]);
+  const levelCounts = useMemo(() => {
+    const c: Record<SchoolLevel, number> = { 초: 0, 중: 0, 고: 0 };
+    schools.forEach(s => { const lv = schoolLevel(s.name, s.nameEn); if (lv) c[lv] += s.teachers.length; });
+    return c;
+  }, [schools]);
 
   // Actions
   function toggleTeacher(id: number) {
@@ -163,9 +172,9 @@ export default function TeachersPage() {
   }
   function downloadCSV() {
     const rows: string[] = [];
-    for (const s of filteredSchools) for (const t of s.teachers) rows.push([s.name, s.nameEn || "", s.team || "", "단체", t.email, t.subject || "", t.status].join(","));
-    for (const t of individualTeachers) rows.push([t.schoolName, "", "", "개별", t.email, "", t.status].join(","));
-    const csv = ["학교,영문명,팀,유형,이메일,과목,상태", ...rows].join("\n");
+    for (const s of filteredSchools) for (const t of s.teachers) rows.push([s.name, s.nameEn || "", schoolLevel(s.name, s.nameEn) || "", s.team || "", "단체", t.email, t.subject || "", t.status].join(","));
+    for (const t of individualTeachers) rows.push([t.schoolName, "", schoolLevel(t.schoolName) || "", "", "개별", t.email, "", t.status].join(","));
+    const csv = ["학교,영문명,급,팀,유형,이메일,과목,상태", ...rows].join("\n");
     const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
     a.download = `snorkl-교사-${new Date().toISOString().split("T")[0]}.csv`; a.click();
@@ -193,6 +202,8 @@ export default function TeachersPage() {
                 <span className="text-violet-600 font-medium">{indivCount} 개별</span>
               </>
             )}
+            <span className="text-gray-200 hidden sm:inline">|</span>
+            <span className="hidden sm:inline whitespace-nowrap">초 {levelCounts.초} · 중 {levelCounts.중} · 고 {levelCounts.고}</span>
           </div>
         </div>
         <div className="flex items-center gap-2 sm:ml-auto">
@@ -226,6 +237,18 @@ export default function TeachersPage() {
               </button>
             ))}
           </div>
+
+          {/* Level filter (단체 탭 전용 — 개별 탭은 학교 레코드가 없어 급 판별 불가) */}
+          {tab === "school" && (
+            <div className="flex items-center gap-0.5 overflow-x-auto shrink-0 border-l pl-2 ml-0.5">
+              {(["all", "초", "중", "고"] as const).map((val) => (
+                <button key={val} onClick={() => setFilterLevel(val)}
+                  className={`px-2 py-1 rounded-md text-xs font-medium transition-all whitespace-nowrap ${filterLevel === val ? "bg-gray-900 text-white" : "text-gray-400 hover:text-gray-700"}`}>
+                  {val === "all" ? "전 급" : val}
+                </button>
+              ))}
+            </div>
+          )}
 
           <div className="flex-1 hidden sm:block" />
         </div>
@@ -288,6 +311,9 @@ export default function TeachersPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
                       <span className="text-sm font-medium text-gray-900 truncate max-w-[140px] sm:max-w-none">{school.name}</span>
+                      {(() => { const lv = schoolLevel(school.name, school.nameEn); return lv ? (
+                        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded whitespace-nowrap ${levelBadgeCls[lv]}`}>{lv}</span>
+                      ) : null; })()}
                       {school.nameEn && <span className="text-xs text-gray-400 hidden sm:inline truncate">{school.nameEn}</span>}
                       {school.team && !school.team.includes("개별") && (
                         <span className="text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded whitespace-nowrap">{school.team}</span>

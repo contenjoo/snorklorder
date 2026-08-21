@@ -215,6 +215,12 @@ export default function TeacherRegistration() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex items-center justify-center p-4">
+      {/* 담당 과목 자동완성 — 자유 입력은 유지하되 표준 과목명으로 유도해 데이터 정규화 */}
+      <datalist id="subject-options">
+        {["국어", "영어", "수학", "과학", "사회", "역사", "도덕", "정보", "체육", "음악", "미술", "기술가정", "제2외국어", "진로", "특수", "보건", "사서", "상담", "초등 담임"].map((s) => (
+          <option key={s} value={s} />
+        ))}
+      </datalist>
       <div className="w-full max-w-lg">
         {/* Header */}
         <div className="text-center mb-8">
@@ -419,7 +425,7 @@ export default function TeacherRegistration() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="school-subject" className={labelCls}>담당 과목 <span className="text-gray-500 font-normal">(선택)</span></Label>
-                <Input id="school-subject" placeholder="예: 영어, 수학, 과학" value={subject} onChange={(e) => setSubject(e.target.value)} className={inputCls} />
+                <Input id="school-subject" list="subject-options" placeholder="예: 수학 (초등은 '초등 담임')" value={subject} onChange={(e) => setSubject(e.target.value)} className={inputCls} />
               </div>
               {error && <p role="alert" aria-live="polite" className="text-sm text-red-600 font-medium bg-red-50 p-3 rounded-xl">{error}</p>}
               <Button type="submit" disabled={loading} className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-base font-bold rounded-xl">
@@ -729,7 +735,8 @@ export default function TeacherRegistration() {
                     <Input
                       id={`purchase-subject-${i}`}
                       aria-label={`교사 ${i + 1} 담당 과목`}
-                      placeholder="담당 과목 (선택)"
+                      list="subject-options"
+                      placeholder="담당 과목 (선택) 예: 수학"
                       value={t.subject}
                       onChange={(e) => setPurchaseTeachers((prev) => prev.map((row, idx) => idx === i ? { ...row, subject: e.target.value } : row))}
                       className={inputCls}
