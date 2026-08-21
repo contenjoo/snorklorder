@@ -41,72 +41,83 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   }, []);
 
   return (
-    <div className="min-h-screen bg-gray-50/80">
-      {/* Header */}
-      <header className="bg-white/80 backdrop-blur-lg border-b border-gray-200/60 sticky top-0 z-20">
-        <div className="max-w-[1400px] mx-auto px-6 flex items-center justify-between h-14 gap-3">
-          <Link href="/admin" className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center">
-              <span className="text-white text-xs font-bold">S</span>
-            </div>
-            <span className="font-bold text-gray-900 tracking-tight">Snorkl 주문관리</span>
-          </Link>
-
-          <div className="flex items-center gap-2">
-            {/* Desktop nav - hidden on mobile */}
-            <nav className="hidden md:flex gap-0.5">
-              {navItems.map((item) => {
-                const isActive = item.href === "/admin" ? pathname === "/admin" : pathname.startsWith(item.href);
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                      isActive
-                        ? "bg-gray-900 text-white shadow-sm"
-                        : "text-gray-500 hover:text-gray-900 hover:bg-gray-100"
-                    }`}
-                  >
-                    <span className={`[&>svg]:w-4 [&>svg]:h-4 ${isActive ? "text-white/80" : "text-gray-400"}`}>
-                      {icons[item.icon]}
-                    </span>
-                    {item.label}
-                  </Link>
-                );
-              })}
-            </nav>
-
-            {/* Command palette trigger - full pill on desktop, icon-only on mobile */}
-            <button
-              type="button"
-              onClick={() => setPaletteOpen(true)}
-              className="hidden md:flex items-center gap-2 h-8 min-w-[180px] px-3 rounded-lg border border-gray-200 bg-gray-50 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
-            >
-              <SearchIcon className="w-3.5 h-3.5 shrink-0" />
-              <span className="text-xs">검색</span>
-              <kbd className="ml-auto rounded border border-gray-300 bg-white px-1.5 py-0.5 text-[10px] font-medium text-gray-400">
-                ⌘K
-              </kbd>
-            </button>
-            <button
-              type="button"
-              onClick={() => setPaletteOpen(true)}
-              aria-label="검색"
-              className="md:hidden flex items-center justify-center w-8 h-8 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
-            >
-              <SearchIcon className="w-4 h-4" />
-            </button>
+    <div className="min-h-screen bg-slate-100/70">
+      {/* ── Desktop sidebar ─────────────────────────────────────────── */}
+      <aside className="hidden md:flex fixed inset-y-0 left-0 z-30 w-56 flex-col bg-slate-900">
+        <Link href="/admin" className="flex items-center gap-2.5 px-5 h-16 shrink-0">
+          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center shadow-lg shadow-indigo-900/40">
+            <span className="text-white text-sm font-black">S</span>
           </div>
+          <div className="leading-tight">
+            <p className="font-bold text-white tracking-tight text-sm">Snorkl</p>
+            <p className="text-[10px] text-slate-400 -mt-0.5">주문관리</p>
+          </div>
+        </Link>
+
+        {/* Search trigger */}
+        <button
+          type="button"
+          onClick={() => setPaletteOpen(true)}
+          className="mx-3 mb-4 flex items-center gap-2 h-9 px-3 rounded-lg bg-slate-800/80 text-slate-400 hover:bg-slate-800 hover:text-slate-200 transition-colors"
+        >
+          <SearchIcon className="w-3.5 h-3.5 shrink-0" />
+          <span className="text-xs">검색</span>
+          <kbd className="ml-auto rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">⌘K</kbd>
+        </button>
+
+        <nav className="flex-1 px-3 space-y-0.5">
+          {navItems.map((item) => {
+            const isActive = item.href === "/admin" ? pathname === "/admin" : pathname.startsWith(item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`relative flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  isActive ? "bg-slate-800 text-white" : "text-slate-400 hover:text-slate-100 hover:bg-slate-800/60"
+                }`}
+              >
+                {isActive && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 rounded-r-full bg-indigo-400" />}
+                <span className={`[&>svg]:w-[18px] [&>svg]:h-[18px] ${isActive ? "text-indigo-300" : "text-slate-500"}`}>
+                  {icons[item.icon]}
+                </span>
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
+
+        <p className="px-5 py-4 text-[10px] text-slate-600">Snorkl 프리미엄 주문관리</p>
+      </aside>
+
+      {/* ── Mobile top bar ──────────────────────────────────────────── */}
+      <header className="md:hidden bg-white/85 backdrop-blur-lg border-b border-slate-200/70 sticky top-0 z-20">
+        <div className="px-4 flex items-center justify-between h-13 py-2.5 gap-3">
+          <Link href="/admin" className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center">
+              <span className="text-white text-xs font-black">S</span>
+            </div>
+            <span className="font-bold text-slate-900 tracking-tight text-sm">Snorkl 주문관리</span>
+          </Link>
+          <button
+            type="button"
+            onClick={() => setPaletteOpen(true)}
+            aria-label="검색"
+            className="flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+          >
+            <SearchIcon className="w-4 h-4" />
+          </button>
         </div>
       </header>
 
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
 
-      {/* Main content - extra bottom padding on mobile for tab bar */}
-      <main className="max-w-[1400px] mx-auto px-6 py-6 pb-24 md:pb-6">{children}</main>
+      {/* ── Main content ────────────────────────────────────────────── */}
+      <main className="md:pl-56">
+        <div className="max-w-[1320px] mx-auto px-4 md:px-8 py-6 pb-24 md:pb-8">{children}</div>
+      </main>
 
-      {/* Mobile bottom tab bar */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-lg border-t border-gray-200/60 pb-[env(safe-area-inset-bottom)]">
+      {/* ── Mobile bottom tab bar ───────────────────────────────────── */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-lg border-t border-slate-200/70 pb-[env(safe-area-inset-bottom)]">
         <div className="flex items-center justify-around h-16">
           {navItems.map((item) => {
             const isActive = item.href === "/admin" ? pathname === "/admin" : pathname.startsWith(item.href);
@@ -116,13 +127,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 href={item.href}
                 className="relative flex flex-col items-center justify-center gap-0.5 flex-1 py-2"
               >
-                {isActive && (
-                  <span className="absolute top-1 w-1 h-1 rounded-full bg-blue-600" />
-                )}
-                <span className={`[&>svg]:w-5 [&>svg]:h-5 ${isActive ? "text-blue-600" : "text-gray-400"}`}>
+                {isActive && <span className="absolute top-1 w-1 h-1 rounded-full bg-indigo-600" />}
+                <span className={`[&>svg]:w-5 [&>svg]:h-5 ${isActive ? "text-indigo-600" : "text-slate-400"}`}>
                   {icons[item.icon]}
                 </span>
-                <span className={`text-[10px] font-medium ${isActive ? "text-blue-600" : "text-gray-400"}`}>
+                <span className={`text-[10px] font-medium ${isActive ? "text-indigo-600" : "text-slate-400"}`}>
                   {item.label}
                 </span>
               </Link>

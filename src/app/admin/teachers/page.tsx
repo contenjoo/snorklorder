@@ -77,10 +77,13 @@ export default function TeachersPage() {
       .catch(() => {});
   }, []);
 
-  // Command palette can deep-link here with ?q=<query> to pre-fill the search box.
+  // Command palette can deep-link here with ?q=<query> (search) / ?level=초|중|고 (급 필터).
   useEffect(() => {
-    const q = new URLSearchParams(window.location.search).get("q");
+    const params = new URLSearchParams(window.location.search);
+    const q = params.get("q");
     if (q) setSearch(q);
+    const lv = params.get("level");
+    if (lv === "초" || lv === "중" || lv === "고") setFilterLevel(lv);
   }, []);
 
   const individualTeachers = useMemo(() => {
