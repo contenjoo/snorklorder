@@ -261,7 +261,7 @@ export default function AdminDashboard() {
   if (loading || !data) {
     return (
       <div className="flex items-center justify-center py-20">
-        <div className="w-6 h-6 border-2 border-gray-300 border-t-gray-900 rounded-full animate-spin" />
+        <div className="w-6 h-6 border-2 border-slate-300 border-t-slate-900 rounded-full animate-spin" />
       </div>
     );
   }
@@ -418,14 +418,14 @@ export default function AdminDashboard() {
             ? "처리 완료 · 인보이스 아직"
             : "결제 완료 · Jon confirm 대기";
     return (
-      <div key={i.id} className="flex items-center gap-3 px-4 md:px-5 py-2.5 border-t hover:bg-gray-50/70">
+      <div key={i.id} className="flex items-center gap-3 px-4 md:px-5 py-2.5 border-t hover:bg-slate-50/70">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[13px] font-bold text-gray-900 truncate">
+            <span className="text-[13px] font-bold text-slate-900 truncate">
               {i.applicantType === "individual" ? `개인 · ${i.schoolName}` : i.schoolName}
             </span>
-            {i.schoolNameEn && <span className="text-[11px] text-gray-400 truncate hidden sm:inline">{i.schoolNameEn}</span>}
-            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 whitespace-nowrap">{typeChip}</span>
+            {i.schoolNameEn && <span className="text-[11px] text-slate-400 truncate hidden sm:inline">{i.schoolNameEn}</span>}
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 whitespace-nowrap">{typeChip}</span>
             {group === "MY_PAY" && i.amountText && (
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-50 text-red-700 whitespace-nowrap">💳 {i.amountText}</span>
             )}
@@ -433,12 +433,12 @@ export default function AdminDashboard() {
               <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${jonChip.cls}`}>{jonChip.label}</span>
             )}
           </div>
-          <div className="text-[11px] text-gray-500 truncate mt-0.5">{detail}</div>
+          <div className="text-[11px] text-slate-500 truncate mt-0.5">{detail}</div>
         </div>
         {group === "MY_PAY" && dday ? (
           <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${dday.cls}`} title={`결제 기한: ${i.invoiceDueDate}`}>{dday.label}</span>
         ) : (
-          <span className={`text-[11px] shrink-0 tabular-nums ${stale ? "text-red-600 font-bold" : "text-gray-400"}`}>
+          <span className={`text-[11px] shrink-0 tabular-nums ${stale ? "text-red-600 font-bold" : "text-slate-400"}`}>
             {ageText(i.ageDays)}{stale ? " 🔥" : ""}
           </span>
         )}
@@ -463,7 +463,7 @@ export default function AdminDashboard() {
           ) : i.source === "account" ? (
             <Link
               href={`/admin/accounts?focus=${i.rawId}`}
-              className="shrink-0 text-xs font-semibold border text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors whitespace-nowrap"
+              className="shrink-0 text-xs font-semibold border text-slate-600 px-3 py-1.5 rounded-lg hover:bg-slate-50 transition-colors whitespace-nowrap"
             >
               상세
             </Link>
@@ -475,30 +475,30 @@ export default function AdminDashboard() {
 
   return (
     <div className="space-y-4 pb-20 md:pb-0">
-      {/* ── KPI 스트립 ── */}
+      {/* ── KPI 스트립 (클릭 = 해당 화면 드릴다운) ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
-        <div className={`bg-white rounded-xl border p-3.5 ${myTurnCount > 0 ? "border-red-300 shadow-[inset_3px_0_0_#dc2626]" : ""}`}>
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">지금 내 차례</p>
-          <p className={`text-2xl font-extrabold tabular-nums leading-tight mt-0.5 ${myTurnCount > 0 ? "text-red-600" : "text-gray-900"}`}>{myTurnCount}</p>
-          <p className="text-[11px] text-gray-500">발송 대기 {myDrafts.length} · 결제 {mePay.length}</p>
-        </div>
-        <div className="bg-white rounded-xl border p-3.5">
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Jon 차례</p>
-          <p className="text-2xl font-extrabold tabular-nums text-gray-900 leading-tight mt-0.5">{jonWaiting.length + jonInvoice.length}</p>
-          <p className="text-[11px] text-gray-500">처리 대기 {jonWaiting.length} · 인보이스 {jonInvoice.length}</p>
-        </div>
-        <div className="bg-white rounded-xl border p-3.5">
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">결제 예정 금액</p>
-          <p className="text-2xl font-extrabold tabular-nums text-gray-900 leading-tight mt-0.5">{outstanding > 0 ? `$${outstanding.toLocaleString()}` : "—"}</p>
-          <p className="text-[11px] text-gray-500">인보이스 {mePay.length}건{nearestDueLabel ? ` · 최근접 ${nearestDueLabel}` : ""}</p>
-        </div>
-        <div className="bg-white rounded-xl border p-3.5">
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">이번 달 업그레이드</p>
-          <p className="text-2xl font-extrabold tabular-nums text-gray-900 leading-tight mt-0.5">
-            {monthlyUpgrades?.teachers ?? 0}<span className="text-sm font-semibold text-gray-400">명</span>
+        <Link href="/admin/accounts?filter=draft" className={`block bg-white rounded-xl border p-3.5 transition-shadow hover:shadow-md hover:ring-1 hover:ring-slate-200 ${myTurnCount > 0 ? "border-red-300 shadow-[inset_3px_0_0_#dc2626]" : ""}`}>
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">지금 내 차례</p>
+          <p className={`text-2xl font-extrabold tabular-nums leading-tight mt-0.5 ${myTurnCount > 0 ? "text-red-600" : "text-slate-900"}`}>{myTurnCount}</p>
+          <p className="text-[11px] text-slate-500">발송 대기 {myDrafts.length} · 결제 {mePay.length}</p>
+        </Link>
+        <Link href="/admin/accounts?filter=sent" className="block bg-white rounded-xl border p-3.5 transition-shadow hover:shadow-md hover:ring-1 hover:ring-slate-200">
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Jon 차례</p>
+          <p className="text-2xl font-extrabold tabular-nums text-slate-900 leading-tight mt-0.5">{jonWaiting.length + jonInvoice.length}</p>
+          <p className="text-[11px] text-slate-500">처리 대기 {jonWaiting.length} · 인보이스 {jonInvoice.length}</p>
+        </Link>
+        <Link href="/admin/accounts?filter=invoiced" className="block bg-white rounded-xl border p-3.5 transition-shadow hover:shadow-md hover:ring-1 hover:ring-slate-200">
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">결제 예정 금액</p>
+          <p className="text-2xl font-extrabold tabular-nums text-slate-900 leading-tight mt-0.5">{outstanding > 0 ? `$${outstanding.toLocaleString()}` : "—"}</p>
+          <p className="text-[11px] text-slate-500">인보이스 {mePay.length}건{nearestDueLabel ? ` · 최근접 ${nearestDueLabel}` : ""}</p>
+        </Link>
+        <Link href="/admin/teachers" className="block bg-white rounded-xl border p-3.5 transition-shadow hover:shadow-md hover:ring-1 hover:ring-slate-200">
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">이번 달 업그레이드</p>
+          <p className="text-2xl font-extrabold tabular-nums text-slate-900 leading-tight mt-0.5">
+            {monthlyUpgrades?.teachers ?? 0}<span className="text-sm font-semibold text-slate-400">명</span>
           </p>
-          <p className="text-[11px] text-gray-500">{monthlyUpgrades?.schools ?? 0}개교</p>
-        </div>
+          <p className="text-[11px] text-slate-500">{monthlyUpgrades?.schools ?? 0}개교</p>
+        </Link>
       </div>
 
       {/* ── 메인 2컬럼 ── */}
@@ -507,16 +507,16 @@ export default function AdminDashboard() {
         <div className="space-y-4">
           <details open className="bg-white rounded-2xl border overflow-hidden group">
             <summary className="flex items-center gap-2.5 px-4 md:px-5 py-3.5 border-b cursor-pointer list-none [&::-webkit-details-marker]:hidden select-none">
-              <h2 className="font-bold text-gray-900 text-[15px]">오늘 할 일</h2>
-              <span className="text-[11px] font-bold text-gray-500 bg-gray-100 rounded-full px-2.5 py-0.5 tabular-nums">{todoCount}</span>
+              <h2 className="font-bold text-slate-900 text-[15px]">오늘 할 일</h2>
+              <span className="text-[11px] font-bold text-slate-500 bg-slate-100 rounded-full px-2.5 py-0.5 tabular-nums">{todoCount}</span>
               <span className="ml-auto flex items-center gap-2">
                 <Link href="/admin/accounts" onClick={(e) => e.stopPropagation()} className="text-xs text-blue-600 hover:underline font-medium">전체 보기 →</Link>
-                <span className="text-gray-400 text-xs transition-transform group-open:rotate-180">▾</span>
+                <span className="text-slate-400 text-xs transition-transform group-open:rotate-180">▾</span>
               </span>
             </summary>
 
             {todoCount === 0 ? (
-              <div className="px-5 py-10 text-center text-sm text-gray-400">오늘 할 일 없음 ✓</div>
+              <div className="px-5 py-10 text-center text-sm text-slate-400">오늘 할 일 없음 ✓</div>
             ) : (
               <>
                 {myTurnCount > 0 && (
@@ -530,7 +530,7 @@ export default function AdminDashboard() {
                 {jonTurnItems.length > 0 && (
                   <div className="flex items-center gap-1.5 px-4 md:px-5 pt-3 pb-1 text-[10px] font-extrabold uppercase tracking-widest text-purple-700">
                     <span className="w-1.5 h-1.5 rounded-full bg-purple-700" />Jon 차례
-                    <span className="font-medium normal-case tracking-normal text-gray-400">— 3일 넘으면 🔥</span>
+                    <span className="font-medium normal-case tracking-normal text-slate-400">— 3일 넘으면 🔥</span>
                   </div>
                 )}
                 {jonTurnItems.map((i) => renderBillingRow(i, "JON"))}
@@ -575,10 +575,10 @@ export default function AdminDashboard() {
                   </div>
                 )}
                 {approvalQueue.map((teacher) => {
-                  const tc = teamColorMap[teacher.schoolTeam || ""] || { bg: "bg-gray-50", text: "text-gray-600", dot: "bg-gray-400", border: "border-gray-200" };
+                  const tc = teamColorMap[teacher.schoolTeam || ""] || { bg: "bg-slate-50", text: "text-slate-600", dot: "bg-slate-400", border: "border-slate-200" };
                   const regDays = daysSince(teacher.createdAt) ?? 0;
                   return (
-                    <div key={teacher.id} className="flex items-center gap-2.5 px-4 md:px-5 py-2.5 border-t hover:bg-gray-50/70">
+                    <div key={teacher.id} className="flex items-center gap-2.5 px-4 md:px-5 py-2.5 border-t hover:bg-slate-50/70">
                       <input
                         type="checkbox"
                         checked={approvalSelected.has(teacher.id)}
@@ -588,16 +588,16 @@ export default function AdminDashboard() {
                       />
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="text-[13px] font-bold text-gray-900 truncate">{teacher.schoolName} · {teacher.name}</span>
-                          <span className="text-[11px] text-gray-400 truncate hidden sm:inline">{teacher.email}</span>
+                          <span className="text-[13px] font-bold text-slate-900 truncate">{teacher.schoolName} · {teacher.name}</span>
+                          <span className="text-[11px] text-slate-400 truncate hidden sm:inline">{teacher.email}</span>
                           {teacher.schoolTeam && <span className={`text-[10px] px-2 py-0.5 rounded-full ${tc.bg} ${tc.text} border ${tc.border}`}>{teacher.schoolTeam}</span>}
                         </div>
-                        <div className="text-[11px] text-gray-500 truncate mt-0.5">
+                        <div className="text-[11px] text-slate-500 truncate mt-0.5">
                           {teacher.emailVerifiedAt ? "이메일 인증됨" : "미인증(레거시)"}
                           {teacher.escalatedAt ? " · 학교 관리자 무응답 → 본사 이관" : ""}
                         </div>
                       </div>
-                      <span className={`text-[11px] shrink-0 tabular-nums ${regDays >= 3 ? "text-red-600 font-bold" : "text-gray-400"}`}>{ageText(regDays)}</span>
+                      <span className={`text-[11px] shrink-0 tabular-nums ${regDays >= 3 ? "text-red-600 font-bold" : "text-slate-400"}`}>{ageText(regDays)}</span>
                       <div className="flex items-center gap-1.5 shrink-0">
                         <button
                           type="button"
@@ -628,7 +628,7 @@ export default function AdminDashboard() {
             <div className="bg-white rounded-2xl border overflow-hidden">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-4 md:px-5 py-3 md:py-4 border-b">
                 <div className="flex items-center gap-3 flex-wrap">
-                  <h2 className="font-bold text-gray-900">Jon 발송 대기 / Upgrade</h2>
+                  <h2 className="font-bold text-slate-900">Jon 발송 대기 / Upgrade</h2>
                   <span className="text-xs font-medium text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200">{needUpgrade}명</span>
                   {allPendingIds.length > 0 && (() => {
                     const allChecked = selectedIds.size === allPendingIds.length && allPendingIds.length > 0;
@@ -643,7 +643,7 @@ export default function AdminDashboard() {
                     );
                   })()}
                   {selectedIds.size > 0 && (
-                    <span className="text-[11px] text-gray-500">{selectedIds.size}명 선택됨</span>
+                    <span className="text-[11px] text-slate-500">{selectedIds.size}명 선택됨</span>
                   )}
                 </div>
                 {allPendingIds.length > 0 && (
@@ -655,7 +655,7 @@ export default function AdminDashboard() {
               </div>
               <div className="divide-y max-h-[400px] overflow-y-auto">
                 {upgradeNeeded.map((school) => {
-                  const tc = teamColorMap[school.team || ""] || { bg: "bg-gray-50", text: "text-gray-600", dot: "bg-gray-400", border: "border-gray-200" };
+                  const tc = teamColorMap[school.team || ""] || { bg: "bg-slate-50", text: "text-slate-600", dot: "bg-slate-400", border: "border-slate-200" };
                   const schoolPendingIds = school.needTeachers.filter((t) => t.status === "pending").map((t) => t.id);
                   const selectedInSchool = schoolPendingIds.filter((id) => selectedIds.has(id)).length;
                   const allSelected = schoolPendingIds.length > 0 && selectedInSchool === schoolPendingIds.length;
@@ -679,8 +679,8 @@ export default function AdminDashboard() {
                             aria-label={`${school.name} 전체 선택`}
                           />
                         )}
-                        <span className="text-sm font-semibold text-gray-900">{school.nameEn || school.name}</span>
-                        {school.nameEn && <span className="text-[10px] text-gray-400">{school.name}</span>}
+                        <span className="text-sm font-semibold text-slate-900">{school.nameEn || school.name}</span>
+                        {school.nameEn && <span className="text-[10px] text-slate-400">{school.name}</span>}
                         {school.team && <span className={`text-[10px] px-2 py-0.5 rounded-full ${tc.bg} ${tc.text} border ${tc.border}`}>{school.team}</span>}
                         {stale && (
                           <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200 font-bold animate-pulse" title={`Jon에게 발송 후 ${maxSentDays}일 경과 — 리마인드 필요`}>
@@ -730,7 +730,7 @@ export default function AdminDashboard() {
         <div className="space-y-4">
           <section className="bg-white rounded-2xl border overflow-hidden">
             <div className="flex items-center justify-between px-4 md:px-5 py-3.5 border-b">
-              <h2 className="font-bold text-gray-900 text-[15px]">정산 파이프라인</h2>
+              <h2 className="font-bold text-slate-900 text-[15px]">정산 파이프라인</h2>
               <Link href="/admin/accounts" className="text-xs text-blue-600 hover:underline font-medium">정산 →</Link>
             </div>
             <div className="grid grid-cols-5 gap-1.5 px-4 py-3.5">
@@ -743,16 +743,16 @@ export default function AdminDashboard() {
                   <Link
                     key={stage.value}
                     href={`/admin/accounts?filter=${stage.value}`}
-                    className={`rounded-lg px-1.5 py-2 text-center transition-colors ${stalled ? "bg-red-50 hover:bg-red-100" : "bg-gray-50 hover:bg-gray-100"}`}
+                    className={`rounded-lg px-1.5 py-2 text-center transition-colors ${stalled ? "bg-red-50 hover:bg-red-100" : "bg-slate-50 hover:bg-slate-100"}`}
                     title={stalled ? "3일 이상 대기 중인 건 있음" : undefined}
                   >
-                    <div className={`text-lg font-extrabold tabular-nums leading-tight ${stalled ? "text-red-600" : "text-gray-900"}`}>{count}</div>
-                    <div className="text-[10px] font-semibold text-gray-500 whitespace-nowrap">{stage.label}</div>
+                    <div className={`text-lg font-extrabold tabular-nums leading-tight ${stalled ? "text-red-600" : "text-slate-900"}`}>{count}</div>
+                    <div className="text-[10px] font-semibold text-slate-500 whitespace-nowrap">{stage.label}</div>
                   </Link>
                 );
               })}
             </div>
-            <div className="flex justify-between px-5 pb-3 text-[10px] text-gray-400">
+            <div className="flex justify-between px-5 pb-3 text-[10px] text-slate-400">
               <span>← 내가 보냄</span><span>Jon 처리</span><span>결제 →</span>
             </div>
           </section>
@@ -771,9 +771,9 @@ export default function AdminDashboard() {
                     {recentFailedEmails.map((f) => (
                       <div key={f.id} className="flex items-center gap-2 text-[11px] bg-white rounded px-2 py-1 border border-red-100">
                         <span className="font-mono text-red-700 shrink-0">{f.kind}</span>
-                        <span className="text-gray-600 truncate flex-1" title={f.subject}>{f.subject}</span>
-                        <span className="font-mono text-gray-500 shrink-0">→ {f.toEmail}</span>
-                        <span className="text-gray-400 shrink-0">{new Date(f.createdAt).toLocaleString("ko-KR", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+                        <span className="text-slate-600 truncate flex-1" title={f.subject}>{f.subject}</span>
+                        <span className="font-mono text-slate-500 shrink-0">→ {f.toEmail}</span>
+                        <span className="text-slate-400 shrink-0">{new Date(f.createdAt).toLocaleString("ko-KR", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
                       </div>
                     ))}
                   </div>
@@ -785,11 +785,11 @@ export default function AdminDashboard() {
           {/* 활동 피드 */}
           <section className="bg-white rounded-2xl border overflow-hidden">
             <div className="flex items-center gap-2.5 px-4 md:px-5 py-3.5 border-b">
-              <h2 className="font-bold text-gray-900 text-[15px]">활동</h2>
-              <span className="text-[11px] font-bold text-gray-500 bg-gray-100 rounded-full px-2.5 py-0.5">최근 {activity?.length ?? 0}건</span>
+              <h2 className="font-bold text-slate-900 text-[15px]">활동</h2>
+              <span className="text-[11px] font-bold text-slate-500 bg-slate-100 rounded-full px-2.5 py-0.5">최근 {activity?.length ?? 0}건</span>
             </div>
             {!activity || activity.length === 0 ? (
-              <div className="px-5 py-8 text-center text-sm text-gray-400">최근 활동이 없습니다.</div>
+              <div className="px-5 py-8 text-center text-sm text-slate-400">최근 활동이 없습니다.</div>
             ) : (
               <ul>
                 {activity.map((a, idx) => {
@@ -802,15 +802,15 @@ export default function AdminDashboard() {
                         : "bg-emerald-500";
                   return (
                     <li key={a.id} className={`flex gap-2.5 px-4 md:px-5 py-2 text-xs ${idx > 0 ? "border-t" : ""}`}>
-                      <span className="text-gray-400 tabular-nums whitespace-nowrap w-11 shrink-0">{feedTime(a.at)}</span>
+                      <span className="text-slate-400 tabular-nums whitespace-nowrap w-11 shrink-0">{feedTime(a.at)}</span>
                       <span className={`w-2 h-2 rounded-full mt-1 shrink-0 ${dot}`} />
                       {a.type === "confirm" ? (
-                        <span className="text-gray-500 min-w-0 truncate" title={a.schoolName || ""}>
-                          Jon이 <b className="text-gray-900 font-semibold">{a.schoolNameEn || a.schoolName}</b> confirm
+                        <span className="text-slate-500 min-w-0 truncate" title={a.schoolName || ""}>
+                          Jon이 <b className="text-slate-900 font-semibold">{a.schoolNameEn || a.schoolName}</b> confirm
                         </span>
                       ) : (
-                        <span className="text-gray-500 min-w-0 truncate" title={a.subject || ""}>
-                          <b className="text-gray-900 font-semibold">{a.toEmail}</b> {EMAIL_KIND_LABEL[a.kind || ""] || a.kind} {a.status === "failed" ? "발송 실패" : "발송 성공"}
+                        <span className="text-slate-500 min-w-0 truncate" title={a.subject || ""}>
+                          <b className="text-slate-900 font-semibold">{a.toEmail}</b> {EMAIL_KIND_LABEL[a.kind || ""] || a.kind} {a.status === "failed" ? "발송 실패" : "발송 성공"}
                         </span>
                       )}
                     </li>
@@ -824,50 +824,50 @@ export default function AdminDashboard() {
 
       {/* ── 하단: 전체 현황 접기 카드 ── */}
       <details className="bg-white rounded-2xl border overflow-hidden group">
-        <summary className="flex items-center gap-2 px-4 md:px-5 py-3.5 cursor-pointer font-bold text-gray-900 text-[15px] list-none [&::-webkit-details-marker]:hidden select-none">
+        <summary className="flex items-center gap-2 px-4 md:px-5 py-3.5 cursor-pointer font-bold text-slate-900 text-[15px] list-none [&::-webkit-details-marker]:hidden select-none">
           📊 전체 현황 (팀 · 지역 · 누적)
-          <svg className="w-4 h-4 text-gray-400 ml-auto transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg className="w-4 h-4 text-slate-400 ml-auto transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
           </svg>
         </summary>
         <div className="border-t px-4 md:px-5 py-4 space-y-4">
           {/* 누적 통계 */}
           <div className="grid grid-cols-2 md:grid-cols-5 gap-2.5">
-            <div className="bg-gray-50 rounded-xl p-3">
-              <p className="text-lg font-extrabold tabular-nums text-gray-900">{stats.totalSchools}</p>
-              <p className="text-[11px] text-gray-500">등록 학교</p>
+            <div className="bg-slate-50 rounded-xl p-3">
+              <p className="text-lg font-extrabold tabular-nums text-slate-900">{stats.totalSchools}</p>
+              <p className="text-[11px] text-slate-500">등록 학교</p>
             </div>
-            <div className="bg-gray-50 rounded-xl p-3">
-              <p className="text-lg font-extrabold tabular-nums text-gray-900">{stats.totalTeachers}</p>
-              <p className="text-[11px] text-gray-500">누적 교사</p>
+            <div className="bg-slate-50 rounded-xl p-3">
+              <p className="text-lg font-extrabold tabular-nums text-slate-900">{stats.totalTeachers}</p>
+              <p className="text-[11px] text-slate-500">누적 교사</p>
             </div>
-            <div className="bg-gray-50 rounded-xl p-3">
-              <p className="text-lg font-extrabold tabular-nums text-gray-900">{upgradeRate}%</p>
-              <p className="text-[11px] text-gray-500">확정률 ({stats.confirmed}/{stats.totalTeachers})</p>
+            <div className="bg-slate-50 rounded-xl p-3">
+              <p className="text-lg font-extrabold tabular-nums text-slate-900">{upgradeRate}%</p>
+              <p className="text-[11px] text-slate-500">확정률 ({stats.confirmed}/{stats.totalTeachers})</p>
             </div>
-            <div className="bg-gray-50 rounded-xl p-3">
-              <p className="text-lg font-extrabold tabular-nums text-gray-900">{teamGroups.reduce((sum, group) => sum + group.teacherCount, 0)}</p>
-              <p className="text-[11px] text-gray-500">공동구매 ({teamGroups.length}팀 · {teamGroups.reduce((sum, group) => sum + group.schoolCount, 0)}교)</p>
+            <div className="bg-slate-50 rounded-xl p-3">
+              <p className="text-lg font-extrabold tabular-nums text-slate-900">{teamGroups.reduce((sum, group) => sum + group.teacherCount, 0)}</p>
+              <p className="text-[11px] text-slate-500">공동구매 ({teamGroups.length}팀 · {teamGroups.reduce((sum, group) => sum + group.schoolCount, 0)}교)</p>
             </div>
-            <div className="bg-gray-50 rounded-xl p-3">
-              <p className="text-lg font-extrabold tabular-nums text-gray-900">{stats.individual}</p>
-              <p className="text-[11px] text-gray-500">개별구매</p>
+            <div className="bg-slate-50 rounded-xl p-3">
+              <p className="text-lg font-extrabold tabular-nums text-slate-900">{stats.individual}</p>
+              <p className="text-[11px] text-slate-500">개별구매</p>
             </div>
           </div>
 
           <div className="grid lg:grid-cols-2 gap-4 items-start">
             {/* 팀별 */}
             <div className="rounded-xl border overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-3 border-b bg-gray-50/60">
+              <div className="flex items-center justify-between px-4 py-3 border-b bg-slate-50/60">
                 <div className="flex items-center gap-2">
-                  <h3 className="font-bold text-gray-900 text-sm">공동구매팀</h3>
-                  <span className="text-xs text-gray-400">{teamGroups.length}팀</span>
+                  <h3 className="font-bold text-slate-900 text-sm">공동구매팀</h3>
+                  <span className="text-xs text-slate-400">{teamGroups.length}팀</span>
                 </div>
                 <Link href="/admin/schools" className="text-xs text-blue-600 hover:underline">전체 보기</Link>
               </div>
               <div className="divide-y">
                 {teamGroups.map((group) => {
-                  const tc = teamColorMap[group.team] || { bg: "bg-gray-50", text: "text-gray-600", dot: "bg-gray-400", border: "border-gray-200" };
+                  const tc = teamColorMap[group.team] || { bg: "bg-slate-50", text: "text-slate-600", dot: "bg-slate-400", border: "border-slate-200" };
                   const rate = group.teacherCount > 0 ? Math.round((group.confirmedCount / group.teacherCount) * 100) : 0;
                   const isOpen = expandedTeam === group.team;
 
@@ -875,32 +875,32 @@ export default function AdminDashboard() {
                     <div key={group.team}>
                       <button
                         type="button"
-                        className="w-full flex flex-wrap items-center gap-2 px-4 py-2.5 text-left hover:bg-gray-50/80 transition-colors"
+                        className="w-full flex flex-wrap items-center gap-2 px-4 py-2.5 text-left hover:bg-slate-50/80 transition-colors"
                         onClick={() => setExpandedTeam(isOpen ? null : group.team)}
                       >
                         <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${tc.dot}`} />
-                        <span className="font-semibold text-sm text-gray-900 w-20 shrink-0">{group.team}</span>
-                        <span className="text-[10px] text-gray-400">{group.schoolCount}교</span>
+                        <span className="font-semibold text-sm text-slate-900 w-20 shrink-0">{group.team}</span>
+                        <span className="text-[10px] text-slate-400">{group.schoolCount}교</span>
                         <div className="ml-auto flex items-center gap-2">
-                          <span className="text-xs font-mono text-gray-500">{group.confirmedCount}/{group.teacherCount}</span>
-                          <div className="h-1.5 w-16 rounded-full bg-gray-100 overflow-hidden">
+                          <span className="text-xs font-mono text-slate-500">{group.confirmedCount}/{group.teacherCount}</span>
+                          <div className="h-1.5 w-16 rounded-full bg-slate-100 overflow-hidden">
                             <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${rate}%` }} />
                           </div>
                           <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${rate === 100 ? "text-emerald-600 bg-emerald-50 border-emerald-200" : "text-amber-600 bg-amber-50 border-amber-200"}`}>{rate === 100 ? "완성" : `${rate}%`}</span>
-                          <svg className={`w-4 h-4 text-gray-300 transition-transform shrink-0 ${isOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <svg className={`w-4 h-4 text-slate-300 transition-transform shrink-0 ${isOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                           </svg>
                         </div>
                       </button>
                       {isOpen && (
-                        <div className="bg-gray-50/60 border-t px-4 py-2 divide-y divide-gray-100">
+                        <div className="bg-slate-50/60 border-t px-4 py-2 divide-y divide-slate-100">
                           {group.schools.map((school) => (
                             <div key={school.id} className="py-2">
                               <div className="flex items-center gap-2">
-                                <span className={`w-1.5 h-1.5 rounded-full ${school.teacherCount > 0 && school.confirmedCount === school.teacherCount ? "bg-emerald-400" : school.teacherCount > 0 ? "bg-amber-400" : "bg-gray-300"}`} />
-                                <span className="text-xs font-medium text-gray-800">{school.name}</span>
-                                <span className="text-[10px] text-gray-400">{school.nameEn}</span>
-                                <span className="text-[10px] font-mono text-gray-400 ml-auto">{school.confirmedCount}/{school.teacherCount}</span>
+                                <span className={`w-1.5 h-1.5 rounded-full ${school.teacherCount > 0 && school.confirmedCount === school.teacherCount ? "bg-emerald-400" : school.teacherCount > 0 ? "bg-amber-400" : "bg-slate-300"}`} />
+                                <span className="text-xs font-medium text-slate-800">{school.name}</span>
+                                <span className="text-[10px] text-slate-400">{school.nameEn}</span>
+                                <span className="text-[10px] font-mono text-slate-400 ml-auto">{school.confirmedCount}/{school.teacherCount}</span>
                               </div>
                               {(school.pendingCount > 0 || school.sentCount > 0) && (
                                 <div className="flex gap-1 ml-3.5 mt-1.5">
@@ -921,21 +921,21 @@ export default function AdminDashboard() {
             <div className="space-y-4">
               {/* 지역별 */}
               <div className="rounded-xl border overflow-hidden">
-                <div className="px-4 py-3 border-b bg-gray-50/60">
-                  <h3 className="font-bold text-gray-900 text-sm">지역별</h3>
+                <div className="px-4 py-3 border-b bg-slate-50/60">
+                  <h3 className="font-bold text-slate-900 text-sm">지역별</h3>
                 </div>
                 <div className="px-4 py-3">
                   <div className="space-y-2">
                     {regions.map((region) => (
                       <div key={region.region} className="flex items-center gap-3">
-                        <span className="text-xs text-gray-600 w-8">{region.region}</span>
-                        <div className="flex-1 h-4 rounded-full bg-gray-50 overflow-hidden">
+                        <span className="text-xs text-slate-600 w-8">{region.region}</span>
+                        <div className="flex-1 h-4 rounded-full bg-slate-50 overflow-hidden">
                           <div className="h-full bg-gradient-to-r from-blue-100 to-blue-200 rounded-full flex items-center justify-end pr-2 transition-all"
                             style={{ width: `${(region.teachers / maxRegionTeachers) * 100}%`, minWidth: "40px" }}>
                             <span className="text-[9px] font-medium text-blue-700">{region.teachers}</span>
                           </div>
                         </div>
-                        <span className="text-[10px] text-gray-400 w-8 text-right">{region.schools}교</span>
+                        <span className="text-[10px] text-slate-400 w-8 text-right">{region.schools}교</span>
                       </div>
                     ))}
                   </div>
@@ -945,12 +945,12 @@ export default function AdminDashboard() {
               {/* Jon 확인 내역 (최근 배치) */}
               {recentBatches.length > 0 && (
                 <div className="rounded-xl border overflow-hidden">
-                  <div className="flex items-center justify-between px-4 py-3 border-b bg-gray-50/60">
+                  <div className="flex items-center justify-between px-4 py-3 border-b bg-slate-50/60">
                     <div className="flex items-center gap-2">
                       <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                      <h3 className="font-bold text-gray-900 text-sm">Jon 확인 내역</h3>
+                      <h3 className="font-bold text-slate-900 text-sm">Jon 확인 내역</h3>
                     </div>
-                    <span className="text-[10px] text-gray-400">최근 {recentBatches.length}건</span>
+                    <span className="text-[10px] text-slate-400">최근 {recentBatches.length}건</span>
                   </div>
                   <div className="divide-y">
                     {recentBatches.map((batch) => {
@@ -961,10 +961,10 @@ export default function AdminDashboard() {
                         <div key={batch.id} className="px-4 py-3">
                           <div className="flex items-center justify-between mb-1.5">
                             <div className="flex items-center gap-2">
-                              <span className="text-sm font-semibold text-gray-900">+{batch.count}명 upgraded</span>
-                              <span className="text-[10px] text-gray-400">{batch.schools.length}교</span>
+                              <span className="text-sm font-semibold text-slate-900">+{batch.count}명 upgraded</span>
+                              <span className="text-[10px] text-slate-400">{batch.schools.length}교</span>
                             </div>
-                            <span className="text-[10px] text-gray-400" title={when?.toLocaleString("ko-KR") || ""}>{relText}</span>
+                            <span className="text-[10px] text-slate-400" title={when?.toLocaleString("ko-KR") || ""}>{relText}</span>
                           </div>
                           <div className="flex flex-wrap gap-1">
                             {batch.schools.slice(0, 4).map((school) => (
@@ -972,7 +972,7 @@ export default function AdminDashboard() {
                                 {school.nameEn || school.name} <span className="text-emerald-500/70">×{school.count}</span>
                               </span>
                             ))}
-                            {batch.schools.length > 4 && <span className="text-[10px] text-gray-400 self-center">+{batch.schools.length - 4}</span>}
+                            {batch.schools.length > 4 && <span className="text-[10px] text-slate-400 self-center">+{batch.schools.length - 4}</span>}
                           </div>
                         </div>
                       );
@@ -983,23 +983,23 @@ export default function AdminDashboard() {
 
               {/* 최근 등록 */}
               <div className="rounded-xl border overflow-hidden">
-                <div className="flex items-center justify-between px-4 py-3 border-b bg-gray-50/60">
-                  <h3 className="font-bold text-gray-900 text-sm">최근 등록</h3>
+                <div className="flex items-center justify-between px-4 py-3 border-b bg-slate-50/60">
+                  <h3 className="font-bold text-slate-900 text-sm">최근 등록</h3>
                   <Link href="/admin/teachers" className="text-xs text-blue-600 hover:underline">전체 보기</Link>
                 </div>
                 <div className="divide-y">
                   {recentTeachers.map((teacher) => {
                     const sc: Record<string, string> = { upgraded: "bg-emerald-400", pending: "bg-amber-400", sent: "bg-blue-400", individual: "bg-violet-400" };
                     return (
-                      <div key={teacher.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50/80 transition-colors">
-                        <span className={`w-2 h-2 rounded-full shrink-0 ${sc[teacher.status] || "bg-gray-300"}`} />
+                      <div key={teacher.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50/80 transition-colors">
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${sc[teacher.status] || "bg-slate-300"}`} />
                         <div className="min-w-0 flex-1">
-                          <p className="text-xs font-medium text-gray-800 truncate">{teacher.name}</p>
-                          <p className="text-[10px] text-gray-400 font-mono truncate">{teacher.email}</p>
+                          <p className="text-xs font-medium text-slate-800 truncate">{teacher.name}</p>
+                          <p className="text-[10px] text-slate-400 font-mono truncate">{teacher.email}</p>
                         </div>
                         <div className="text-right shrink-0">
-                          <p className="text-[10px] text-gray-400 truncate max-w-[120px]">{teacher.schoolName}</p>
-                          <p className="text-[10px] text-gray-300">
+                          <p className="text-[10px] text-slate-400 truncate max-w-[120px]">{teacher.schoolName}</p>
+                          <p className="text-[10px] text-slate-300">
                             {new Date(teacher.createdAt).toLocaleDateString("ko-KR", { month: "short", day: "numeric" })}
                           </p>
                         </div>

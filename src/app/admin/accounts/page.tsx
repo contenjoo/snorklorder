@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useRef, useState } from "react";
+import { STATUS_CHIP } from "@/lib/status";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -74,12 +75,13 @@ const APPLICANT_TYPES = [
   { value: "individual", label: "개인", icon: "👤" },
 ];
 
+// 색은 공용 팔레트(STATUS_CHIP)로 통일 — 라벨은 정산 문맥 유지
 const STATUSES = [
-  { value: "draft", label: "작성 중", color: "bg-gray-100 text-gray-600" },
-  { value: "sent", label: "요청 완료", color: "bg-amber-100 text-amber-700" },
-  { value: "processed", label: "처리 완료", color: "bg-green-100 text-green-700" },
-  { value: "invoiced", label: "인보이스", color: "bg-blue-100 text-blue-700" },
-  { value: "paid", label: "결제 완료", color: "bg-purple-100 text-purple-700" },
+  { value: "draft", label: "작성 중", color: STATUS_CHIP.draft },
+  { value: "sent", label: "요청 완료", color: STATUS_CHIP.sent },
+  { value: "processed", label: "처리 완료", color: STATUS_CHIP.processed },
+  { value: "invoiced", label: "인보이스", color: STATUS_CHIP.invoiced },
+  { value: "paid", label: "결제 완료", color: STATUS_CHIP.paid },
 ];
 
 // 묶음 제목의 "N emails" 는 서버(parseEmailList)와 같은 규칙으로 세어야 미리보기 제목이 실제와 일치한다.
@@ -421,11 +423,11 @@ function AccountsPageContent() {
       {/* Compact header */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-3">
         <div className="flex items-center gap-3">
-          <h1 className="text-lg font-bold text-gray-900">정산</h1>
-          <div className="flex items-center gap-2 text-xs text-gray-500">
-            <span><strong className="text-gray-900 text-sm">{requests.length}</strong> 건</span>
-            <span className="text-gray-200">|</span>
-            <span><strong className="text-gray-900 text-sm">{emailCount}</strong> 명</span>
+          <h1 className="text-lg font-bold text-slate-900">정산</h1>
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <span><strong className="text-slate-900 text-sm">{requests.length}</strong> 건</span>
+            <span className="text-slate-200">|</span>
+            <span><strong className="text-slate-900 text-sm">{emailCount}</strong> 명</span>
           </div>
         </div>
         <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:ml-auto w-full sm:w-auto">
@@ -461,7 +463,7 @@ function AccountsPageContent() {
               </SelectContent>
             </Select>
             <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) resetForm(); }}>
-              <DialogTrigger className="inline-flex items-center justify-center rounded-md text-xs font-semibold bg-gray-900 text-white h-7 px-3 hover:bg-gray-800 cursor-pointer whitespace-nowrap">
+              <DialogTrigger className="inline-flex items-center justify-center rounded-md text-xs font-semibold bg-slate-900 text-white h-7 px-3 hover:bg-slate-800 cursor-pointer whitespace-nowrap">
                 + 새 요청
               </DialogTrigger>
             <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
@@ -472,7 +474,7 @@ function AccountsPageContent() {
                 <div className="flex gap-1">
                   {APPLICANT_TYPES.map((a) => (
                     <button key={a.value} onClick={() => { setFApplicant(a.value); if (a.value !== "individual") setFBulk(false); }}
-                      className={`flex-1 py-2 rounded-lg text-xs text-center transition-colors ${fApplicant === a.value ? "bg-purple-100 ring-1 ring-purple-400 font-semibold" : "bg-gray-50 hover:bg-gray-100"}`}>
+                      className={`flex-1 py-2 rounded-lg text-xs text-center transition-colors ${fApplicant === a.value ? "bg-purple-100 ring-1 ring-purple-400 font-semibold" : "bg-slate-50 hover:bg-slate-100"}`}>
                       {a.icon} {a.label}
                     </button>
                   ))}
@@ -480,11 +482,11 @@ function AccountsPageContent() {
                 {!editing && fApplicant === "individual" && (
                   <div className="flex gap-1">
                     <button onClick={() => setFBulk(false)}
-                      className={`flex-1 py-1.5 rounded-lg text-xs text-center transition-colors ${!fBulk ? "bg-indigo-100 ring-1 ring-indigo-400 font-semibold" : "bg-gray-50 hover:bg-gray-100"}`}>
+                      className={`flex-1 py-1.5 rounded-lg text-xs text-center transition-colors ${!fBulk ? "bg-indigo-100 ring-1 ring-indigo-400 font-semibold" : "bg-slate-50 hover:bg-slate-100"}`}>
                       👤 한 명
                     </button>
                     <button onClick={() => setFBulk(true)}
-                      className={`flex-1 py-1.5 rounded-lg text-xs text-center transition-colors ${fBulk ? "bg-indigo-100 ring-1 ring-indigo-400 font-semibold" : "bg-gray-50 hover:bg-gray-100"}`}>
+                      className={`flex-1 py-1.5 rounded-lg text-xs text-center transition-colors ${fBulk ? "bg-indigo-100 ring-1 ring-indigo-400 font-semibold" : "bg-slate-50 hover:bg-slate-100"}`}>
                       👥 여러 명 일괄
                     </button>
                   </div>
@@ -492,7 +494,7 @@ function AccountsPageContent() {
                 <div className="flex gap-1">
                   {CHANNELS.map((c) => (
                     <button key={c.value} onClick={() => setFChannel(c.value)}
-                      className={`flex-1 py-2 rounded-lg text-xs text-center transition-colors ${fChannel === c.value ? "bg-indigo-100 ring-1 ring-indigo-400 font-semibold" : "bg-gray-50 hover:bg-gray-100"}`}>
+                      className={`flex-1 py-2 rounded-lg text-xs text-center transition-colors ${fChannel === c.value ? "bg-indigo-100 ring-1 ring-indigo-400 font-semibold" : "bg-slate-50 hover:bg-slate-100"}`}>
                       {c.icon} {c.label}
                     </button>
                   ))}
@@ -500,7 +502,7 @@ function AccountsPageContent() {
                 <div className="grid grid-cols-4 gap-1">
                   {TYPES.map((t) => (
                     <button key={t.value} onClick={() => selectType(t.value)}
-                      className={`p-2 rounded-lg text-xs text-center transition-colors ${fType === t.value ? "bg-blue-100 ring-1 ring-blue-400 font-semibold" : "bg-gray-50 hover:bg-gray-100"}`}>
+                      className={`p-2 rounded-lg text-xs text-center transition-colors ${fType === t.value ? "bg-blue-100 ring-1 ring-blue-400 font-semibold" : "bg-slate-50 hover:bg-slate-100"}`}>
                       {t.icon}<br />{t.label}
                     </button>
                   ))}
@@ -511,7 +513,7 @@ function AccountsPageContent() {
                     <Textarea value={fBulkText} onChange={(e) => setFBulkText(e.target.value)}
                       placeholder={"한 줄에 한 명씩:\n홍길동, gil@example.com\n김철수 chul@example.com\nsimple@example.com  (이름 생략 시 이메일 앞부분 사용)"}
                       rows={8} className="text-xs font-mono" />
-                    <div className="text-[10px] text-gray-400">
+                    <div className="text-[10px] text-slate-400">
                       {parseBulk(fBulkText).length}명 인식됨 — 저장 시 각각 별도 요청으로 생성됩니다
                     </div>
                     {fType === "upgrade" && (
@@ -540,7 +542,7 @@ function AccountsPageContent() {
                         className="h-8 text-sm"
                       />
                       {fApplicant !== "individual" && showSchoolDrop && schoolMatches.length > 0 && (
-                        <div className="absolute z-10 top-full mt-1 left-0 right-0 bg-white border-2 border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto divide-y">
+                        <div className="absolute z-10 top-full mt-1 left-0 right-0 bg-white border-2 border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto divide-y">
                           {schoolMatches.map((s) => (
                             <button
                               key={s.id}
@@ -549,8 +551,8 @@ function AccountsPageContent() {
                               onClick={() => { setFSchool(s.name); setFSchoolEn(s.nameEn || ""); setShowSchoolDrop(false); }}
                               className="w-full text-left px-3 py-1.5 hover:bg-blue-50 text-xs"
                             >
-                              <div className="font-medium text-gray-900">{s.name}</div>
-                              {s.nameEn && <div className="text-[10px] text-gray-400">{s.nameEn}{s.team ? ` · ${s.team}` : ""}</div>}
+                              <div className="font-medium text-slate-900">{s.name}</div>
+                              {s.nameEn && <div className="text-[10px] text-slate-400">{s.nameEn}{s.team ? ` · ${s.team}` : ""}</div>}
                             </button>
                           ))}
                         </div>
@@ -595,7 +597,7 @@ function AccountsPageContent() {
                   <div className="flex gap-2">
                     {["teacher", "student"].map((t) => (
                       <button key={t} onClick={() => setFFromType(t)}
-                        className={`flex-1 py-2 rounded text-xs ${fFromType === t ? "bg-blue-100 ring-1 ring-blue-400 font-semibold" : "bg-gray-50"}`}>
+                        className={`flex-1 py-2 rounded text-xs ${fFromType === t ? "bg-blue-100 ring-1 ring-blue-400 font-semibold" : "bg-slate-50"}`}>
                         {t === "teacher" ? "교사 → 학생" : "학생 → 교사"}
                       </button>
                     ))}
@@ -616,14 +618,14 @@ function AccountsPageContent() {
                     type="button"
                     aria-pressed={fNeedsInvoice}
                     onClick={() => setFNeedsInvoice((v) => !v)}
-                    className={`w-full flex items-center justify-between py-2 px-3 rounded-lg text-xs transition-colors ${fNeedsInvoice ? "bg-blue-100 ring-1 ring-blue-400 font-semibold" : "bg-gray-50 hover:bg-gray-100 text-gray-500"}`}
+                    className={`w-full flex items-center justify-between py-2 px-3 rounded-lg text-xs transition-colors ${fNeedsInvoice ? "bg-blue-100 ring-1 ring-blue-400 font-semibold" : "bg-slate-50 hover:bg-slate-100 text-slate-500"}`}
                   >
                     <span>💳 인보이스 필요</span>
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${fNeedsInvoice ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-500"}`}>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${fNeedsInvoice ? "bg-blue-600 text-white" : "bg-slate-200 text-slate-500"}`}>
                       {fNeedsInvoice ? "ON" : "OFF"}
                     </span>
                   </button>
-                  <div className="text-[10px] text-gray-400">켜면 Cailie가 CC로 포함됩니다</div>
+                  <div className="text-[10px] text-slate-400">켜면 Cailie가 CC로 포함됩니다</div>
                 </div>
                 {editing && (
                   <details className="border rounded-lg p-3">
@@ -660,12 +662,12 @@ function AccountsPageContent() {
       {/* Status filter pills */}
       <div className="flex gap-1 flex-wrap">
         <button onClick={() => setFilter("all")}
-          className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors ${filter === "all" ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-500"}`}>
+          className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors ${filter === "all" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-500"}`}>
           전체 {requests.length}
         </button>
         {statusCounts.map((s) => (
           <button key={s.value} onClick={() => setFilter(filter === s.value ? "all" : s.value)}
-            className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors ${filter === s.value ? "bg-gray-900 text-white" : s.color}`}>
+            className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors ${filter === s.value ? "bg-slate-900 text-white" : s.color}`}>
             {s.label} {s.count}
           </button>
         ))}
@@ -674,7 +676,7 @@ function AccountsPageContent() {
       {/* Request list */}
       <div className="bg-white rounded-xl border overflow-hidden">
         {/* Desktop header */}
-        <div className="hidden md:grid grid-cols-[auto_auto_1fr_auto_auto_auto_auto] gap-2 px-3 py-1.5 bg-gray-50 border-b text-[10px] text-gray-400 font-medium uppercase tracking-wider">
+        <div className="hidden md:grid grid-cols-[auto_auto_1fr_auto_auto_auto_auto] gap-2 px-3 py-1.5 bg-slate-50 border-b text-[10px] text-slate-400 font-medium uppercase tracking-wider">
           <span className="w-4">
             <input
               type="checkbox"
@@ -704,7 +706,7 @@ function AccountsPageContent() {
             <div
               key={r.id}
               id={`account-row-${r.id}`}
-              className={`border-b last:border-b-0 hover:bg-gray-50/50 ${focusHighlight === r.id ? "bg-yellow-50 ring-2 ring-inset ring-amber-300" : ""}`}
+              className={`border-b last:border-b-0 hover:bg-slate-50/50 ${focusHighlight === r.id ? "bg-yellow-50 ring-2 ring-inset ring-amber-300" : ""}`}
             >
               {/* Desktop row */}
               <div className={`hidden md:grid grid-cols-[auto_auto_1fr_auto_auto_auto_auto] gap-2 px-3 py-2 items-center ${selectedIds.has(r.id) ? "bg-blue-50/40" : ""}`}>
@@ -719,8 +721,8 @@ function AccountsPageContent() {
                 <span className="text-sm w-5 text-center" title={typeInfo?.label}>{typeInfo?.icon}</span>
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5">
-                    <span className="font-medium text-sm text-gray-900 truncate">{r.schoolName}</span>
-                    {r.schoolNameEn && <span className="text-[10px] text-gray-400 truncate hidden lg:inline">({r.schoolNameEn})</span>}
+                    <span className="font-medium text-sm text-slate-900 truncate">{r.schoolName}</span>
+                    {r.schoolNameEn && <span className="text-[10px] text-slate-400 truncate hidden lg:inline">({r.schoolNameEn})</span>}
                     {(r.applicantType || "school") === "individual" && (
                       <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-purple-50 text-purple-700 font-medium">개인</span>
                     )}
@@ -730,38 +732,38 @@ function AccountsPageContent() {
                     {r.needsInvoice && (
                       <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 font-medium" title="인보이스 필요 — Cailie CC">💳</span>
                     )}
-                    <span className="text-[10px] text-gray-400">{emails.length > 1 ? `${emails.length}명` : ""}</span>
+                    <span className="text-[10px] text-slate-400">{emails.length > 1 ? `${emails.length}명` : ""}</span>
                   </div>
-                  <div className="text-[11px] font-mono text-gray-500 truncate">
+                  <div className="text-[11px] font-mono text-slate-500 truncate">
                     {emails.length <= 2 ? emails.join(", ") : `${emails[0]} +${emails.length - 1}`}
                   </div>
                 </div>
                 <div className="w-16 text-center text-[10px] leading-tight" title={`신청: ${r.createdAt || "—"}\n완료: ${r.confirmedAt || "—"}`}>
-                  <div className="text-gray-600">{fmtMD(r.createdAt)}</div>
-                  <div className={r.confirmedAt ? "text-emerald-600" : "text-gray-300"}>{fmtMD(r.confirmedAt)}</div>
+                  <div className="text-slate-600">{fmtMD(r.createdAt)}</div>
+                  <div className={r.confirmedAt ? "text-emerald-600" : "text-slate-300"}>{fmtMD(r.confirmedAt)}</div>
                 </div>
                 <div className="w-20">
                   <select value={r.status} onChange={(e) => updateStatus(r.id, e.target.value)}
-                    className={`w-full text-[10px] font-medium rounded-full px-2 py-0.5 border-0 cursor-pointer ${statusInfo?.color || "bg-gray-100"}`}>
+                    className={`w-full text-[10px] font-medium rounded-full px-2 py-0.5 border-0 cursor-pointer ${statusInfo?.color || "bg-slate-100"}`}>
                     {STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
                   </select>
                 </div>
                 <div className="w-24 text-center">
                   {r.invoiceAmount ? (
                     <div className="text-[11px]">
-                      <span className="font-semibold text-gray-700">{r.invoiceAmount}</span>
+                      <span className="font-semibold text-slate-700">{r.invoiceAmount}</span>
                       {r.paymentDate && <span className="text-emerald-600 ml-1">✓</span>}
                     </div>
-                  ) : <span className="text-[10px] text-gray-300">—</span>}
-                  {r.invoiceNumber && <div className="text-[9px] text-gray-400">{r.invoiceNumber}</div>}
+                  ) : <span className="text-[10px] text-slate-300">—</span>}
+                  {r.invoiceNumber && <div className="text-[9px] text-slate-400">{r.invoiceNumber}</div>}
                   {dday && <span className={`inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-full mt-0.5 ${dday.cls}`} title={`결제 기한: ${r.invoiceDueDate}`}>{dday.label}</span>}
                 </div>
                 <div className="w-28 flex items-center justify-end gap-0.5">
-                  <button onClick={() => setEmailPreview(r)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-blue-50 text-gray-400 hover:text-blue-600" title="미리보기">📧</button>
-                  <button onClick={() => openGmail(r)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-gray-100 text-gray-400 hover:text-gray-600" title="Gmail">📨</button>
-                  <button onClick={() => copyEmail(r)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-gray-100 text-gray-400 hover:text-gray-600" title="복사">📋</button>
-                  <button onClick={() => openEdit(r)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-gray-100 text-gray-400 hover:text-gray-600" title="수정">✎</button>
-                  <button onClick={() => deleteRequest(r.id)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-red-50 text-gray-300 hover:text-red-500" title="삭제">✕</button>
+                  <button onClick={() => setEmailPreview(r)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-blue-50 text-slate-400 hover:text-blue-600" title="미리보기">📧</button>
+                  <button onClick={() => openGmail(r)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-slate-100 text-slate-400 hover:text-slate-600" title="Gmail">📨</button>
+                  <button onClick={() => copyEmail(r)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-slate-100 text-slate-400 hover:text-slate-600" title="복사">📋</button>
+                  <button onClick={() => openEdit(r)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-slate-100 text-slate-400 hover:text-slate-600" title="수정">✎</button>
+                  <button onClick={() => deleteRequest(r.id)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-red-50 text-slate-300 hover:text-red-500" title="삭제">✕</button>
                 </div>
               </div>
 
@@ -776,28 +778,28 @@ function AccountsPageContent() {
                     className="shrink-0"
                   />
                   <span className="text-sm">{typeInfo?.icon}</span>
-                  <span className="font-medium text-sm text-gray-900 truncate flex-1">
+                  <span className="font-medium text-sm text-slate-900 truncate flex-1">
                     {(r.applicantType || "school") === "individual" && <span className="text-[9px] px-1 py-0.5 rounded bg-purple-50 text-purple-700 font-medium mr-1">개인</span>}
                     {r.schoolName}
                     {r.needsInvoice && <span className="text-[9px] px-1 py-0.5 rounded bg-blue-50 text-blue-700 font-medium ml-1" title="인보이스 필요 — Cailie CC">💳</span>}
                   </span>
                   <select value={r.status} onChange={(e) => updateStatus(r.id, e.target.value)}
-                    className={`text-[10px] font-medium rounded-full px-2 py-0.5 border-0 ${statusInfo?.color || "bg-gray-100"}`}>
+                    className={`text-[10px] font-medium rounded-full px-2 py-0.5 border-0 ${statusInfo?.color || "bg-slate-100"}`}>
                     {STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
                   </select>
                 </div>
-                <div className="text-[11px] font-mono text-gray-500 truncate mt-0.5 ml-6">
+                <div className="text-[11px] font-mono text-slate-500 truncate mt-0.5 ml-6">
                   {emails.length <= 2 ? emails.join(", ") : `${emails[0]} +${emails.length - 1}`}
                 </div>
-                <div className="text-[10px] text-gray-400 mt-0.5 ml-6 flex items-center gap-2" title={`신청: ${r.createdAt || "—"}\n완료: ${r.confirmedAt || "—"}`}>
+                <div className="text-[10px] text-slate-400 mt-0.5 ml-6 flex items-center gap-2" title={`신청: ${r.createdAt || "—"}\n완료: ${r.confirmedAt || "—"}`}>
                   <span>📅 {fmtMD(r.createdAt)}</span>
                   {r.confirmedAt && <span className="text-emerald-600">✓ {fmtMD(r.confirmedAt)}</span>}
                 </div>
                 <div className="flex items-center gap-1.5 mt-1.5 ml-6">
-                  <button onClick={() => setEmailPreview(r)} className="text-[11px] text-gray-400 hover:text-blue-600 px-2 py-1 rounded bg-gray-50 min-h-[28px]">미리보기</button>
-                  <button onClick={() => copyEmail(r)} className="text-[11px] text-gray-400 hover:text-blue-600 px-2 py-1 rounded bg-gray-50 min-h-[28px]">복사</button>
-                  <button onClick={() => openEdit(r)} className="text-[11px] text-gray-400 hover:text-blue-600 px-2 py-1 rounded bg-gray-50 min-h-[28px]">수정</button>
-                  {r.invoiceAmount && <span className="text-[10px] font-semibold text-gray-700 ml-auto">{r.invoiceAmount}{r.paymentDate && " ✓"}</span>}
+                  <button onClick={() => setEmailPreview(r)} className="text-[11px] text-slate-400 hover:text-blue-600 px-2 py-1 rounded bg-slate-50 min-h-[28px]">미리보기</button>
+                  <button onClick={() => copyEmail(r)} className="text-[11px] text-slate-400 hover:text-blue-600 px-2 py-1 rounded bg-slate-50 min-h-[28px]">복사</button>
+                  <button onClick={() => openEdit(r)} className="text-[11px] text-slate-400 hover:text-blue-600 px-2 py-1 rounded bg-slate-50 min-h-[28px]">수정</button>
+                  {r.invoiceAmount && <span className="text-[10px] font-semibold text-slate-700 ml-auto">{r.invoiceAmount}{r.paymentDate && " ✓"}</span>}
                   {dday && <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${dday.cls} ${r.invoiceAmount ? "" : "ml-auto"}`} title={`결제 기한: ${r.invoiceDueDate}`}>{dday.label}</span>}
                 </div>
               </div>
@@ -806,7 +808,7 @@ function AccountsPageContent() {
         })}
 
         {filtered.length === 0 && (
-          <div className="py-8 text-center text-gray-400 text-sm">
+          <div className="py-8 text-center text-slate-400 text-sm">
             {requests.length === 0 ? "계정 요청이 없습니다" : "검색 결과 없음"}
           </div>
         )}
@@ -825,23 +827,23 @@ function AccountsPageContent() {
         return (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setEmailPreview(null)}>
             <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-              <div className="p-4 border-b bg-gray-50 rounded-t-xl">
+              <div className="p-4 border-b bg-slate-50 rounded-t-xl">
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="font-bold text-sm">본사에 보낼 이메일</h3>
-                  <button onClick={() => setEmailPreview(null)} className="text-gray-400 hover:text-gray-600">✕</button>
+                  <button onClick={() => setEmailPreview(null)} className="text-slate-400 hover:text-slate-600">✕</button>
                 </div>
-                <div className="text-xs text-gray-500 space-y-0.5">
+                <div className="text-xs text-slate-500 space-y-0.5">
                   <div>
                     <b>To:</b> {HQ_TO}
-                    {emailPreview.needsInvoice && <span className="text-gray-400"> · CC: {HQ_INVOICE_CC}</span>}
+                    {emailPreview.needsInvoice && <span className="text-slate-400"> · CC: {HQ_INVOICE_CC}</span>}
                   </div>
                   <div><b>Subject:</b> {subject}</div>
                 </div>
               </div>
               <div className="p-4">
-                <pre className="text-sm text-gray-800 whitespace-pre-wrap font-sans leading-relaxed">{body}</pre>
+                <pre className="text-sm text-slate-800 whitespace-pre-wrap font-sans leading-relaxed">{body}</pre>
               </div>
-              <div className="p-3 border-t bg-gray-50 rounded-b-xl flex items-center gap-2">
+              <div className="p-3 border-t bg-slate-50 rounded-b-xl flex items-center gap-2">
                 <Button size="sm" onClick={() => sendToJon(emailPreview)} disabled={sending} className="bg-blue-600 hover:bg-blue-700 text-xs">
                   {sending ? "발송 중..." : "📧 발송하기"}
                 </Button>
@@ -851,7 +853,7 @@ function AccountsPageContent() {
                 <Button size="sm" variant="outline" onClick={() => copyEmail(emailPreview)} className="text-xs">
                   복사
                 </Button>
-                <span className="text-[10px] text-gray-400 ml-auto">
+                <span className="text-[10px] text-slate-400 ml-auto">
                   발송 후 자동으로 &quot;요청 완료&quot;로 변경됩니다
                 </span>
               </div>
@@ -882,30 +884,30 @@ function AccountsPageContent() {
         return (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setBatchPreviewOpen(false)}>
             <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-              <div className="p-4 border-b bg-gray-50 rounded-t-xl">
+              <div className="p-4 border-b bg-slate-50 rounded-t-xl">
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="font-bold text-sm">묶음 발송 — {ids.length}건</h3>
-                  <button onClick={() => setBatchPreviewOpen(false)} className="text-gray-400 hover:text-gray-600">✕</button>
+                  <button onClick={() => setBatchPreviewOpen(false)} className="text-slate-400 hover:text-slate-600">✕</button>
                 </div>
-                <div className="text-xs text-gray-500 space-y-0.5">
+                <div className="text-xs text-slate-500 space-y-0.5">
                   <div>
                     <b>To:</b> {HQ_TO}
-                    {batchNeedsInvoice && <span className="text-gray-400"> · CC: {HQ_INVOICE_CC}</span>}
+                    {batchNeedsInvoice && <span className="text-slate-400"> · CC: {HQ_INVOICE_CC}</span>}
                   </div>
                   <div><b>Subject:</b> {subject}</div>
                 </div>
               </div>
               <div className="p-4">
-                <pre className="text-xs text-gray-800 whitespace-pre-wrap font-mono leading-relaxed bg-gray-50 rounded-lg p-3 max-h-[50vh] overflow-y-auto">{previewBody}</pre>
+                <pre className="text-xs text-slate-800 whitespace-pre-wrap font-mono leading-relaxed bg-slate-50 rounded-lg p-3 max-h-[50vh] overflow-y-auto">{previewBody}</pre>
               </div>
-              <div className="p-3 border-t bg-gray-50 rounded-b-xl flex items-center gap-2">
+              <div className="p-3 border-t bg-slate-50 rounded-b-xl flex items-center gap-2">
                 <Button size="sm" onClick={sendBatch} disabled={sending} className="bg-blue-600 hover:bg-blue-700 text-xs">
                   {sending ? "발송 중..." : `📧 ${ids.length}건 발송`}
                 </Button>
                 <Button size="sm" variant="outline" onClick={() => setBatchPreviewOpen(false)} className="text-xs">
                   취소
                 </Button>
-                <span className="text-[10px] text-gray-400 ml-auto">
+                <span className="text-[10px] text-slate-400 ml-auto">
                   발송 시 모두 &quot;요청 완료&quot;로 변경 + 각 요청별 confirm 링크 생성
                 </span>
               </div>
@@ -923,7 +925,7 @@ export default function AccountsPage() {
     <Suspense
       fallback={
         <div className="flex items-center justify-center py-20">
-          <div className="w-6 h-6 border-2 border-gray-300 border-t-gray-900 rounded-full animate-spin" />
+          <div className="w-6 h-6 border-2 border-slate-300 border-t-slate-900 rounded-full animate-spin" />
         </div>
       }
     >

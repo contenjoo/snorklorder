@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { PageHeader, StatDivider, StatusChip, StatusDot, EmptyState } from "@/components/admin/ui";
 
 interface SchoolRequest {
   id: number;
@@ -17,23 +18,7 @@ interface SchoolRequest {
   reviewedAt: string | null;
 }
 
-const statusLabel: Record<string, string> = {
-  pending: "대기",
-  approved: "승인",
-  rejected: "거절",
-};
 
-const statusColor: Record<string, string> = {
-  pending: "text-amber-600 bg-amber-50",
-  approved: "text-emerald-600 bg-emerald-50",
-  rejected: "text-red-600 bg-red-50",
-};
-
-const statusDot: Record<string, string> = {
-  pending: "bg-amber-400",
-  approved: "bg-emerald-400",
-  rejected: "bg-red-400",
-};
 
 export default function RequestsPage() {
   const [requests, setRequests] = useState<SchoolRequest[]>([]);
@@ -85,18 +70,15 @@ export default function RequestsPage() {
   return (
     <div className="space-y-4 pb-20 md:pb-0">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <h1 className="text-lg font-bold text-gray-900">요청</h1>
-        <div className="flex items-center gap-2 text-xs text-gray-500">
-          <span><strong className="text-gray-900 text-sm">{requests.length}</strong> 건</span>
-          {pending.length > 0 && (
-            <>
-              <span className="text-gray-200">|</span>
-              <span className="text-amber-600 font-medium">{pending.length} 대기</span>
-            </>
-          )}
-        </div>
-      </div>
+      <PageHeader title="학교 등록 요청">
+        <span><strong className="text-slate-900 text-sm">{requests.length}</strong> 건</span>
+        {pending.length > 0 && (
+          <>
+            <StatDivider />
+            <span className="text-amber-600 font-medium">{pending.length} 대기</span>
+          </>
+        )}
+      </PageHeader>
 
       {/* Status message */}
       {message && (
@@ -110,8 +92,8 @@ export default function RequestsPage() {
         <div>
           <div className="flex items-center gap-2 mb-3">
             <div className="w-1 h-5 rounded-full bg-amber-400" />
-            <h2 className="text-sm font-bold text-gray-900">승인 대기</h2>
-            <span className="text-xs text-gray-400">{pending.length}건</span>
+            <h2 className="text-sm font-bold text-slate-900">승인 대기</h2>
+            <span className="text-xs text-slate-400">{pending.length}건</span>
           </div>
           <div className="space-y-2">
             {pending.map((r) => (
@@ -120,15 +102,15 @@ export default function RequestsPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
-                      <span className="font-medium text-gray-900">{r.name}</span>
-                      {r.nameEn && <span className="text-xs text-gray-400">{r.nameEn}</span>}
-                      {r.region && <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{r.region}</span>}
+                      <span className="font-medium text-slate-900">{r.name}</span>
+                      {r.nameEn && <span className="text-xs text-slate-400">{r.nameEn}</span>}
+                      {r.region && <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{r.region}</span>}
                       {r.domain && <span className="text-[10px] font-mono text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">@{r.domain}</span>}
                     </div>
-                    <div className="flex items-center gap-3 mt-1.5 text-xs text-gray-500 ml-4">
+                    <div className="flex items-center gap-3 mt-1.5 text-xs text-slate-500 ml-4">
                       <span>{r.contactName}</span>
-                      <span className="font-mono text-gray-400">{r.contactEmail}</span>
-                      <span className="text-gray-300">
+                      <span className="font-mono text-slate-400">{r.contactEmail}</span>
+                      <span className="text-slate-300">
                         {new Date(r.createdAt).toLocaleDateString("ko-KR", { month: "short", day: "numeric" })}
                       </span>
                     </div>
@@ -138,7 +120,7 @@ export default function RequestsPage() {
                       size="sm"
                       onClick={() => handleAction(r.id, "approve")}
                       disabled={processing === r.id}
-                      className="h-7 text-xs bg-gray-900 hover:bg-gray-800"
+                      className="h-7 text-xs bg-slate-900 hover:bg-slate-800"
                     >
                       {processing === r.id ? "처리중..." : "승인"}
                     </Button>
@@ -160,29 +142,25 @@ export default function RequestsPage() {
       )}
 
       {pending.length === 0 && (
-        <div className="text-center py-12">
-          <p className="text-gray-400 text-sm">대기 중인 요청이 없습니다</p>
-        </div>
+        <EmptyState icon="✅" title="대기 중인 요청이 없습니다" hint="새 학교 등록 요청이 오면 여기에 표시됩니다." />
       )}
 
       {/* Processed requests */}
       {processed.length > 0 && (
         <div>
           <div className="flex items-center gap-2 mb-3">
-            <div className="w-1 h-5 rounded-full bg-gray-300" />
-            <h2 className="text-sm font-bold text-gray-900">처리 완료</h2>
-            <span className="text-xs text-gray-400">{processed.length}건</span>
+            <div className="w-1 h-5 rounded-full bg-slate-300" />
+            <h2 className="text-sm font-bold text-slate-900">처리 완료</h2>
+            <span className="text-xs text-slate-400">{processed.length}건</span>
           </div>
-          <div className="bg-white rounded-xl border overflow-hidden divide-y divide-gray-50">
+          <div className="bg-white rounded-xl border overflow-hidden divide-y divide-slate-50">
             {processed.map((r) => (
               <div key={r.id} className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5">
-                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusDot[r.status] || "bg-gray-300"}`} />
-                <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded shrink-0 ${statusColor[r.status] || "text-gray-500 bg-gray-50"}`}>
-                  {statusLabel[r.status] || r.status}
-                </span>
-                <span className="text-sm font-medium text-gray-900 truncate">{r.name}</span>
-                <span className="text-xs text-gray-400 truncate hidden sm:inline">{r.contactEmail}</span>
-                <span className="text-[10px] text-gray-300 ml-auto shrink-0">
+                <StatusDot status={r.status} />
+                <StatusChip status={r.status} className="shrink-0" />
+                <span className="text-sm font-medium text-slate-900 truncate">{r.name}</span>
+                <span className="text-xs text-slate-400 truncate hidden sm:inline">{r.contactEmail}</span>
+                <span className="text-[10px] text-slate-300 ml-auto shrink-0">
                   {r.reviewedAt && new Date(r.reviewedAt).toLocaleDateString("ko-KR", { month: "short", day: "numeric" })}
                 </span>
               </div>

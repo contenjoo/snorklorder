@@ -3,6 +3,8 @@
 import { useState, useMemo, useEffect } from "react";
 import { useSchoolData } from "@/lib/use-data";
 import { schoolLevel, levelBadgeCls, type SchoolLevel } from "@/lib/school-level";
+import { PageHeader, StatDivider, EmptyState } from "@/components/admin/ui";
+import { STATUS_DOT, STATUS_TEXT } from "@/lib/status";
 
 interface Teacher {
   id: number;
@@ -31,6 +33,7 @@ interface IndividualTeacher {
   requestId: number;
 }
 
+// 라벨은 교사 문맥 유지, 색은 공용 팔레트(STATUS_DOT/TEXT) 사용
 const statusLabel: Record<string, string> = {
   pending: "대기",
   sent: "발송",
@@ -41,22 +44,8 @@ const statusLabel: Record<string, string> = {
   processed: "처리됨",
   invoiced: "청구됨",
 };
-
-const statusDot: Record<string, string> = {
-  pending: "bg-amber-400",
-  sent: "bg-blue-400",
-  upgraded: "bg-emerald-400",
-  individual: "bg-violet-400",
-  paid: "bg-violet-400",
-};
-
-const statusText: Record<string, string> = {
-  pending: "text-amber-600",
-  sent: "text-blue-600",
-  upgraded: "text-emerald-600",
-  individual: "text-violet-600",
-  paid: "text-violet-600",
-};
+const statusDot = STATUS_DOT;
+const statusText = STATUS_TEXT;
 
 export default function TeachersPage() {
   const { schools, refresh: load } = useSchoolData();
@@ -186,47 +175,44 @@ export default function TeachersPage() {
   return (
     <div className="space-y-4 pb-20 md:pb-0">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-        <div className="flex items-center gap-4 flex-wrap">
-          <h1 className="text-lg font-bold text-gray-900 whitespace-nowrap">교사 관리</h1>
-          <div className="flex items-center gap-2 text-xs text-gray-500">
-            <span><strong className="text-gray-900 text-sm">{totalCount + indivCount}</strong> 명</span>
-            <span className="text-gray-200">|</span>
-            <span className="text-emerald-600 font-medium">{statusCounts.upgraded || 0} 확정</span>
-            {(statusCounts.pending || 0) > 0 && (
-              <>
-                <span className="text-gray-200">|</span>
-                <span className="text-amber-600 font-medium">{statusCounts.pending} 대기</span>
-              </>
-            )}
-            {indivCount > 0 && (
-              <>
-                <span className="text-gray-200">|</span>
-                <span className="text-violet-600 font-medium">{indivCount} 개별</span>
-              </>
-            )}
-            <span className="text-gray-200 hidden sm:inline">|</span>
-            <span className="hidden sm:inline whitespace-nowrap">초 {levelCounts.초} · 중 {levelCounts.중} · 고 {levelCounts.고}</span>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 sm:ml-auto">
-          <button onClick={downloadCSV} className="text-xs text-gray-400 hover:text-gray-700 px-2 py-1.5 rounded-lg border hover:bg-gray-50 transition-colors whitespace-nowrap">
+      <PageHeader
+        title="교사 관리"
+        actions={
+          <button onClick={downloadCSV} className="text-xs text-slate-400 hover:text-slate-700 px-2 py-1.5 rounded-lg border hover:bg-slate-50 transition-colors whitespace-nowrap">
             CSV
           </button>
-        </div>
-      </div>
+        }
+      >
+        <span><strong className="text-slate-900 text-sm">{totalCount + indivCount}</strong> 명</span>
+        <StatDivider />
+        <span className="text-emerald-600 font-medium">{statusCounts.upgraded || 0} 확정</span>
+        {(statusCounts.pending || 0) > 0 && (
+          <>
+            <StatDivider />
+            <span className="text-amber-600 font-medium">{statusCounts.pending} 대기</span>
+          </>
+        )}
+        {indivCount > 0 && (
+          <>
+            <StatDivider />
+            <span className="text-violet-600 font-medium">{indivCount} 개별</span>
+          </>
+        )}
+        <span className="text-slate-200 hidden sm:inline">|</span>
+        <span className="hidden sm:inline whitespace-nowrap">초 {levelCounts.초} · 중 {levelCounts.중} · 고 {levelCounts.고}</span>
+      </PageHeader>
 
       {/* Toolbar */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-2">
         <div className="flex items-center gap-2">
           {/* Tab */}
-          <div className="flex items-center bg-gray-100 rounded-lg p-0.5 shrink-0">
+          <div className="flex items-center bg-slate-100 rounded-lg p-0.5 shrink-0">
             <button onClick={() => setTab("school")}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${tab === "school" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500"}`}>
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${tab === "school" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>
               단체 {totalCount}
             </button>
             <button onClick={() => setTab("individual")}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${tab === "individual" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500"}`}>
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${tab === "individual" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>
               개별 {indivCount}
             </button>
           </div>
@@ -235,7 +221,7 @@ export default function TeachersPage() {
           <div className="flex items-center gap-0.5 overflow-x-auto shrink-0">
             {[["all", "전체"], ["pending", "대기"], ["upgraded", "확정"], ["sent", "발송"], ["individual", "개별"]].map(([val, label]) => (
               <button key={val} onClick={() => setFilterStatus(val)}
-                className={`px-2 py-1 rounded-md text-xs font-medium transition-all whitespace-nowrap ${filterStatus === val ? "bg-gray-900 text-white" : "text-gray-400 hover:text-gray-700"}`}>
+                className={`px-2 py-1 rounded-md text-xs font-medium transition-all whitespace-nowrap ${filterStatus === val ? "bg-slate-900 text-white" : "text-slate-400 hover:text-slate-700"}`}>
                 {label}
               </button>
             ))}
@@ -246,7 +232,7 @@ export default function TeachersPage() {
             <div className="flex items-center gap-0.5 overflow-x-auto shrink-0 border-l pl-2 ml-0.5">
               {(["all", "초", "중", "고"] as const).map((val) => (
                 <button key={val} onClick={() => setFilterLevel(val)}
-                  className={`px-2 py-1 rounded-md text-xs font-medium transition-all whitespace-nowrap ${filterLevel === val ? "bg-gray-900 text-white" : "text-gray-400 hover:text-gray-700"}`}>
+                  className={`px-2 py-1 rounded-md text-xs font-medium transition-all whitespace-nowrap ${filterLevel === val ? "bg-slate-900 text-white" : "text-slate-400 hover:text-slate-700"}`}>
                   {val === "all" ? "전 급" : val}
                 </button>
               ))}
@@ -258,7 +244,7 @@ export default function TeachersPage() {
 
         {/* Search - full width on mobile, inline on desktop */}
         <div className="relative w-full sm:w-auto sm:shrink-0">
-          <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
           </svg>
           <input placeholder="이름, 이메일, 학교 검색"
@@ -301,7 +287,7 @@ export default function TeachersPage() {
             return (
               <div key={school.id} className={`bg-white rounded-xl border overflow-hidden transition-all ${isOpen ? "ring-1 ring-blue-200" : ""}`}>
                 {/* School header */}
-                <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 cursor-pointer hover:bg-gray-50/80 transition-colors"
+                <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 cursor-pointer hover:bg-slate-50/80 transition-colors"
                   onClick={() => setExpandedSchool(isOpen ? null : school.id)}>
                   <input type="checkbox" checked={allChecked}
                     ref={(el) => { if (el) el.indeterminate = someChecked && !allChecked; }}
@@ -313,11 +299,11 @@ export default function TeachersPage() {
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-                      <span className="text-sm font-medium text-gray-900 truncate max-w-[140px] sm:max-w-none">{school.name}</span>
+                      <span className="text-sm font-medium text-slate-900 truncate max-w-[140px] sm:max-w-none">{school.name}</span>
                       {(() => { const lv = schoolLevel(school.name, school.nameEn); return lv ? (
                         <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded whitespace-nowrap ${levelBadgeCls[lv]}`}>{lv}</span>
                       ) : null; })()}
-                      {school.nameEn && <span className="text-xs text-gray-400 hidden sm:inline truncate">{school.nameEn}</span>}
+                      {school.nameEn && <span className="text-xs text-slate-400 hidden sm:inline truncate">{school.nameEn}</span>}
                       {school.team && !school.team.includes("개별") && (
                         <span className="text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded whitespace-nowrap">{school.team}</span>
                       )}
@@ -329,30 +315,30 @@ export default function TeachersPage() {
 
                   <div className="flex items-center gap-2 shrink-0">
                     {school.teachers.length > 0 && (
-                      <div className="w-10 h-1 rounded-full bg-gray-100 overflow-hidden hidden sm:block">
+                      <div className="w-10 h-1 rounded-full bg-slate-100 overflow-hidden hidden sm:block">
                         {conf > 0 && <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${(conf / school.teachers.length) * 100}%` }} />}
                       </div>
                     )}
-                    <span className="text-sm font-semibold text-gray-700 tabular-nums">{school.teachers.length}</span>
+                    <span className="text-sm font-semibold text-slate-700 tabular-nums">{school.teachers.length}</span>
                   </div>
 
-                  <svg className={`w-4 h-4 text-gray-300 transition-transform shrink-0 ${isOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg className={`w-4 h-4 text-slate-300 transition-transform shrink-0 ${isOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
                 </div>
 
                 {/* Teacher rows */}
                 {isOpen && (
-                  <div className="border-t divide-y divide-gray-50">
+                  <div className="border-t divide-y divide-slate-50">
                     {school.teachers.map((t) => (
                       <label key={t.id}
-                        className={`flex items-center gap-2 sm:gap-3 px-3 sm:px-4 pl-6 sm:pl-8 py-2 cursor-pointer transition-colors ${selected.has(t.id) ? "bg-blue-50/60" : "hover:bg-gray-50/60"}`}>
+                        className={`flex items-center gap-2 sm:gap-3 px-3 sm:px-4 pl-6 sm:pl-8 py-2 cursor-pointer transition-colors ${selected.has(t.id) ? "bg-blue-50/60" : "hover:bg-slate-50/60"}`}>
                         <input type="checkbox" checked={selected.has(t.id)} onChange={() => toggleTeacher(t.id)} className="w-3 h-3 rounded shrink-0" />
-                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusDot[t.status] || "bg-gray-300"}`} />
-                        <span className="text-xs text-gray-600 w-12 sm:w-16 truncate shrink-0">{t.name}</span>
-                        <span className="text-xs text-gray-500 font-mono truncate flex-1 min-w-0">{t.email}</span>
-                        {t.subject && <span className="text-[10px] text-gray-300 hidden sm:inline shrink-0">{t.subject}</span>}
-                        <span className={`text-[10px] font-semibold shrink-0 ${statusText[t.status] || "text-gray-400"}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusDot[t.status] || "bg-slate-300"}`} />
+                        <span className="text-xs text-slate-600 w-12 sm:w-16 truncate shrink-0">{t.name}</span>
+                        <span className="text-xs text-slate-500 font-mono truncate flex-1 min-w-0">{t.email}</span>
+                        {t.subject && <span className="text-[10px] text-slate-300 hidden sm:inline shrink-0">{t.subject}</span>}
+                        <span className={`text-[10px] font-semibold shrink-0 ${statusText[t.status] || "text-slate-400"}`}>
                           {statusLabel[t.status] || t.status}
                         </span>
                       </label>
@@ -364,10 +350,8 @@ export default function TeachersPage() {
           })}
 
           {filteredSchools.length === 0 && (
-            <div className="text-center py-16">
-              <p className="text-gray-400 text-sm">검색 결과 없음</p>
-              {search && <p className="text-gray-300 text-xs mt-1">다른 검색어를 시도해보세요</p>}
-            </div>
+            <EmptyState icon="🔍" title="검색 결과 없음"
+              hint={search ? "다른 검색어를 시도해보세요" : "필터를 바꿔보세요"} />
           )}
         </div>
       )}
@@ -380,16 +364,16 @@ export default function TeachersPage() {
               <div key={schoolName} className="bg-white rounded-xl border overflow-hidden">
                 <div className="flex items-center gap-2 px-3 sm:px-4 py-2.5 bg-violet-50/40">
                   <span className="w-2 h-2 rounded-full bg-violet-400 shrink-0" />
-                  <span className="text-sm font-medium text-gray-900 truncate">{schoolName}</span>
+                  <span className="text-sm font-medium text-slate-900 truncate">{schoolName}</span>
                   <span className="text-xs text-violet-500 font-medium shrink-0">{teachers.length}명</span>
                 </div>
-                <div className="divide-y divide-gray-50">
+                <div className="divide-y divide-slate-50">
                   {teachers.map((t) => (
                     <div key={`${t.requestId}-${t.email}`}
                       className="flex items-center gap-2 px-3 sm:px-4 pl-6 sm:pl-8 py-2 text-xs">
-                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusDot[t.status] || "bg-gray-300"}`} />
-                      <span className="font-mono text-gray-600 truncate flex-1 min-w-0">{t.email}</span>
-                      <span className={`font-medium shrink-0 ${statusText[t.status] || "text-gray-400"}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusDot[t.status] || "bg-slate-300"}`} />
+                      <span className="font-mono text-slate-600 truncate flex-1 min-w-0">{t.email}</span>
+                      <span className={`font-medium shrink-0 ${statusText[t.status] || "text-slate-400"}`}>
                         {statusLabel[t.status] || t.status}
                       </span>
                     </div>
@@ -398,9 +382,7 @@ export default function TeachersPage() {
               </div>
             ))
           ) : (
-            <div className="text-center py-16">
-              <p className="text-gray-400 text-sm">개별 구매 교사 없음</p>
-            </div>
+            <EmptyState icon="👤" title="개별 구매 교사 없음" hint="개별 구매 정산 요청이 생기면 여기에 표시됩니다." />
           )}
         </div>
       )}
