@@ -492,12 +492,12 @@ export default function AdminDashboard() {
           <p className="text-2xl font-extrabold tabular-nums text-slate-900 leading-tight mt-0.5">{outstanding > 0 ? `$${outstanding.toLocaleString()}` : "—"}</p>
           <p className="text-[11px] text-slate-500">인보이스 {mePay.length}건{nearestDueLabel ? ` · 최근접 ${nearestDueLabel}` : ""}</p>
         </Link>
-        <Link href="/admin/teachers" className="block bg-white rounded-xl border p-3.5 transition-shadow hover:shadow-md hover:ring-1 hover:ring-slate-200">
+        <Link href="/admin/insights" className="block bg-white rounded-xl border p-3.5 transition-shadow hover:shadow-md hover:ring-1 hover:ring-slate-200">
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">이번 달 업그레이드</p>
           <p className="text-2xl font-extrabold tabular-nums text-slate-900 leading-tight mt-0.5">
             {monthlyUpgrades?.teachers ?? 0}<span className="text-sm font-semibold text-slate-400">명</span>
           </p>
-          <p className="text-[11px] text-slate-500">{monthlyUpgrades?.schools ?? 0}개교</p>
+          <p className="text-[11px] text-slate-500">{monthlyUpgrades?.schools ?? 0}개교 · 인사이트 →</p>
         </Link>
       </div>
 

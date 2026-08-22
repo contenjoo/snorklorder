@@ -53,6 +53,7 @@ const ACTIONS: Omit<Item, "score">[] = [
   { key: "a-tea", section: "액션", icon: "👩‍🏫", title: "교사 관리로 이동", href: "/admin/teachers" },
   { key: "a-dom", section: "액션", icon: "🌐", title: "도메인 유료 등록", href: "/admin/domains" },
   { key: "a-req", section: "액션", icon: "📥", title: "학교 등록 요청", href: "/admin/requests" },
+  { key: "a-ins", section: "액션", icon: "📊", title: "인사이트 — 학교급·과목·추이", href: "/admin/insights" },
   { key: "a-lv-e", section: "액션", icon: "🟢", title: "초등 교사만 보기", href: "/admin/teachers?level=초" },
   { key: "a-lv-m", section: "액션", icon: "🔵", title: "중학교 교사만 보기", href: "/admin/teachers?level=중" },
   { key: "a-lv-h", section: "액션", icon: "🔴", title: "고등학교 교사만 보기", href: "/admin/teachers?level=고" },
