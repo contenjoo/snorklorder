@@ -44,7 +44,7 @@ test("admin 토큰은 서명·nonce·만료를 검증하고 고정값/변조를 
   assert.equal(await verifyAdminSessionToken("authenticated", now), false);
 
   const [payload, signature] = first.split(".");
-  const tampered = `${payload}.${signature.slice(0, -1)}${signature.endsWith("A") ? "B" : "A"}`;
+  const tampered = `${payload}.${signature.startsWith("A") ? "B" : "A"}${signature.slice(1)}`;
   assert.equal(await verifyAdminSessionToken(tampered, now), false);
   const tamperedPayload = `${payload.slice(0, -1)}${payload.endsWith("A") ? "B" : "A"}.${signature}`;
   assert.equal(await verifyAdminSessionToken(tamperedPayload, now), false);
