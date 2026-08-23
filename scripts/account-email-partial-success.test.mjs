@@ -9,6 +9,7 @@ import {
 
 test("Jon과 Cailie 발송 상태에 unknown claim 경계를 포함한다", () => {
   assert.equal(getAccountEmailDeliveryState({
+    status: "draft",
     needsInvoice: true,
     processingEmailSendStartedAt: null,
     processingEmailSentAt: null,
@@ -16,6 +17,7 @@ test("Jon과 Cailie 발송 상태에 unknown claim 경계를 포함한다", () =
     invoiceEmailSentAt: null,
   }), "ready");
   assert.equal(getAccountEmailDeliveryState({
+    status: "draft",
     needsInvoice: true,
     processingEmailSendStartedAt: "2026-08-23T00:00:00.000Z",
     processingEmailSentAt: null,
@@ -23,6 +25,7 @@ test("Jon과 Cailie 발송 상태에 unknown claim 경계를 포함한다", () =
     invoiceEmailSentAt: null,
   }), "processing_unknown");
   assert.equal(getAccountEmailDeliveryState({
+    status: "sent",
     needsInvoice: true,
     processingEmailSendStartedAt: null,
     processingEmailSentAt: "2026-08-23T00:00:00.000Z",
@@ -30,6 +33,7 @@ test("Jon과 Cailie 발송 상태에 unknown claim 경계를 포함한다", () =
     invoiceEmailSentAt: null,
   }), "invoice_retry");
   assert.equal(getAccountEmailDeliveryState({
+    status: "sent",
     needsInvoice: true,
     processingEmailSendStartedAt: null,
     processingEmailSentAt: "2026-08-23T00:00:00.000Z",
@@ -37,6 +41,7 @@ test("Jon과 Cailie 발송 상태에 unknown claim 경계를 포함한다", () =
     invoiceEmailSentAt: null,
   }), "invoice_unknown");
   assert.equal(getAccountEmailDeliveryState({
+    status: "invoiced",
     needsInvoice: true,
     processingEmailSendStartedAt: null,
     processingEmailSentAt: "2026-08-23T00:00:00.000Z",
@@ -44,12 +49,23 @@ test("Jon과 Cailie 발송 상태에 unknown claim 경계를 포함한다", () =
     invoiceEmailSentAt: "2026-08-23T00:01:00.000Z",
   }), "complete");
   assert.equal(getAccountEmailDeliveryState({
+    status: "processed",
     needsInvoice: false,
     processingEmailSendStartedAt: null,
     processingEmailSentAt: "2026-08-23T00:00:00.000Z",
     invoiceEmailSendStartedAt: null,
     invoiceEmailSentAt: null,
   }), "complete");
+  for (const status of ["sent", "processed", "invoiced", "paid"]) {
+    assert.equal(getAccountEmailDeliveryState({
+      status,
+      needsInvoice: true,
+      processingEmailSendStartedAt: null,
+      processingEmailSentAt: null,
+      invoiceEmailSendStartedAt: null,
+      invoiceEmailSentAt: null,
+    }), "legacy_complete");
+  }
   assert.equal(parseAccountEmailSendMode(undefined), "send_all");
   assert.equal(parseAccountEmailSendMode("invoice_only"), "invoice_only");
   assert.equal(parseAccountEmailSendMode("invalid"), null);
@@ -90,6 +106,9 @@ test("단건 API는 Jon 성공을 먼저 기록하고 인보이스 실패를 부
   assert.ok(processingWrite > 0 && invoiceSend > processingWrite);
   assert.match(route, /mode === "send_all" && deliveryState !== "ready"/);
   assert.match(route, /mode === "invoice_only" && deliveryState !== "invoice_retry"/);
+  assert.match(route, /deliveryState === "legacy_complete"/);
+  assert.match(route, /code: "LEGACY_EMAIL_DELIVERY_COMPLETE"/);
+  assert.match(route, /legacyDeliveryBlocked: true/);
   assert.match(route, /code: "INVOICE_DELIVERY_FAILED"/);
   assert.match(route, /success: false,\s*partialSuccess: true/);
   assert.match(route, /invoiceRetryAvailable: true/);
@@ -97,6 +116,7 @@ test("단건 API는 Jon 성공을 먼저 기록하고 인보이스 실패를 부
   assert.match(route, /processingEmailSendStartedAt: processingClaimedAt/);
   assert.match(route, /invoiceEmailSendStartedAt: invoiceClaimedAt/);
   assert.match(route, /isNull\(accountRequests\.processingEmailSendStartedAt\)/);
+  assert.match(route, /eq\(accountRequests\.status, "draft"\)/);
   assert.match(route, /isNull\(accountRequests\.invoiceEmailSendStartedAt\)/);
   assert.match(route, /\.returning\(\{ id: accountRequests\.id \}\)/);
   assert.match(route, /code: "EMAIL_DELIVERY_UNKNOWN"/);
@@ -114,6 +134,10 @@ test("배치 API도 Jon 중복을 차단하고 invoice_only 재시도만 허용�
   );
 
   assert.match(route, /const blocked = deliveryStates\.filter\(\(item\) => item\.state !== "ready"\)/);
+  assert.match(route, /item\.state === "legacy_complete"/);
+  assert.match(route, /code: "LEGACY_EMAIL_DELIVERY_COMPLETE"/);
+  assert.match(route, /legacyDeliveryBlocked: true/);
+  assert.match(route, /eq\(accountRequests\.status, "draft"\)/);
   assert.match(route, /mode === "invoice_only" \|\| items\[index\]\.needsInvoice/);
   assert.match(route, /processingEmailSentAt: processingSentAt/);
   assert.match(route, /invoiceEmailSentAt: invoiceSentAt/);
@@ -142,4 +166,7 @@ test("관리자 UI는 부분 성공과 인보이스 전용 재시도를 명시�
   assert.match(page, /인보이스 재시도/);
   assert.match(page, /Gmail 보낸편지함 확인 필요/);
   assert.match(page, /자동 재시도 금지/);
+  assert.match(page, /기존 발송 완료\/중복 발송 차단/);
+  assert.match(page, /legacyDeliveryComplete/);
+  assert.match(page, /legacyDeliveryBlocked/);
 });

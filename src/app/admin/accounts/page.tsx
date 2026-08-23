@@ -111,6 +111,10 @@ function needsDeliveryReview(request: AccountRequest): boolean {
   return state === "processing_unknown" || state === "invoice_unknown";
 }
 
+function isLegacyDeliveryComplete(request: AccountRequest): boolean {
+  return getAccountEmailDeliveryState(request) === "legacy_complete";
+}
+
 function AccountsPageContent() {
   // 대시보드/커맨드 팔레트 연동: ?filter=상태 로 초기 필터, ?focus=id 로 해당 행 스크롤+강조,
   // ?new=1 로 새 요청 다이얼로그 자동 오픈
@@ -368,6 +372,9 @@ function AccountsPageContent() {
             : { processingEmailSendStartedAt: r.processingEmailSendStartedAt || startedAt }),
         });
         load();
+      } else if (data.legacyDeliveryBlocked) {
+        setSendMsg("⚠️ 기존 발송 완료/중복 발송 차단: 이전 처리 완료 건은 다시 발송할 수 없습니다.");
+        load();
       } else if (data.partialSuccess) {
         setSendMsg("⚠️ 부분 성공: Jon 처리 메일은 발송됐지만 Cailie 인보이스는 실패했습니다. 인보이스만 재시도하세요.");
         setEmailPreview({
@@ -402,6 +409,9 @@ function AccountsPageContent() {
           invoiceEmailSendStartedAt: r.invoiceEmailSendStartedAt || new Date().toISOString(),
         });
         load();
+      } else if (data.legacyDeliveryBlocked) {
+        setSendMsg("⚠️ 기존 발송 완료/중복 발송 차단: 이전 처리 완료 건은 인보이스 재전송 대상이 아닙니다.");
+        load();
       } else if (data.partialSuccess) {
         setSendMsg("⚠️ 인보이스 재전송 실패: Jon 메일은 다시 보내지 않았습니다. 다시 시도해 주세요.");
         load();
@@ -414,7 +424,12 @@ function AccountsPageContent() {
 
   // Gmail 열기
   function openGmail(r: AccountRequest) {
-    if (r.processingEmailSentAt || r.processingEmailSendStartedAt) {
+    const deliveryState = getAccountEmailDeliveryState(r);
+    if (deliveryState === "legacy_complete") {
+      setSendMsg("⚠️ 기존 발송 완료/중복 발송 차단: 이전 처리 완료 건은 Gmail 재발송을 열 수 없습니다.");
+      return;
+    }
+    if (deliveryState !== "ready") {
       setSendMsg("Jon 처리 메일이 발송됐거나 결과 확인이 필요해 Gmail 재발송을 열지 않았습니다");
       return;
     }
@@ -444,6 +459,10 @@ function AccountsPageContent() {
       setSendMsg("⚠️ Gmail 보낸편지함 확인이 필요한 건은 자동 발송할 수 없습니다.");
       return;
     }
+    if (selectedRequests.some(isLegacyDeliveryComplete)) {
+      setSendMsg("⚠️ 기존 발송 완료/중복 발송 차단: 이전 처리 완료 건은 묶음 발송할 수 없습니다.");
+      return;
+    }
     const retryOnly = selectedRequests.length > 0 && selectedRequests.every(needsInvoiceRetry);
     if (!retryOnly && selectedRequests.some((request) => getAccountEmailDeliveryState(request) !== "ready")) {
       setSendMsg("이미 Jon에게 발송된 건과 신규 발송 건을 함께 묶을 수 없습니다. 인보이스 재시도 건만 따로 선택해 주세요.");
@@ -471,6 +490,10 @@ function AccountsPageContent() {
         await load();
         setBatchPreviewOpen(false);
         setSendMsg("⚠️ Gmail 보낸편지함 확인 필요: 묶음 발송 결과가 불확실하여 자동 재시도를 차단했습니다.");
+      } else if (data.legacyDeliveryBlocked) {
+        await load();
+        setBatchPreviewOpen(false);
+        setSendMsg("⚠️ 기존 발송 완료/중복 발송 차단: 이전 처리 완료 건은 묶음 발송할 수 없습니다.");
       } else if (data.partialSuccess) {
         const retryIds = Array.isArray(data.invoiceRetryRequestIds)
           ? data.invoiceRetryRequestIds.filter((id: unknown): id is number => Number.isInteger(id))
@@ -518,6 +541,7 @@ function AccountsPageContent() {
   const selectionIsInvoiceRetry = selectedRequestsForAction.length > 0
     && selectedRequestsForAction.every(needsInvoiceRetry);
   const selectionNeedsDeliveryReview = selectedRequestsForAction.some(needsDeliveryReview);
+  const selectionHasLegacyDelivery = selectedRequestsForAction.some(isLegacyDeliveryComplete);
 
   return (
     <div className="space-y-3 pb-20 md:pb-0">
@@ -756,6 +780,8 @@ function AccountsPageContent() {
           <Button size="sm" onClick={() => setBatchPreviewOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-xs">
             {selectionNeedsDeliveryReview
               ? "⛔ 보낸편지함 확인"
+              : selectionHasLegacyDelivery
+                ? "⛔ 기존 발송 완료/중복 발송 차단"
               : selectionIsInvoiceRetry
                 ? "↻ 인보이스 재시도 미리보기"
                 : "📧 묶음 발송 미리보기"}
@@ -806,6 +832,8 @@ function AccountsPageContent() {
           const statusInfo = STATUSES.find((s) => s.value === r.status);
           const emails = r.emails.split(/[,;\n]+/).map((e) => e.trim()).filter(Boolean);
           const dday = dDayInfo(r.invoiceDueDate, r.paymentDate);
+          const deliveryState = getAccountEmailDeliveryState(r);
+          const legacyDeliveryComplete = deliveryState === "legacy_complete";
 
           return (
             <div
@@ -849,6 +877,12 @@ function AccountsPageContent() {
                         title="발송 결과 불확실 — Gmail 보낸편지함을 확인하기 전 자동 재시도 금지"
                       >⛔ 보낸편지함 확인</span>
                     )}
+                    {legacyDeliveryComplete && (
+                      <span
+                        className="text-[9px] px-1.5 py-0.5 rounded-full bg-slate-200 text-slate-700 font-semibold"
+                        title="0016 이전 처리 완료 건 — 중복 발송 차단"
+                      >⛔ 기존 발송 완료</span>
+                    )}
                     <span className="text-[10px] text-slate-400">{emails.length > 1 ? `${emails.length}명` : ""}</span>
                   </div>
                   <div className="text-[11px] font-mono text-slate-500 truncate">
@@ -879,9 +913,13 @@ function AccountsPageContent() {
                   <button onClick={() => setEmailPreview(r)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-blue-50 text-slate-400 hover:text-blue-600" title="미리보기">📧</button>
                   <button
                     onClick={() => openGmail(r)}
-                    disabled={Boolean(r.processingEmailSentAt || r.processingEmailSendStartedAt)}
+                    disabled={deliveryState !== "ready"}
                     className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-slate-100 text-slate-400 hover:text-slate-600 disabled:opacity-30 disabled:cursor-not-allowed"
-                    title={r.processingEmailSentAt || r.processingEmailSendStartedAt ? "Jon 처리 메일 발송 완료/확인 필요 — 중복 발송 차단" : "Gmail"}
+                    title={legacyDeliveryComplete
+                      ? "기존 발송 완료/중복 발송 차단"
+                      : deliveryState !== "ready"
+                        ? "Jon 처리 메일 발송 완료/확인 필요 — 중복 발송 차단"
+                        : "Gmail"}
                   >📨</button>
                   <button onClick={() => copyEmail(r)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-slate-100 text-slate-400 hover:text-slate-600" title="복사">📋</button>
                   <button onClick={() => openEdit(r)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-slate-100 text-slate-400 hover:text-slate-600" title="수정">✎</button>
@@ -909,6 +947,9 @@ function AccountsPageContent() {
                     )}
                     {needsDeliveryReview(r) && (
                       <span className="text-[9px] px-1 py-0.5 rounded bg-rose-100 text-rose-800 font-semibold ml-1">⛔ 확인</span>
+                    )}
+                    {legacyDeliveryComplete && (
+                      <span className="text-[9px] px-1 py-0.5 rounded bg-slate-200 text-slate-700 font-semibold ml-1">⛔ 기존 완료</span>
                     )}
                   </span>
                   <select value={r.status} onChange={(e) => updateStatus(r.id, e.target.value)}
@@ -962,6 +1003,7 @@ function AccountsPageContent() {
         const invoiceRetryOnly = deliveryState === "invoice_retry";
         const deliveryUnknown = deliveryState === "processing_unknown" || deliveryState === "invoice_unknown";
         const deliveryComplete = deliveryState === "complete";
+        const legacyDeliveryComplete = deliveryState === "legacy_complete";
         return (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setEmailPreview(null)}>
             <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
@@ -1011,24 +1053,32 @@ function AccountsPageContent() {
                   <div className="mt-1">발송 결과가 불확실합니다. 보낸편지함에서 실제 발송 여부를 확인하기 전에는 자동 재시도하지 마세요.</div>
                 </div>
               )}
+              {legacyDeliveryComplete && (
+                <div className="mx-4 mb-3 rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-xs text-slate-800">
+                  <div className="font-bold">기존 발송 완료/중복 발송 차단</div>
+                  <div className="mt-1">0016 적용 전 이미 처리 완료된 요청입니다. 발송 기록이 중복될 수 있어 일반 발송과 인보이스 재전송을 모두 차단합니다.</div>
+                </div>
+              )}
               <div className="p-3 border-t bg-slate-50 rounded-b-xl flex items-center gap-2">
                 <Button
                   size="sm"
                   onClick={() => invoiceRetryOnly ? retryInvoiceOnly(emailPreview) : sendToJon(emailPreview)}
-                  disabled={sending || deliveryComplete || deliveryUnknown}
+                  disabled={sending || deliveryComplete || legacyDeliveryComplete || deliveryUnknown}
                   className={`${invoiceRetryOnly ? "bg-amber-600 hover:bg-amber-700" : "bg-blue-600 hover:bg-blue-700"} text-xs`}
                 >
                   {sending
                     ? "발송 중..."
                     : deliveryUnknown
                       ? "⛔ 보낸편지함 확인 필요"
+                    : legacyDeliveryComplete
+                      ? "⛔ 기존 발송 완료/중복 발송 차단"
                     : deliveryComplete
                       ? "✓ 발송 완료"
                       : invoiceRetryOnly
                         ? "↻ Cailie 인보이스만 재전송"
                         : "📧 발송하기"}
                 </Button>
-                {!emailPreview.processingEmailSentAt && !emailPreview.processingEmailSendStartedAt && (
+                {deliveryState === "ready" && (
                   <Button size="sm" variant="outline" onClick={() => openGmail(emailPreview)} className="text-xs">
                     Gmail에서 열기
                   </Button>
@@ -1041,6 +1091,8 @@ function AccountsPageContent() {
                     ? "Jon 중복 발송 차단"
                     : deliveryUnknown
                       ? "자동 재시도 금지"
+                    : legacyDeliveryComplete
+                      ? "기존 발송 완료/중복 발송 차단"
                     : deliveryComplete
                       ? "본사 메일 발송 완료"
                       : "발송 후 자동으로 요청 완료로 변경"}
@@ -1059,10 +1111,11 @@ function AccountsPageContent() {
           .filter((r): r is AccountRequest => !!r);
         const invoiceRetryOnly = selectedRequests.length > 0 && selectedRequests.every(needsInvoiceRetry);
         const deliveryUnknown = selectedRequests.some(needsDeliveryReview);
+        const legacyDeliveryComplete = selectedRequests.some(isLegacyDeliveryComplete);
         const hasPreviouslySent = selectedRequests.some(
           (request) => getAccountEmailDeliveryState(request) !== "ready",
         );
-        const mixedDeliveryState = hasPreviouslySent && !invoiceRetryOnly && !deliveryUnknown;
+        const mixedDeliveryState = hasPreviouslySent && !invoiceRetryOnly && !deliveryUnknown && !legacyDeliveryComplete;
         const totalEmails = selectedRequests.reduce((s, r) => s + countEmails(r.emails), 0);
         // 제목/본문/CC 판정은 전부 SSOT(buildBatchEmail) — 서버 발송과 같은 함수라 미리보기가 실제와 일치한다.
         // 실제 발송에서 confirmLine 자리에 들어갈 confirm 링크만 미리보기용 안내 문구로 대체한다.
@@ -1143,17 +1196,25 @@ function AccountsPageContent() {
                   <div className="mt-1">선택한 요청 중 발송 결과가 불확실한 건이 있습니다. 실제 발송 여부를 확인하기 전 자동 재시도는 금지됩니다.</div>
                 </div>
               )}
+              {legacyDeliveryComplete && (
+                <div className="mx-4 mb-3 rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-xs text-slate-800">
+                  <div className="font-bold">기존 발송 완료/중복 발송 차단</div>
+                  <div className="mt-1">선택한 요청 중 0016 적용 전 이미 처리 완료된 건이 있어 전체 또는 혼합 묶음 발송을 차단합니다.</div>
+                </div>
+              )}
               <div className="p-3 border-t bg-slate-50 rounded-b-xl flex items-center gap-2">
                 <Button
                   size="sm"
                   onClick={sendBatch}
-                  disabled={sending || mixedDeliveryState || deliveryUnknown}
+                  disabled={sending || mixedDeliveryState || deliveryUnknown || legacyDeliveryComplete}
                   className={`${invoiceRetryOnly ? "bg-amber-600 hover:bg-amber-700" : "bg-blue-600 hover:bg-blue-700"} text-xs`}
                 >
                   {sending
                     ? "발송 중..."
                     : deliveryUnknown
                       ? "⛔ 보낸편지함 확인 필요"
+                    : legacyDeliveryComplete
+                      ? "⛔ 기존 발송 완료/중복 발송 차단"
                     : mixedDeliveryState
                       ? "선택을 나눠 주세요"
                       : invoiceRetryOnly
@@ -1168,6 +1229,8 @@ function AccountsPageContent() {
                     ? "Jon 중복 발송 차단"
                     : deliveryUnknown
                       ? "자동 재시도 금지"
+                    : legacyDeliveryComplete
+                      ? "기존 발송 완료/중복 발송 차단"
                     : "발송 시 모두 요청 완료로 변경 + confirm 링크 생성"}
                 </span>
               </div>

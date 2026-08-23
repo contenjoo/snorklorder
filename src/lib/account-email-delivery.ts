@@ -2,6 +2,7 @@ export const ACCOUNT_EMAIL_SEND_MODES = ["send_all", "invoice_only"] as const;
 export type AccountEmailSendMode = (typeof ACCOUNT_EMAIL_SEND_MODES)[number];
 
 export interface AccountEmailDeliveryRecord {
+  status: string;
   needsInvoice: boolean;
   processingEmailSendStartedAt: Date | string | null;
   processingEmailSentAt: Date | string | null;
@@ -14,6 +15,7 @@ export type AccountEmailDeliveryState =
   | "processing_unknown"
   | "invoice_retry"
   | "invoice_unknown"
+  | "legacy_complete"
   | "complete";
 
 export function parseAccountEmailSendMode(value: unknown): AccountEmailSendMode | null {
@@ -28,7 +30,9 @@ export function getAccountEmailDeliveryState(
   record: AccountEmailDeliveryRecord,
 ): AccountEmailDeliveryState {
   if (!record.processingEmailSentAt) {
-    return record.processingEmailSendStartedAt ? "processing_unknown" : "ready";
+    if (record.processingEmailSendStartedAt) return "processing_unknown";
+    // 0016 이전 행은 발송 타임스탬프가 없으므로 기존 업무 상태로 중복 발송을 차단한다.
+    return record.status === "draft" ? "ready" : "legacy_complete";
   }
   if (record.needsInvoice && !record.invoiceEmailSentAt) {
     return record.invoiceEmailSendStartedAt ? "invoice_unknown" : "invoice_retry";

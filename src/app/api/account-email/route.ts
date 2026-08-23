@@ -24,6 +24,17 @@ function deliveryUnknownResponse(stage: "processing" | "invoice", status = 409) 
   }, { status });
 }
 
+function legacyDeliveryBlockedResponse() {
+  return NextResponse.json({
+    success: false,
+    partialSuccess: false,
+    code: "LEGACY_EMAIL_DELIVERY_COMPLETE",
+    error: "This legacy request is already complete. Duplicate email delivery is blocked.",
+    legacyDeliveryBlocked: true,
+    invoiceRetryAvailable: false,
+  }, { status: 409 });
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { requestId, subject, body, mode: rawMode } = await req.json();
@@ -94,6 +105,9 @@ export async function POST(req: NextRequest) {
           deliveryState === "processing_unknown" ? "processing" : "invoice",
         );
       }
+      if (deliveryState === "legacy_complete") {
+        return legacyDeliveryBlockedResponse();
+      }
       if (mode === "send_all" && deliveryState !== "ready") {
         const partialSuccess = deliveryState === "invoice_retry";
         return NextResponse.json({
@@ -145,6 +159,7 @@ export async function POST(req: NextRequest) {
           .set({ processingEmailSendStartedAt: processingClaimedAt, updatedAt: processingClaimedAt })
           .where(and(
             eq(accountRequests.id, existing.id),
+            eq(accountRequests.status, "draft"),
             isNull(accountRequests.processingEmailSentAt),
             isNull(accountRequests.processingEmailSendStartedAt),
           ))

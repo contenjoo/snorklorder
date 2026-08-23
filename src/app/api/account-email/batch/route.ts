@@ -35,6 +35,18 @@ function deliveryUnknownResponse(
   }, { status });
 }
 
+function legacyDeliveryBlockedResponse(requestIds: number[]) {
+  return NextResponse.json({
+    success: false,
+    partialSuccess: false,
+    code: "LEGACY_EMAIL_DELIVERY_COMPLETE",
+    error: "Legacy requests are already complete. Duplicate email delivery is blocked.",
+    legacyDeliveryBlocked: true,
+    blockedRequestIds: requestIds,
+    invoiceRetryAvailable: false,
+  }, { status: 409 });
+}
+
 // 여러 account_requests를 메일로 묶어 발송한다. 수신자별로 두 통이 나간다:
 //   1) 처리 메일 → Jon (전체 건, 교사 이메일 목록·confirm 링크 포함)
 //   2) 인보이스 메일 → Cailie (CC: Jon). 인보이스 필요 건만, 청구 요약만.
@@ -100,6 +112,10 @@ export async function POST(req: NextRequest) {
         unknown.some((item) => item.state === "processing_unknown") ? "processing" : "invoice",
         unknown.map((item) => item.id),
       );
+    }
+    const legacyComplete = deliveryStates.filter((item) => item.state === "legacy_complete");
+    if (legacyComplete.length > 0) {
+      return legacyDeliveryBlockedResponse(legacyComplete.map((item) => item.id));
     }
     if (mode === "send_all") {
       const blocked = deliveryStates.filter((item) => item.state !== "ready");
@@ -173,6 +189,7 @@ export async function POST(req: NextRequest) {
         .set({ processingEmailSendStartedAt: processingClaimedAt, updatedAt: processingClaimedAt })
         .where(and(
           inArray(accountRequests.id, requestIds),
+          eq(accountRequests.status, "draft"),
           isNull(accountRequests.processingEmailSentAt),
           isNull(accountRequests.processingEmailSendStartedAt),
         ))
