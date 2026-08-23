@@ -73,6 +73,7 @@ export async function POST(req: NextRequest) {
       return {
         subject: sections[i].subject,
         body: sections[i].body,
+        requestId: id,
         needsInvoice: row
           ? typeof row.needsInvoice === "boolean"
             ? row.needsInvoice

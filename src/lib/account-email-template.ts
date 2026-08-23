@@ -51,6 +51,8 @@ export interface BatchEmailItem {
   subject: string;
   body: string;
   needsInvoice: boolean;
+  /** 요청번호 — Cailie 인보이스 메일의 [#id] 와 대조하기 위해 블록 머리에 표기한다. */
+  requestId?: number | null;
   /** 블록 끝에 붙일 한 줄 (발송 시엔 confirm 링크, 미리보기에선 안내 문구). 없으면 생략. */
   confirmLine?: string | null;
 }
@@ -76,7 +78,7 @@ export function buildBatchEmail(
 
   items.forEach((it, i) => {
     lines.push("═══════════════════════════════════════════");
-    lines.push(`[${i + 1}/${count}] ${it.subject}`);
+    lines.push(`[${i + 1}/${count}]${it.requestId ? ` [#${it.requestId}]` : ""} ${it.subject}`);
     lines.push("");
     // 인사말은 메일 맨 위에 한 번만 — 블록 안의 개별 인사말은 제거한다.
     lines.push(stripHqGreeting(it.body));

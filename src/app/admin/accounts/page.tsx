@@ -895,6 +895,7 @@ function AccountsPageContent() {
           return {
             subject: s,
             body,
+            requestId: r.id,
             needsInvoice: r.needsInvoice ?? defaultNeedsInvoice(r.type),
             confirmLine: "(Confirm 링크는 발송 시 자동 생성됩니다)",
           };
