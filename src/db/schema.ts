@@ -88,6 +88,12 @@ export const accountRequests = pgTable("account_requests", {
   invoiceGmailThreadId: text("invoice_gmail_thread_id"),
   receiptGmailMessageId: text("receipt_gmail_message_id"),
   receiptGmailThreadId: text("receipt_gmail_thread_id"),
+  // 본사 메일 2단계 발송 원장. Jon 성공 후 Cailie 실패를 durable partial success로 보존한다.
+  processingEmailSendStartedAt: timestamp("processing_email_send_started_at"),
+  processingEmailSentAt: timestamp("processing_email_sent_at"),
+  invoiceEmailSendStartedAt: timestamp("invoice_email_send_started_at"),
+  invoiceEmailSentAt: timestamp("invoice_email_sent_at"),
+  invoiceEmailLastError: text("invoice_email_last_error"),
   confirmToken: text("confirm_token").unique(),
   confirmedAt: timestamp("confirmed_at"),
   // market 주문 수신 추적. 기존 수동/공개 요청은 모두 null이며 market API 수신 건만 채운다.

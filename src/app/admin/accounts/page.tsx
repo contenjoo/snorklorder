@@ -24,6 +24,7 @@ import {
   buildBatchEmail,
   type BatchEmailItem,
 } from "@/lib/account-email-template";
+import { getAccountEmailDeliveryState } from "@/lib/account-email-delivery";
 
 interface AccountRequest {
   id: number;
@@ -47,6 +48,11 @@ interface AccountRequest {
   paymentLink: string | null;
   paymentDate: string | null;
   paymentMethod: string | null;
+  processingEmailSendStartedAt: string | null;
+  processingEmailSentAt: string | null;
+  invoiceEmailSendStartedAt: string | null;
+  invoiceEmailSentAt: string | null;
+  invoiceEmailLastError: string | null;
   confirmedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -94,6 +100,15 @@ function countEmails(raw: string): number {
       .map((e) => e.trim().toLowerCase())
       .filter((e) => e && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)),
   ).size;
+}
+
+function needsInvoiceRetry(request: AccountRequest): boolean {
+  return getAccountEmailDeliveryState(request) === "invoice_retry";
+}
+
+function needsDeliveryReview(request: AccountRequest): boolean {
+  const state = getAccountEmailDeliveryState(request);
+  return state === "processing_unknown" || state === "invoice_unknown";
 }
 
 function AccountsPageContent() {
@@ -339,9 +354,27 @@ function AccountsPageContent() {
         body: JSON.stringify({ requestId: r.id, subject, body }),
       });
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.success) {
         setSendMsg("✓ 발송 완료");
         setEmailPreview(null);
+        load();
+      } else if (data.deliveryUnknown) {
+        const startedAt = new Date().toISOString();
+        setSendMsg("⚠️ Gmail 보낸편지함 확인 필요: 발송 결과가 불확실하여 자동 재시도를 차단했습니다.");
+        setEmailPreview({
+          ...r,
+          ...(data.unknownStage === "invoice"
+            ? { invoiceEmailSendStartedAt: r.invoiceEmailSendStartedAt || startedAt }
+            : { processingEmailSendStartedAt: r.processingEmailSendStartedAt || startedAt }),
+        });
+        load();
+      } else if (data.partialSuccess) {
+        setSendMsg("⚠️ 부분 성공: Jon 처리 메일은 발송됐지만 Cailie 인보이스는 실패했습니다. 인보이스만 재시도하세요.");
+        setEmailPreview({
+          ...r,
+          processingEmailSentAt: data.processingEmailSentAt || r.processingEmailSentAt || new Date().toISOString(),
+          invoiceEmailLastError: data.error || "Cailie invoice email delivery failed",
+        });
         load();
       } else {
         setSendMsg("실패: " + (data.error || ""));
@@ -350,8 +383,41 @@ function AccountsPageContent() {
     finally { setSending(false); }
   }
 
+  async function retryInvoiceOnly(r: AccountRequest) {
+    setSending(true); setSendMsg("");
+    try {
+      const res = await fetch("/api/account-email", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requestId: r.id, mode: "invoice_only" }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setSendMsg("✓ Cailie 인보이스 재전송 완료 — Jon에게는 다시 보내지 않았습니다");
+        setEmailPreview(null);
+        load();
+      } else if (data.deliveryUnknown) {
+        setSendMsg("⚠️ Gmail 보낸편지함 확인 필요: 인보이스 발송 결과가 불확실하여 자동 재시도를 차단했습니다.");
+        setEmailPreview({
+          ...r,
+          invoiceEmailSendStartedAt: r.invoiceEmailSendStartedAt || new Date().toISOString(),
+        });
+        load();
+      } else if (data.partialSuccess) {
+        setSendMsg("⚠️ 인보이스 재전송 실패: Jon 메일은 다시 보내지 않았습니다. 다시 시도해 주세요.");
+        load();
+      } else {
+        setSendMsg("실패: " + (data.error || "인보이스 재전송에 실패했습니다"));
+      }
+    } catch { setSendMsg("연결 오류"); }
+    finally { setSending(false); }
+  }
+
   // Gmail 열기
   function openGmail(r: AccountRequest) {
+    if (r.processingEmailSentAt || r.processingEmailSendStartedAt) {
+      setSendMsg("Jon 처리 메일이 발송됐거나 결과 확인이 필요해 Gmail 재발송을 열지 않았습니다");
+      return;
+    }
     const { subject, body } = generateAccountEmail(r);
     // 처리 메일은 Jon 단독 — 인보이스 메일은 앱에서 Cailie 에게 따로 나간다.
     const mailto = `mailto:${HQ_TO}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
@@ -374,19 +440,47 @@ function AccountsPageContent() {
     const selectedRequests = ids
       .map((id) => requests.find((r) => r.id === id))
       .filter((r): r is AccountRequest => !!r);
+    if (selectedRequests.some(needsDeliveryReview)) {
+      setSendMsg("⚠️ Gmail 보낸편지함 확인이 필요한 건은 자동 발송할 수 없습니다.");
+      return;
+    }
+    const retryOnly = selectedRequests.length > 0 && selectedRequests.every(needsInvoiceRetry);
+    if (!retryOnly && selectedRequests.some((request) => getAccountEmailDeliveryState(request) !== "ready")) {
+      setSendMsg("이미 Jon에게 발송된 건과 신규 발송 건을 함께 묶을 수 없습니다. 인보이스 재시도 건만 따로 선택해 주세요.");
+      return;
+    }
     const sections = selectedRequests.map((r) => generateAccountEmail(r));
     setSending(true); setSendMsg("");
     try {
       const res = await fetch("/api/account-email/batch", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ requestIds: selectedRequests.map((r) => r.id), sections }),
+        body: JSON.stringify({
+          requestIds: selectedRequests.map((r) => r.id),
+          ...(retryOnly ? { mode: "invoice_only" } : { mode: "send_all", sections }),
+        }),
       });
       const data = await res.json();
-      if (data.success) {
-        setSendMsg(`✓ ${data.count}건 묶음 발송 완료`);
+      if (res.ok && data.success) {
+        setSendMsg(retryOnly
+          ? `✓ ${data.count}건 Cailie 인보이스 재전송 완료 — Jon 재발송 없음`
+          : `✓ ${data.count}건 묶음 발송 완료`);
         setBatchPreviewOpen(false);
         clearSelection();
         load();
+      } else if (data.deliveryUnknown) {
+        await load();
+        setBatchPreviewOpen(false);
+        setSendMsg("⚠️ Gmail 보낸편지함 확인 필요: 묶음 발송 결과가 불확실하여 자동 재시도를 차단했습니다.");
+      } else if (data.partialSuccess) {
+        const retryIds = Array.isArray(data.invoiceRetryRequestIds)
+          ? data.invoiceRetryRequestIds.filter((id: unknown): id is number => Number.isInteger(id))
+          : selectedRequests
+            .filter((request) => request.needsInvoice ?? defaultNeedsInvoice(request.type))
+            .map((request) => request.id);
+        await load();
+        setSelectedIds(new Set(retryIds));
+        setBatchPreviewOpen(false);
+        setSendMsg("⚠️ 부분 성공: Jon 묶음 메일은 발송됐지만 Cailie 인보이스는 실패했습니다. 인보이스 재시도 건만 자동 선택했습니다.");
       } else {
         setSendMsg("실패: " + (data.error || ""));
       }
@@ -418,6 +512,12 @@ function AccountsPageContent() {
 
   const statusCounts = STATUSES.map((s) => ({ ...s, count: requests.filter((r) => r.status === s.value).length }));
   const emailCount = requests.reduce((s, r) => s + r.emails.split(/[,;\n]+/).filter((e) => e.trim() && e.includes("@")).length, 0);
+  const selectedRequestsForAction = Array.from(selectedIds)
+    .map((id) => requests.find((request) => request.id === id))
+    .filter((request): request is AccountRequest => Boolean(request));
+  const selectionIsInvoiceRetry = selectedRequestsForAction.length > 0
+    && selectedRequestsForAction.every(needsInvoiceRetry);
+  const selectionNeedsDeliveryReview = selectedRequestsForAction.some(needsDeliveryReview);
 
   return (
     <div className="space-y-3 pb-20 md:pb-0">
@@ -654,7 +754,11 @@ function AccountsPageContent() {
         <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-50 border border-blue-200">
           <span className="text-sm font-medium text-blue-900">{selectedIds.size}건 선택됨</span>
           <Button size="sm" onClick={() => setBatchPreviewOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-xs">
-            📧 묶음 발송 미리보기
+            {selectionNeedsDeliveryReview
+              ? "⛔ 보낸편지함 확인"
+              : selectionIsInvoiceRetry
+                ? "↻ 인보이스 재시도 미리보기"
+                : "📧 묶음 발송 미리보기"}
           </Button>
           <button onClick={clearSelection} className="text-xs text-blue-700 hover:text-blue-900 underline">선택 해제</button>
         </div>
@@ -733,6 +837,18 @@ function AccountsPageContent() {
                     {r.needsInvoice && (
                       <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 font-medium" title="인보이스 필요 — Cailie CC">💳</span>
                     )}
+                    {needsInvoiceRetry(r) && (
+                      <span
+                        className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 font-semibold"
+                        title={r.invoiceEmailLastError || "Jon 발송 완료 · Cailie 인보이스 재시도 필요"}
+                      >⚠ 인보이스 재시도</span>
+                    )}
+                    {needsDeliveryReview(r) && (
+                      <span
+                        className="text-[9px] px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-800 font-semibold"
+                        title="발송 결과 불확실 — Gmail 보낸편지함을 확인하기 전 자동 재시도 금지"
+                      >⛔ 보낸편지함 확인</span>
+                    )}
                     <span className="text-[10px] text-slate-400">{emails.length > 1 ? `${emails.length}명` : ""}</span>
                   </div>
                   <div className="text-[11px] font-mono text-slate-500 truncate">
@@ -761,7 +877,12 @@ function AccountsPageContent() {
                 </div>
                 <div className="w-28 flex items-center justify-end gap-0.5">
                   <button onClick={() => setEmailPreview(r)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-blue-50 text-slate-400 hover:text-blue-600" title="미리보기">📧</button>
-                  <button onClick={() => openGmail(r)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-slate-100 text-slate-400 hover:text-slate-600" title="Gmail">📨</button>
+                  <button
+                    onClick={() => openGmail(r)}
+                    disabled={Boolean(r.processingEmailSentAt || r.processingEmailSendStartedAt)}
+                    className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-slate-100 text-slate-400 hover:text-slate-600 disabled:opacity-30 disabled:cursor-not-allowed"
+                    title={r.processingEmailSentAt || r.processingEmailSendStartedAt ? "Jon 처리 메일 발송 완료/확인 필요 — 중복 발송 차단" : "Gmail"}
+                  >📨</button>
                   <button onClick={() => copyEmail(r)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-slate-100 text-slate-400 hover:text-slate-600" title="복사">📋</button>
                   <button onClick={() => openEdit(r)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-slate-100 text-slate-400 hover:text-slate-600" title="수정">✎</button>
                   <button onClick={() => deleteRequest(r.id)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-red-50 text-slate-300 hover:text-red-500" title="삭제">✕</button>
@@ -783,6 +904,12 @@ function AccountsPageContent() {
                     {(r.applicantType || "school") === "individual" && <span className="text-[9px] px-1 py-0.5 rounded bg-purple-50 text-purple-700 font-medium mr-1">개인</span>}
                     {r.schoolName}
                     {r.needsInvoice && <span className="text-[9px] px-1 py-0.5 rounded bg-blue-50 text-blue-700 font-medium ml-1" title="인보이스 필요 — Cailie CC">💳</span>}
+                    {needsInvoiceRetry(r) && (
+                      <span className="text-[9px] px-1 py-0.5 rounded bg-amber-100 text-amber-800 font-semibold ml-1">⚠ 재시도</span>
+                    )}
+                    {needsDeliveryReview(r) && (
+                      <span className="text-[9px] px-1 py-0.5 rounded bg-rose-100 text-rose-800 font-semibold ml-1">⛔ 확인</span>
+                    )}
                   </span>
                   <select value={r.status} onChange={(e) => updateStatus(r.id, e.target.value)}
                     className={`text-[10px] font-medium rounded-full px-2 py-0.5 border-0 ${statusInfo?.color || "bg-slate-100"}`}>
@@ -817,7 +944,13 @@ function AccountsPageContent() {
 
       {/* 상태 메시지 */}
       {sendMsg && (
-        <div className={`fixed bottom-4 right-4 px-4 py-2 rounded-lg text-sm font-medium shadow-lg z-50 ${sendMsg.includes("✓") || sendMsg.includes("📋") ? "bg-green-600 text-white" : "bg-red-600 text-white"}`}>
+        <div className={`fixed bottom-4 right-4 max-w-lg px-4 py-2 rounded-lg text-sm font-medium shadow-lg z-50 ${
+          sendMsg.includes("⚠️")
+            ? "bg-amber-500 text-amber-950"
+            : sendMsg.includes("✓") || sendMsg.includes("📋")
+              ? "bg-green-600 text-white"
+              : "bg-red-600 text-white"
+        }`}>
           {sendMsg}
         </div>
       )}
@@ -825,6 +958,10 @@ function AccountsPageContent() {
       {/* Email Preview Modal */}
       {emailPreview && (() => {
         const { subject, body } = generateAccountEmail(emailPreview);
+        const deliveryState = getAccountEmailDeliveryState(emailPreview);
+        const invoiceRetryOnly = deliveryState === "invoice_retry";
+        const deliveryUnknown = deliveryState === "processing_unknown" || deliveryState === "invoice_unknown";
+        const deliveryComplete = deliveryState === "complete";
         return (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setEmailPreview(null)}>
             <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
@@ -862,18 +999,51 @@ function AccountsPageContent() {
                   </>
                 );
               })()}
+              {invoiceRetryOnly && (
+                <div className="mx-4 mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  <div className="font-bold">부분 성공 — Cailie 인보이스 재시도 필요</div>
+                  <div className="mt-1">Jon 처리 메일은 이미 발송됐습니다. 아래 버튼은 Jon에게 다시 보내지 않고 인보이스만 재전송합니다.</div>
+                </div>
+              )}
+              {deliveryUnknown && (
+                <div className="mx-4 mb-3 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-900">
+                  <div className="font-bold">Gmail 보낸편지함 확인 필요</div>
+                  <div className="mt-1">발송 결과가 불확실합니다. 보낸편지함에서 실제 발송 여부를 확인하기 전에는 자동 재시도하지 마세요.</div>
+                </div>
+              )}
               <div className="p-3 border-t bg-slate-50 rounded-b-xl flex items-center gap-2">
-                <Button size="sm" onClick={() => sendToJon(emailPreview)} disabled={sending} className="bg-blue-600 hover:bg-blue-700 text-xs">
-                  {sending ? "발송 중..." : "📧 발송하기"}
+                <Button
+                  size="sm"
+                  onClick={() => invoiceRetryOnly ? retryInvoiceOnly(emailPreview) : sendToJon(emailPreview)}
+                  disabled={sending || deliveryComplete || deliveryUnknown}
+                  className={`${invoiceRetryOnly ? "bg-amber-600 hover:bg-amber-700" : "bg-blue-600 hover:bg-blue-700"} text-xs`}
+                >
+                  {sending
+                    ? "발송 중..."
+                    : deliveryUnknown
+                      ? "⛔ 보낸편지함 확인 필요"
+                    : deliveryComplete
+                      ? "✓ 발송 완료"
+                      : invoiceRetryOnly
+                        ? "↻ Cailie 인보이스만 재전송"
+                        : "📧 발송하기"}
                 </Button>
-                <Button size="sm" variant="outline" onClick={() => openGmail(emailPreview)} className="text-xs">
-                  Gmail에서 열기
-                </Button>
+                {!emailPreview.processingEmailSentAt && !emailPreview.processingEmailSendStartedAt && (
+                  <Button size="sm" variant="outline" onClick={() => openGmail(emailPreview)} className="text-xs">
+                    Gmail에서 열기
+                  </Button>
+                )}
                 <Button size="sm" variant="outline" onClick={() => copyEmail(emailPreview)} className="text-xs">
                   복사
                 </Button>
                 <span className="text-[10px] text-slate-400 ml-auto">
-                  발송 후 자동으로 &quot;요청 완료&quot;로 변경됩니다
+                  {invoiceRetryOnly
+                    ? "Jon 중복 발송 차단"
+                    : deliveryUnknown
+                      ? "자동 재시도 금지"
+                    : deliveryComplete
+                      ? "본사 메일 발송 완료"
+                      : "발송 후 자동으로 요청 완료로 변경"}
                 </span>
               </div>
             </div>
@@ -887,6 +1057,12 @@ function AccountsPageContent() {
         const selectedRequests = ids
           .map((id) => requests.find((r) => r.id === id))
           .filter((r): r is AccountRequest => !!r);
+        const invoiceRetryOnly = selectedRequests.length > 0 && selectedRequests.every(needsInvoiceRetry);
+        const deliveryUnknown = selectedRequests.some(needsDeliveryReview);
+        const hasPreviouslySent = selectedRequests.some(
+          (request) => getAccountEmailDeliveryState(request) !== "ready",
+        );
+        const mixedDeliveryState = hasPreviouslySent && !invoiceRetryOnly && !deliveryUnknown;
         const totalEmails = selectedRequests.reduce((s, r) => s + countEmails(r.emails), 0);
         // 제목/본문/CC 판정은 전부 SSOT(buildBatchEmail) — 서버 발송과 같은 함수라 미리보기가 실제와 일치한다.
         // 실제 발송에서 confirmLine 자리에 들어갈 confirm 링크만 미리보기용 안내 문구로 대체한다.
@@ -901,7 +1077,11 @@ function AccountsPageContent() {
           };
         });
         const { subject, body: previewBody } = buildBatchEmail(items, totalEmails);
-        const invoiceRequests = selectedRequests.filter((r) => r.needsInvoice ?? defaultNeedsInvoice(r.type));
+        const invoiceRequests = selectedRequests.filter((request) => (
+          invoiceRetryOnly
+            ? needsInvoiceRetry(request)
+            : request.needsInvoice ?? defaultNeedsInvoice(request.type)
+        ));
         const invPreview = invoiceRequests.length > 0
           ? buildInvoiceEmail(invoiceRequests.map((r) => ({
               requestId: r.id, schoolName: r.schoolName, schoolNameEn: r.schoolNameEn,
@@ -913,12 +1093,20 @@ function AccountsPageContent() {
             <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
               <div className="p-4 border-b bg-slate-50 rounded-t-xl">
                 <div className="flex items-center justify-between mb-2">
-                  <h3 className="font-bold text-sm">묶음 발송 — {ids.length}건</h3>
+                  <h3 className="font-bold text-sm">
+                    {invoiceRetryOnly ? "Cailie 인보이스 재전송" : "묶음 발송"} — {ids.length}건
+                  </h3>
                   <button onClick={() => setBatchPreviewOpen(false)} className="text-slate-400 hover:text-slate-600">✕</button>
                 </div>
                 <div className="text-xs text-slate-500 space-y-0.5">
-                  <div><b>To:</b> {HQ_TO} <span className="text-slate-400">— 처리 요청</span></div>
-                  <div><b>Subject:</b> {subject}</div>
+                  {invoiceRetryOnly ? (
+                    <div className="font-semibold text-amber-700">Jon 처리 메일은 다시 보내지 않습니다.</div>
+                  ) : (
+                    <>
+                      <div><b>To:</b> {HQ_TO} <span className="text-slate-400">— 처리 요청</span></div>
+                      <div><b>Subject:</b> {subject}</div>
+                    </>
+                  )}
                   {invPreview && (
                     <div className="text-slate-400 pt-0.5">
                       인보이스 {invoiceRequests.length}건은 {HQ_INVOICE_TO} 로 별도 발송 (CC: {HQ_TO}) — 아래 참조
@@ -926,9 +1114,11 @@ function AccountsPageContent() {
                   )}
                 </div>
               </div>
-              <div className="p-4">
-                <pre className="text-xs text-slate-800 whitespace-pre-wrap font-mono leading-relaxed bg-slate-50 rounded-lg p-3 max-h-[50vh] overflow-y-auto">{previewBody}</pre>
-              </div>
+              {!invoiceRetryOnly && (
+                <div className="p-4">
+                  <pre className="text-xs text-slate-800 whitespace-pre-wrap font-mono leading-relaxed bg-slate-50 rounded-lg p-3 max-h-[50vh] overflow-y-auto">{previewBody}</pre>
+                </div>
+              )}
               {invPreview && (
                 <>
                   <div className="px-4 pb-1 pt-2 border-t">
@@ -942,15 +1132,43 @@ function AccountsPageContent() {
                   </div>
                 </>
               )}
+              {mixedDeliveryState && (
+                <div className="mx-4 mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  이미 Jon에게 발송된 건과 신규 건이 섞여 있습니다. 인보이스 재시도 건만 따로 선택해 주세요.
+                </div>
+              )}
+              {deliveryUnknown && (
+                <div className="mx-4 mb-3 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-900">
+                  <div className="font-bold">Gmail 보낸편지함 확인 필요</div>
+                  <div className="mt-1">선택한 요청 중 발송 결과가 불확실한 건이 있습니다. 실제 발송 여부를 확인하기 전 자동 재시도는 금지됩니다.</div>
+                </div>
+              )}
               <div className="p-3 border-t bg-slate-50 rounded-b-xl flex items-center gap-2">
-                <Button size="sm" onClick={sendBatch} disabled={sending} className="bg-blue-600 hover:bg-blue-700 text-xs">
-                  {sending ? "발송 중..." : `📧 ${ids.length}건 발송`}
+                <Button
+                  size="sm"
+                  onClick={sendBatch}
+                  disabled={sending || mixedDeliveryState || deliveryUnknown}
+                  className={`${invoiceRetryOnly ? "bg-amber-600 hover:bg-amber-700" : "bg-blue-600 hover:bg-blue-700"} text-xs`}
+                >
+                  {sending
+                    ? "발송 중..."
+                    : deliveryUnknown
+                      ? "⛔ 보낸편지함 확인 필요"
+                    : mixedDeliveryState
+                      ? "선택을 나눠 주세요"
+                      : invoiceRetryOnly
+                        ? `↻ 인보이스 ${ids.length}건만 재전송`
+                        : `📧 ${ids.length}건 발송`}
                 </Button>
                 <Button size="sm" variant="outline" onClick={() => setBatchPreviewOpen(false)} className="text-xs">
                   취소
                 </Button>
                 <span className="text-[10px] text-slate-400 ml-auto">
-                  발송 시 모두 &quot;요청 완료&quot;로 변경 + 각 요청별 confirm 링크 생성
+                  {invoiceRetryOnly
+                    ? "Jon 중복 발송 차단"
+                    : deliveryUnknown
+                      ? "자동 재시도 금지"
+                    : "발송 시 모두 요청 완료로 변경 + confirm 링크 생성"}
                 </span>
               </div>
             </div>
