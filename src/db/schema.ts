@@ -83,13 +83,32 @@ export const accountRequests = pgTable("account_requests", {
   paymentLink: text("payment_link"),
   paymentDate: date("payment_date"), // 'YYYY-MM-DD' 문자열로 직렬화
   paymentMethod: text("payment_method"),
+  // Gmail 메시지 단위 선점키. thread는 인보이스와 영수증이 같을 수 있으므로 고유하지 않다.
+  invoiceGmailMessageId: text("invoice_gmail_message_id"),
+  invoiceGmailThreadId: text("invoice_gmail_thread_id"),
+  receiptGmailMessageId: text("receipt_gmail_message_id"),
+  receiptGmailThreadId: text("receipt_gmail_thread_id"),
   confirmToken: text("confirm_token").unique(),
   confirmedAt: timestamp("confirmed_at"),
+  // market 주문 수신 추적. 기존 수동/공개 요청은 모두 null이며 market API 수신 건만 채운다.
+  externalSource: text("external_source"),
+  marketRequestId: text("market_request_id"),
+  marketOrderId: text("market_order_id"),
+  orderNumber: text("order_number"),
+  idempotencyKey: text("idempotency_key"),
+  externalPayloadHash: text("external_payload_hash"),
+  draftOnly: boolean("draft_only").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => [
   index("account_requests_status_created_at_idx").on(table.status, table.createdAt),
   index("account_requests_created_at_idx").on(table.createdAt),
+  uniqueIndex("account_requests_invoice_gmail_message_id_unique_idx").on(table.invoiceGmailMessageId),
+  uniqueIndex("account_requests_receipt_gmail_message_id_unique_idx").on(table.receiptGmailMessageId),
+  uniqueIndex("account_requests_idempotency_key_unique_idx").on(table.idempotencyKey),
+  uniqueIndex("account_requests_external_request_unique_idx").on(table.externalSource, table.marketRequestId),
+  index("account_requests_market_order_id_idx").on(table.marketOrderId),
+  index("account_requests_order_number_idx").on(table.orderNumber),
 ]);
 
 export const upgradeBatches = pgTable("upgrade_batches", {

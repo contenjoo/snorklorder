@@ -2,12 +2,94 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { accountRequests } from "@/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { and, desc, eq, or } from "drizzle-orm";
 import { checkAuth } from "@/lib/auth";
 import { checkRateLimit, createRateLimitResponse, isValidEmail, normalizeText } from "@/lib/security";
 import { sendAccountUpgradeCompletion } from "@/lib/email";
 // 인보이스 필요 여부 기본값은 SSOT 한 곳에서만 정의한다 (미리보기/발송/저장이 갈라지지 않도록).
 import { defaultNeedsInvoice } from "@/lib/account-email-template";
+import {
+  MARKET_DRAFT_DELIVERY_MODE,
+  classifyMarketReplay,
+  containsMarketIdentity,
+  hashMarketPayload,
+  validateLegacyMarketDraft,
+  validateMarketEnvelope,
+  validateMarketQuantity,
+  type MarketEnvelope,
+} from "@/lib/market-account-request";
+
+type ExistingMarketRequest = {
+  id: number;
+  status: string;
+  externalSource: string | null;
+  marketRequestId: string | null;
+  idempotencyKey: string | null;
+  externalPayloadHash: string | null;
+};
+
+function normalizeOptionalText(value: unknown, maxLength: number): string | null {
+  return typeof value === "string" && value.trim() ? normalizeText(value, maxLength) : null;
+}
+
+async function findExistingMarketRequest(envelope: MarketEnvelope): Promise<ExistingMarketRequest | null> {
+  const rows = await db
+    .select({
+      id: accountRequests.id,
+      status: accountRequests.status,
+      externalSource: accountRequests.externalSource,
+      marketRequestId: accountRequests.marketRequestId,
+      idempotencyKey: accountRequests.idempotencyKey,
+      externalPayloadHash: accountRequests.externalPayloadHash,
+    })
+    .from(accountRequests)
+    .where(
+      or(
+        eq(accountRequests.idempotencyKey, envelope.idempotencyKey),
+        and(
+          eq(accountRequests.externalSource, envelope.externalSource),
+          eq(accountRequests.marketRequestId, envelope.marketRequestId),
+        ),
+      ),
+    )
+    .limit(2);
+
+  return rows.find((row) => row.idempotencyKey === envelope.idempotencyKey)
+    ?? rows.find(
+      (row) => row.externalSource === envelope.externalSource
+        && row.marketRequestId === envelope.marketRequestId,
+    )
+    ?? null;
+}
+
+function marketReplayResponse(
+  existing: ExistingMarketRequest,
+  envelope: MarketEnvelope,
+  payloadHash: string,
+) {
+  const sameIdentity = existing.externalSource === envelope.externalSource
+    && existing.marketRequestId === envelope.marketRequestId
+    && existing.idempotencyKey === envelope.idempotencyKey;
+  const replay = sameIdentity
+    ? classifyMarketReplay(existing.externalPayloadHash, payloadHash)
+    : "conflict";
+
+  if (replay === "conflict") {
+    return NextResponse.json(
+      { error: "Idempotency key or market request identity conflicts with an existing request" },
+      { status: 409 },
+    );
+  }
+
+  return NextResponse.json({
+    success: true,
+    requestId: existing.id,
+    status: existing.status,
+    created: false,
+    duplicate: true,
+    deliveryMode: MARKET_DRAFT_DELIVERY_MODE,
+  });
+}
 
 export async function GET() {
   if (!(await checkAuth())) {
@@ -26,12 +108,18 @@ export async function POST(req: NextRequest) {
   const { action, id, ...data } = body;
 
   if (action === "create") {
-    // API 키 인증 (외부 서비스 연동용)
+    // API 키 인증은 market 전용 수신 계약이다. 잘못된 키를 공개 폼으로 강등하지 않는다.
     const apiKey = req.headers.get("x-api-key");
     const validApiKey = process.env.INTEGRATION_API_KEY;
     const isApiKeyAuth = !!(validApiKey && apiKey && apiKey === validApiKey);
+    if (apiKey && !isApiKeyAuth) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
     const isAuthenticated = isApiKeyAuth || (await checkAuth());
+    if (!isApiKeyAuth && containsMarketIdentity(data)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
     if (!isAuthenticated) {
       const rateLimit = checkRateLimit({
@@ -50,7 +138,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "schoolName and emails are required" }, { status: 400 });
     }
 
-    // M8: For API-key callers, whitelist and validate every writable field to prevent privilege escalation
+    let marketEnvelope: MarketEnvelope | null = null;
+
+    // API-key caller는 market의 멱등 초안 생성 계약만 사용할 수 있다.
     if (isApiKeyAuth) {
       const VALID_APPLICANT_TYPES = ["school", "individual"] as const;
       const VALID_TYPES = ["upgrade", "email_change", "type_change", "extension"] as const;
@@ -70,17 +160,30 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: `Invalid channel: must be one of ${VALID_CHANNELS.join(", ")}` }, { status: 400 });
       }
       if (data.quantity !== undefined) {
-        const q = Number(data.quantity);
-        if (!Number.isInteger(q) || q < 1 || q > 50) {
-          return NextResponse.json({ error: "Invalid quantity: must be a positive integer between 1 and 50" }, { status: 400 });
+        const quantityResult = validateMarketQuantity(data.quantity);
+        if (!quantityResult.ok) {
+          return NextResponse.json({ error: quantityResult.error }, { status: 400 });
         }
-        data.quantity = q;
+        data.quantity = quantityResult.value;
       }
       if (data.needsInvoice !== undefined && typeof data.needsInvoice !== "boolean") {
         return NextResponse.json({ error: "Invalid needsInvoice: must be a boolean" }, { status: 400 });
       }
-      // status is always forced to "draft" for API-key callers regardless of input
-      data.status = "draft";
+
+      if (containsMarketIdentity(data)) {
+        const envelopeResult = validateMarketEnvelope(data);
+        if (!envelopeResult.ok) {
+          return NextResponse.json({ error: envelopeResult.error }, { status: 400 });
+        }
+        marketEnvelope = envelopeResult.value;
+      } else {
+        const legacyResult = validateLegacyMarketDraft(data);
+        if (!legacyResult.ok) {
+          return NextResponse.json({ error: legacyResult.error }, { status: 400 });
+        }
+        // TODO: market 배포가 strict envelope로 전환된 뒤 이 호환 경로와 로그를 제거한다.
+        console.warn("[market-account-request] legacy draft-only request accepted without idempotency metadata");
+      }
     }
 
     const emailList = String(data.emails)
@@ -98,8 +201,12 @@ export async function POST(req: NextRequest) {
     }
 
     const normalizedSchoolName = normalizeText(String(data.schoolName), 120);
+    const normalizedSchoolNameEn = normalizeOptionalText(data.schoolNameEn, 160);
     // H2: notes is admin-only context stored in unbounded Postgres text; raise cap from 500 to 4000
     const normalizedNotes = typeof data.notes === "string" ? normalizeText(data.notes, 4000) : null;
+    const normalizedOldEmail = isAuthenticated ? normalizeOptionalText(data.oldEmail, 254) : null;
+    const normalizedFromType = isAuthenticated ? normalizeOptionalText(data.fromType, 80) : null;
+    const normalizedExtensionDate = isAuthenticated ? normalizeOptionalText(data.extensionDate, 120) : null;
 
     if (!normalizedSchoolName) {
       return NextResponse.json({ error: "schoolName is required" }, { status: 400 });
@@ -117,28 +224,101 @@ export async function POST(req: NextRequest) {
         ? data.needsInvoice
         : defaultNeedsInvoice(insertedType);
 
+    const requestValues = {
+      channel: insertedChannel,
+      applicantType: insertedApplicantType,
+      type: insertedType,
+      schoolName: normalizedSchoolName,
+      schoolNameEn: normalizedSchoolNameEn,
+      emails: uniqueValidEmails.join(", "),
+      accountType: insertedAccountType,
+      quantity: insertedQuantity,
+      oldEmail: normalizedOldEmail,
+      fromType: normalizedFromType,
+      extensionDate: normalizedExtensionDate,
+      notes: normalizedNotes,
+      needsInvoice: insertedNeedsInvoice,
+      status: "draft",
+    };
+
+    if (marketEnvelope) {
+      const payloadHash = hashMarketPayload({
+        ...requestValues,
+        emails: [...uniqueValidEmails].sort(),
+        externalSource: marketEnvelope.externalSource,
+        marketRequestId: marketEnvelope.marketRequestId,
+        marketOrderId: marketEnvelope.marketOrderId,
+        orderNumber: marketEnvelope.orderNumber,
+        draftOnly: true,
+      });
+      const existing = await findExistingMarketRequest(marketEnvelope);
+      if (existing) return marketReplayResponse(existing, marketEnvelope, payloadHash);
+
+      try {
+        const [item] = await db
+          .insert(accountRequests)
+          .values({
+            ...requestValues,
+            externalSource: marketEnvelope.externalSource,
+            marketRequestId: marketEnvelope.marketRequestId,
+            marketOrderId: marketEnvelope.marketOrderId,
+            orderNumber: marketEnvelope.orderNumber,
+            idempotencyKey: marketEnvelope.idempotencyKey,
+            externalPayloadHash: payloadHash,
+            draftOnly: true,
+          })
+          .returning({ id: accountRequests.id, status: accountRequests.status });
+
+        if (!item) {
+          return NextResponse.json({ error: "Failed to create account request" }, { status: 500 });
+        }
+
+        // 외부 주문 수신은 저장만 한다. Jon 메일은 기존 관리자 UI의 수동 발송만 허용한다.
+        return NextResponse.json({
+          success: true,
+          requestId: item.id,
+          status: item.status,
+          created: true,
+          duplicate: false,
+          deliveryMode: MARKET_DRAFT_DELIVERY_MODE,
+        });
+      } catch {
+        // 동시 재시도에서 unique 제약이 먼저 이긴 경우 동일 요청을 다시 찾아 멱등 응답한다.
+        try {
+          const raced = await findExistingMarketRequest(marketEnvelope);
+          if (raced) return marketReplayResponse(raced, marketEnvelope, payloadHash);
+        } catch {
+          // 개인정보나 SQL 오류 원문을 로그에 남기지 않고 일반 오류로 종료한다.
+        }
+        return NextResponse.json({ error: "Failed to create account request" }, { status: 500 });
+      }
+    }
+
     const [item] = await db
       .insert(accountRequests)
-      .values({
-        channel: insertedChannel,
-        applicantType: insertedApplicantType,
-        type: insertedType,
-        schoolName: normalizedSchoolName,
-        schoolNameEn: data.schoolNameEn || null,
-        emails: uniqueValidEmails.join(", "),
-        accountType: insertedAccountType,
-        quantity: insertedQuantity,
-        oldEmail: isAuthenticated ? data.oldEmail || null : null,
-        fromType: isAuthenticated ? data.fromType || null : null,
-        extensionDate: isAuthenticated ? data.extensionDate || null : null,
-        notes: normalizedNotes,
-        needsInvoice: insertedNeedsInvoice,
-        status: "draft",
-      })
+      .values(isApiKeyAuth
+        ? {
+          ...requestValues,
+          externalSource: "market",
+          draftOnly: true,
+        }
+        : requestValues)
       .returning();
 
     // 자동 Jon 발송은 사용자 정책상 비활성. 정산 화면에서 수동으로 검토 후 발송.
-    return NextResponse.json({ success: true, requestId: item.id });
+    return NextResponse.json({
+      success: true,
+      requestId: item.id,
+      ...(isApiKeyAuth
+        ? {
+          status: item.status,
+          created: true,
+          duplicate: false,
+          legacy: true,
+          deliveryMode: MARKET_DRAFT_DELIVERY_MODE,
+        }
+        : {}),
+    });
   }
 
   if (!(await checkAuth())) {

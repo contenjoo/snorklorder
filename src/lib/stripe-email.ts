@@ -353,6 +353,8 @@ export interface MatchableRequest {
   invoiceNumber: string | null;
   invoiceAmount: string | null;
   paymentDate: string | null;
+  invoiceGmailMessageId: string | null;
+  receiptGmailMessageId: string | null;
 }
 
 export type MatchResult =
