@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isPartnerRole } from "@/lib/partner-roles";
+import {
+  ADMIN_SESSION_COOKIE_NAME,
+  PARTNER_SESSION_COOKIE_NAME,
+  verifyAdminSessionToken,
+  verifyPartnerSessionToken,
+} from "@/lib/signed-session";
 
 function isPublicApiRequest(request: NextRequest, pathname: string) {
   if (pathname.startsWith("/api/auth")) return true;
@@ -26,30 +31,34 @@ function isPublicApiRequest(request: NextRequest, pathname: string) {
   return false;
 }
 
-export function proxy(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Protect /admin routes
   if (pathname.startsWith("/admin")) {
-    const auth = request.cookies.get("snorkl-admin-auth");
-    if (auth?.value !== "authenticated") {
+    const auth = request.cookies.get(ADMIN_SESSION_COOKIE_NAME);
+    if (!(await verifyAdminSessionToken(auth?.value))) {
       return NextResponse.redirect(new URL("/login", request.url));
     }
   }
 
   // Protect /partner routes
   if (pathname.startsWith("/partner") && !pathname.startsWith("/partner/login")) {
-    const auth = request.cookies.get("snorkl-partner-auth");
-    if (!isPartnerRole(auth?.value)) {
+    const auth = request.cookies.get(PARTNER_SESSION_COOKIE_NAME);
+    if (!(await verifyPartnerSessionToken(auth?.value))) {
       return NextResponse.redirect(new URL("/partner/login", request.url));
     }
   }
 
   // Protect /api/partner routes (except auth)
   if (pathname.startsWith("/api/partner") && !pathname.startsWith("/api/partner/auth")) {
-    const partnerAuth = request.cookies.get("snorkl-partner-auth");
-    const adminAuth = request.cookies.get("snorkl-admin-auth");
-    if (!isPartnerRole(partnerAuth?.value) && adminAuth?.value !== "authenticated") {
+    const partnerAuth = request.cookies.get(PARTNER_SESSION_COOKIE_NAME);
+    const adminAuth = request.cookies.get(ADMIN_SESSION_COOKIE_NAME);
+    const [partnerRole, adminAuthenticated] = await Promise.all([
+      verifyPartnerSessionToken(partnerAuth?.value),
+      verifyAdminSessionToken(adminAuth?.value),
+    ]);
+    if (!partnerRole && !adminAuthenticated) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     return NextResponse.next();
@@ -57,8 +66,8 @@ export function proxy(request: NextRequest) {
 
   // Protect other API routes
   if (pathname.startsWith("/api/") && !isPublicApiRequest(request, pathname)) {
-    const auth = request.cookies.get("snorkl-admin-auth");
-    if (auth?.value !== "authenticated") {
+    const auth = request.cookies.get(ADMIN_SESSION_COOKIE_NAME);
+    if (!(await verifyAdminSessionToken(auth?.value))) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
   }

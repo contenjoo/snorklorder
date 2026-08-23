@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { schools, teachers, accountRequests, domainRequests } from "@/db/schema";
 import { desc, inArray } from "drizzle-orm";
 import { canConfirmUpgrades } from "@/lib/partner-roles";
+import { PARTNER_SESSION_COOKIE_NAME, verifyPartnerSessionToken } from "@/lib/signed-session";
 
 // GET: partner dashboard data
 export async function GET() {
@@ -91,8 +92,9 @@ export async function GET() {
 // PATCH: Jon/Cailie marks teachers as upgraded
 export async function PATCH(req: NextRequest) {
   // Check role — only Jon or Cailie can upgrade
-  const cookie = req.cookies.get("snorkl-partner-auth");
-  if (!canConfirmUpgrades(cookie?.value)) {
+  const cookie = req.cookies.get(PARTNER_SESSION_COOKIE_NAME);
+  const role = await verifyPartnerSessionToken(cookie?.value);
+  if (!canConfirmUpgrades(role)) {
     return NextResponse.json({ error: "Only Jon or Cailie can mark upgrades" }, { status: 403 });
   }
 

@@ -25,6 +25,10 @@ export function parseAccountEmailSendMode(value: unknown): AccountEmailSendMode 
     : null;
 }
 
+export function isValidAccountEmailRequestId(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0;
+}
+
 /** Jon 발송 성공을 경계로 일반 발송과 인보이스 전용 재시도를 분리한다. */
 export function getAccountEmailDeliveryState(
   record: AccountEmailDeliveryRecord,

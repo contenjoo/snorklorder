@@ -9,6 +9,7 @@ import { withHqGreeting, defaultNeedsInvoice, buildInvoiceEmail } from "@/lib/ac
 import {
   getAccountEmailDeliveryState,
   invoiceDeliveryFailureMessage,
+  isValidAccountEmailRequestId,
   parseAccountEmailSendMode,
 } from "@/lib/account-email-delivery";
 
@@ -43,11 +44,11 @@ export async function POST(req: NextRequest) {
     if (!mode) {
       return NextResponse.json({ error: "mode must be send_all or invoice_only" }, { status: 400 });
     }
+    if (!isValidAccountEmailRequestId(requestId)) {
+      return NextResponse.json({ error: "requestId must be a positive integer" }, { status: 400 });
+    }
     if (mode === "send_all" && (!subject || !body)) {
       return NextResponse.json({ error: "subject and body are required" }, { status: 400 });
-    }
-    if (mode === "invoice_only" && !requestId) {
-      return NextResponse.json({ error: "requestId is required for invoice-only retry" }, { status: 400 });
     }
 
     const transporter = getTransporter();

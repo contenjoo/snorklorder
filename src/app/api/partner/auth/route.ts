@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyPartnerPassword, PARTNER_COOKIE_NAME } from "@/lib/auth";
 import { isPartnerRole } from "@/lib/partner-roles";
 import { checkRateLimit, createRateLimitResponse } from "@/lib/security";
+import {
+  PARTNER_SESSION_MAX_AGE,
+  createPartnerSessionToken,
+  verifyPartnerSessionToken,
+} from "@/lib/signed-session";
 
 export async function POST(req: NextRequest) {
   const rateLimit = checkRateLimit({
@@ -22,16 +27,21 @@ export async function POST(req: NextRequest) {
   }
 
   const role = verifyPartnerPassword(password);
-  if (!role) {
+  if (!isPartnerRole(role)) {
     return NextResponse.json({ error: "Wrong password" }, { status: 401 });
   }
 
+  const sessionToken = await createPartnerSessionToken(role);
+  if (!sessionToken) {
+    return NextResponse.json({ error: "Partner session is not configured" }, { status: 500 });
+  }
+
   const response = NextResponse.json({ success: true, role });
-  response.cookies.set(PARTNER_COOKIE_NAME, role, {
+  response.cookies.set(PARTNER_COOKIE_NAME, sessionToken, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
-    maxAge: 60 * 60 * 24 * 90,
+    maxAge: PARTNER_SESSION_MAX_AGE,
     path: "/",
   });
 
@@ -41,8 +51,8 @@ export async function POST(req: NextRequest) {
 // GET: return current role
 export async function GET(req: NextRequest) {
   const cookie = req.cookies.get(PARTNER_COOKIE_NAME);
-  const role = cookie?.value;
-  if (isPartnerRole(role)) {
+  const role = await verifyPartnerSessionToken(cookie?.value);
+  if (role) {
     return NextResponse.json({ role });
   }
   return NextResponse.json({ role: null }, { status: 401 });

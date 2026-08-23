@@ -1,7 +1,12 @@
 import { cookies } from "next/headers";
+import {
+  ADMIN_SESSION_COOKIE_NAME,
+  PARTNER_SESSION_COOKIE_NAME,
+  verifyAdminSessionToken,
+} from "@/lib/signed-session";
 
-const COOKIE_NAME = "snorkl-admin-auth";
-const PARTNER_COOKIE_NAME = "snorkl-partner-auth"; // value = "jon" | "jeff"
+const COOKIE_NAME = ADMIN_SESSION_COOKIE_NAME;
+const PARTNER_COOKIE_NAME = PARTNER_SESSION_COOKIE_NAME;
 
 function getAdminPassword() {
   const password = process.env.ADMIN_PASSWORD?.trim();
@@ -37,7 +42,7 @@ export function verifyPartnerPassword(password: string): string | null {
 
 export async function checkAuth(): Promise<boolean> {
   const cookieStore = await cookies();
-  return cookieStore.get(COOKIE_NAME)?.value === "authenticated";
+  return verifyAdminSessionToken(cookieStore.get(COOKIE_NAME)?.value);
 }
 
 export function isAdminPasswordConfigured(): boolean {

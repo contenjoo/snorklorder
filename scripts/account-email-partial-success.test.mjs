@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   getAccountEmailDeliveryState,
   invoiceDeliveryFailureMessage,
+  isValidAccountEmailRequestId,
   parseAccountEmailSendMode,
 } from "../src/lib/account-email-delivery.ts";
 
@@ -70,6 +71,10 @@ test("Jon과 Cailie 발송 상태에 unknown claim 경계를 포함한다", () =
   assert.equal(parseAccountEmailSendMode("invoice_only"), "invoice_only");
   assert.equal(parseAccountEmailSendMode("invalid"), null);
   assert.equal(invoiceDeliveryFailureMessage(), "Cailie invoice email delivery failed");
+  for (const invalid of [undefined, null, 0, -1, 1.5, "1"]) {
+    assert.equal(isValidAccountEmailRequestId(invalid), false);
+  }
+  assert.equal(isValidAccountEmailRequestId(1), true);
 });
 
 test("0016은 부분 성공 상태를 nullable additive 필드로 보존한다", async () => {
@@ -102,8 +107,13 @@ test("단건 API는 Jon 성공을 먼저 기록하고 인보이스 실패를 부
   );
   const processingWrite = route.indexOf("processingEmailSentAt: sentAt");
   const invoiceSend = route.indexOf("to: HQ_INVOICE_TO");
+  const requestIdGuard = route.indexOf("isValidAccountEmailRequestId(requestId)");
+  const subjectGuard = route.indexOf('mode === "send_all" && (!subject || !body)');
+  const transporterLookup = route.indexOf("const transporter = getTransporter()");
 
   assert.ok(processingWrite > 0 && invoiceSend > processingWrite);
+  assert.ok(requestIdGuard > 0 && requestIdGuard < subjectGuard && requestIdGuard < transporterLookup);
+  assert.match(route, /requestId must be a positive integer/);
   assert.match(route, /mode === "send_all" && deliveryState !== "ready"/);
   assert.match(route, /mode === "invoice_only" && deliveryState !== "invoice_retry"/);
   assert.match(route, /deliveryState === "legacy_complete"/);
