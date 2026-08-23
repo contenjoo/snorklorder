@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { checkAuth } from "@/lib/auth";
-import { sendDomainPaidRequest } from "@/lib/email";
+import { sendDomainPaidRequest, sendDomainInvoiceRequest } from "@/lib/email";
 import { db } from "@/db";
 import { domainRequests } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 같은 학교+도메인의 pending 요청이 이미 있으면 그 토큰 재사용 (멱등성)
-    let [existing] = await db
+    const [existing] = await db
       .select({ confirmToken: domainRequests.confirmToken })
       .from(domainRequests)
       .where(and(eq(domainRequests.domain, cleanDomain), eq(domainRequests.schoolName, schoolName.trim()), eq(domainRequests.status, "pending")));
@@ -46,6 +46,8 @@ export async function POST(req: NextRequest) {
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "https://snorkl-teacher-reg.vercel.app";
     const confirmLink = `${baseUrl}/domain-confirm/${token}`;
 
+    // 처리 요청(Jon)과 인보이스 요청(Cailie, Jon CC)은 별도 메일로 나간다.
+    // 인보이스 메일 실패가 도메인 활성화 요청 자체를 막지는 않도록 결과를 따로 담는다.
     const result = await sendDomainPaidRequest({
       schoolName: schoolName.trim(),
       schoolNameEn: schoolNameEn?.trim() || null,
@@ -54,7 +56,12 @@ export async function POST(req: NextRequest) {
       note: note?.trim() || null,
       confirmLink,
     });
-    return NextResponse.json({ ...result, confirmLink });
+    const invoiceResult = await sendDomainInvoiceRequest({
+      schoolName: schoolName.trim(),
+      schoolNameEn: schoolNameEn?.trim() || null,
+      domain: cleanDomain,
+    });
+    return NextResponse.json({ ...result, invoiceSent: invoiceResult.success, confirmLink });
   } catch (err) {
     console.error("[/api/admin/request-paid-domain] failed:", err);
     return NextResponse.json({ success: false, error: String(err) }, { status: 500 });

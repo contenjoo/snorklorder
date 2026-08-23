@@ -4,8 +4,8 @@ import { randomBytes } from "crypto";
 import { db } from "@/db";
 import { accountRequests } from "@/db/schema";
 import { inArray, eq } from "drizzle-orm";
-import { getTransporter, logEmail, formatLogRecipients, BASE_URL, HQ_EMAIL, HQ_INVOICE_CC } from "@/lib/email";
-import { buildBatchEmail, defaultNeedsInvoice, type BatchEmailItem } from "@/lib/account-email-template";
+import { getTransporter, logEmail, formatLogRecipients, BASE_URL, HQ_EMAIL, HQ_INVOICE_TO } from "@/lib/email";
+import { buildBatchEmail, buildInvoiceEmail, defaultNeedsInvoice, type BatchEmailItem, type InvoiceEmailItem } from "@/lib/account-email-template";
 import { parseEmailList } from "@/lib/security";
 
 interface Section {
@@ -13,9 +13,10 @@ interface Section {
   body: string;
 }
 
-// 여러 account_requests를 하나의 메일로 묶어 Jon에게 발송.
-// 인보이스가 필요한 건이 하나라도 있으면 정산 담당(Cailie)을 CC 하고,
-// 본문을 ① 인보이스 필요 / ② 인보이스 불필요 두 섹션으로 나눠 Cailie 가 볼 범위를 명확히 한다.
+// 여러 account_requests를 메일로 묶어 발송한다. 수신자별로 두 통이 나간다:
+//   1) 처리 메일 → Jon (전체 건, 교사 이메일 목록·confirm 링크 포함)
+//   2) 인보이스 메일 → Cailie (CC: Jon). 인보이스 필요 건만, 청구 요약만.
+// 두 메일은 요청번호(#id)로 대조한다.
 export async function POST(req: NextRequest) {
   try {
     const { requestIds, sections } = (await req.json()) as { requestIds?: number[]; sections?: Section[] };
@@ -39,6 +40,11 @@ export async function POST(req: NextRequest) {
         status: accountRequests.status,
         type: accountRequests.type,
         needsInvoice: accountRequests.needsInvoice,
+        schoolName: accountRequests.schoolName,
+        schoolNameEn: accountRequests.schoolNameEn,
+        accountType: accountRequests.accountType,
+        quantity: accountRequests.quantity,
+        extensionDate: accountRequests.extensionDate,
       })
       .from(accountRequests)
       .where(inArray(accountRequests.id, requestIds));
@@ -76,22 +82,40 @@ export async function POST(req: NextRequest) {
       };
     });
 
-    const { subject, body, needsInvoiceCc } = buildBatchEmail(items, totalEmails);
-    const cc = needsInvoiceCc ? HQ_INVOICE_CC : undefined;
-    const logTo = formatLogRecipients(HQ_EMAIL, cc);
+    const from = process.env.GMAIL_USER || "";
+    const { subject, body } = buildBatchEmail(items, totalEmails);
+    const logTo = formatLogRecipients(HQ_EMAIL);
 
     try {
-      await transporter.sendMail({
-        from: process.env.GMAIL_USER || "",
-        to: HQ_EMAIL,
-        ...(cc ? { cc } : {}),
-        subject,
-        text: body,
-      });
+      await transporter.sendMail({ from, to: HQ_EMAIL, subject, text: body });
       await logEmail({ to: logTo, subject, kind: "account_email", status: "success", relatedType: "account_request" });
     } catch (sendErr) {
       await logEmail({ to: logTo, subject, kind: "account_email", status: "failed", error: String(sendErr), relatedType: "account_request" });
       throw sendErr;
+    }
+
+    // 인보이스 메일 → Cailie (CC: Jon). 인보이스 필요 건만 추린다.
+    // 실패해도 Jon 처리 메일은 이미 나갔으므로 전체를 실패시키지 않고 로그만 남긴다.
+    const invoiceItems: InvoiceEmailItem[] = requestIds
+      .filter((id, i) => items[i].needsInvoice)
+      .map((id) => rows.find((r) => r.id === id))
+      .filter((r): r is NonNullable<typeof r> => Boolean(r))
+      .map((r) => ({
+        requestId: r.id, schoolName: r.schoolName, schoolNameEn: r.schoolNameEn,
+        type: r.type, accountType: r.accountType, quantity: r.quantity, extensionDate: r.extensionDate,
+      }));
+
+    let invoiceSent = false;
+    if (invoiceItems.length > 0) {
+      const inv = buildInvoiceEmail(invoiceItems);
+      const invLogTo = formatLogRecipients(HQ_INVOICE_TO, HQ_EMAIL);
+      try {
+        await transporter.sendMail({ from, to: HQ_INVOICE_TO, cc: HQ_EMAIL, subject: inv.subject, text: inv.body });
+        await logEmail({ to: invLogTo, subject: inv.subject, kind: "account_email", status: "success", relatedType: "account_request" });
+        invoiceSent = true;
+      } catch (invErr) {
+        await logEmail({ to: invLogTo, subject: inv.subject, kind: "account_email", status: "failed", error: String(invErr), relatedType: "account_request" });
+      }
     }
 
     // sent 처리 — 단, 이미 processed/invoiced/paid 로 넘어간 건은 재발송해도 정산 단계가 sent로 되돌아가지 않도록 제외
@@ -103,7 +127,7 @@ export async function POST(req: NextRequest) {
         .where(inArray(accountRequests.id, updatableIds));
     }
 
-    return NextResponse.json({ success: true, count: requestIds.length, totalEmails });
+    return NextResponse.json({ success: true, count: requestIds.length, totalEmails, invoiceSent, invoiceCount: invoiceItems.length });
   } catch (err) {
     console.error("Batch account email error:", err);
     return NextResponse.json(

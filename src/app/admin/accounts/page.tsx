@@ -17,7 +17,8 @@ import { dDayInfo } from "@/lib/ui-format";
 // 미리보기 = 실제 발송. 수신자 규칙과 본문 생성은 전부 이 SSOT 모듈에서만 가져온다.
 import {
   HQ_TO,
-  HQ_INVOICE_CC,
+  HQ_INVOICE_TO,
+  buildInvoiceEmail,
   defaultNeedsInvoice,
   generateAccountEmail,
   buildBatchEmail,
@@ -352,8 +353,8 @@ function AccountsPageContent() {
   // Gmail 열기
   function openGmail(r: AccountRequest) {
     const { subject, body } = generateAccountEmail(r);
-    const cc = r.needsInvoice ? `cc=${encodeURIComponent(HQ_INVOICE_CC)}&` : "";
-    const mailto = `mailto:${HQ_TO}?${cc}subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    // 처리 메일은 Jon 단독 — 인보이스 메일은 앱에서 Cailie 에게 따로 나간다.
+    const mailto = `mailto:${HQ_TO}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     window.open(mailto, "_blank");
   }
 
@@ -833,16 +834,34 @@ function AccountsPageContent() {
                   <button onClick={() => setEmailPreview(null)} className="text-slate-400 hover:text-slate-600">✕</button>
                 </div>
                 <div className="text-xs text-slate-500 space-y-0.5">
-                  <div>
-                    <b>To:</b> {HQ_TO}
-                    {emailPreview.needsInvoice && <span className="text-slate-400"> · CC: {HQ_INVOICE_CC}</span>}
-                  </div>
+                  <div><b>To:</b> {HQ_TO} <span className="text-slate-400">— 처리 요청</span></div>
                   <div><b>Subject:</b> {subject}</div>
                 </div>
               </div>
               <div className="p-4">
                 <pre className="text-sm text-slate-800 whitespace-pre-wrap font-sans leading-relaxed">{body}</pre>
               </div>
+              {emailPreview.needsInvoice && (() => {
+                const inv = buildInvoiceEmail([{
+                  requestId: emailPreview.id, schoolName: emailPreview.schoolName,
+                  schoolNameEn: emailPreview.schoolNameEn, type: emailPreview.type,
+                  accountType: emailPreview.accountType, quantity: emailPreview.quantity,
+                  extensionDate: emailPreview.extensionDate,
+                }]);
+                return (
+                  <>
+                    <div className="p-4 border-y bg-slate-50">
+                      <div className="text-xs text-slate-500 space-y-0.5">
+                        <div><b>To:</b> {HQ_INVOICE_TO} · CC: {HQ_TO} <span className="text-slate-400">— 인보이스 요청 (별도 발송)</span></div>
+                        <div><b>Subject:</b> {inv.subject}</div>
+                      </div>
+                    </div>
+                    <div className="p-4">
+                      <pre className="text-sm text-slate-800 whitespace-pre-wrap font-sans leading-relaxed">{inv.body}</pre>
+                    </div>
+                  </>
+                );
+              })()}
               <div className="p-3 border-t bg-slate-50 rounded-b-xl flex items-center gap-2">
                 <Button size="sm" onClick={() => sendToJon(emailPreview)} disabled={sending} className="bg-blue-600 hover:bg-blue-700 text-xs">
                   {sending ? "발송 중..." : "📧 발송하기"}
@@ -880,7 +899,14 @@ function AccountsPageContent() {
             confirmLine: "(Confirm 링크는 발송 시 자동 생성됩니다)",
           };
         });
-        const { subject, body: previewBody, needsInvoiceCc: batchNeedsInvoice } = buildBatchEmail(items, totalEmails);
+        const { subject, body: previewBody } = buildBatchEmail(items, totalEmails);
+        const invoiceRequests = selectedRequests.filter((r) => r.needsInvoice ?? defaultNeedsInvoice(r.type));
+        const invPreview = invoiceRequests.length > 0
+          ? buildInvoiceEmail(invoiceRequests.map((r) => ({
+              requestId: r.id, schoolName: r.schoolName, schoolNameEn: r.schoolNameEn,
+              type: r.type, accountType: r.accountType, quantity: r.quantity, extensionDate: r.extensionDate,
+            })))
+          : null;
         return (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setBatchPreviewOpen(false)}>
             <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
@@ -890,16 +916,31 @@ function AccountsPageContent() {
                   <button onClick={() => setBatchPreviewOpen(false)} className="text-slate-400 hover:text-slate-600">✕</button>
                 </div>
                 <div className="text-xs text-slate-500 space-y-0.5">
-                  <div>
-                    <b>To:</b> {HQ_TO}
-                    {batchNeedsInvoice && <span className="text-slate-400"> · CC: {HQ_INVOICE_CC}</span>}
-                  </div>
+                  <div><b>To:</b> {HQ_TO} <span className="text-slate-400">— 처리 요청</span></div>
                   <div><b>Subject:</b> {subject}</div>
+                  {invPreview && (
+                    <div className="text-slate-400 pt-0.5">
+                      인보이스 {invoiceRequests.length}건은 {HQ_INVOICE_TO} 로 별도 발송 (CC: {HQ_TO}) — 아래 참조
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="p-4">
                 <pre className="text-xs text-slate-800 whitespace-pre-wrap font-mono leading-relaxed bg-slate-50 rounded-lg p-3 max-h-[50vh] overflow-y-auto">{previewBody}</pre>
               </div>
+              {invPreview && (
+                <>
+                  <div className="px-4 pb-1 pt-2 border-t">
+                    <div className="text-xs text-slate-500 space-y-0.5">
+                      <div><b>To:</b> {HQ_INVOICE_TO} · CC: {HQ_TO} <span className="text-slate-400">— 인보이스 요청 (별도 발송)</span></div>
+                      <div><b>Subject:</b> {invPreview.subject}</div>
+                    </div>
+                  </div>
+                  <div className="p-4 pt-2">
+                    <pre className="text-xs text-slate-800 whitespace-pre-wrap font-mono leading-relaxed bg-slate-50 rounded-lg p-3 max-h-[30vh] overflow-y-auto">{invPreview.body}</pre>
+                  </div>
+                </>
+              )}
               <div className="p-3 border-t bg-slate-50 rounded-b-xl flex items-center gap-2">
                 <Button size="sm" onClick={sendBatch} disabled={sending} className="bg-blue-600 hover:bg-blue-700 text-xs">
                   {sending ? "발송 중..." : `📧 ${ids.length}건 발송`}

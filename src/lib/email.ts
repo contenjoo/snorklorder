@@ -4,9 +4,9 @@ import { emailLogs } from "@/db/schema";
 // 본사 수신자: Jon 이 업그레이드 처리 담당이라 항상 To,
 // 정산 담당 Cailie 는 인보이스가 필요한 건에만 CC (2026-07-30 Jon 요청).
 // 주소 상수의 SSOT 는 클라이언트에서도 import 가능한 account-email-template.ts.
-import { HQ_TO, HQ_INVOICE_CC, hqGreeting } from "@/lib/account-email-template";
+import { HQ_TO, HQ_INVOICE_TO, hqGreeting, invoiceGreeting } from "@/lib/account-email-template";
 export const HQ_EMAIL = HQ_TO;
-export { HQ_INVOICE_CC };
+export { HQ_INVOICE_TO };
 const ADMIN_EMAIL = process.env.GMAIL_USER || "";
 export const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || "https://snorkl-teacher-reg.vercel.app";
 
@@ -265,7 +265,7 @@ export async function sendBatchNotification(
           <p style="margin:4px 0 0;opacity:0.8;font-size:14px">${total} teacher${total !== 1 ? "s" : ""} from ${summaryParts.join(" + ")}</p>
         </div>
         <div style="background:white;padding:24px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px">
-          <p style="margin:0 0 16px;font-size:14px;color:#1f2937">${escapeHtml(hqGreeting(false))}</p>
+          <p style="margin:0 0 16px;font-size:14px;color:#1f2937">${escapeHtml(hqGreeting())}</p>
           ${teamSections}
           ${individualSection}
           ${confirmSection}
@@ -478,15 +478,14 @@ export async function sendDomainPaidRequest(payload: {
          <p style="margin:12px 0 0;color:#888;font-size:11px">Or paste this in your browser:<br>${safe(payload.confirmLink)}</p>
        </div>`
     : "";
-  // 도메인 유료화는 인보이스가 발생하는 경로 → 정산 담당 Cailie 를 항상 CC.
+  // 도메인 활성화 작업은 Jon 담당. 인보이스는 sendDomainInvoiceRequest 로 Cailie 에게 따로 간다.
   return sendAndLog(t, {
     from: ADMIN_EMAIL,
     to: HQ_EMAIL,
-    cc: HQ_INVOICE_CC,
     subject,
     html: `
       <div style="max-width:560px;margin:0 auto;font-family:-apple-system,sans-serif;color:#1f2937">
-        <h3 style="margin:0 0 12px">${escapeHtml(hqGreeting(true))}</h3>
+        <h3 style="margin:0 0 12px">${escapeHtml(hqGreeting())}</h3>
         <p style="margin:0 0 12px">Could you please enable the following <b>domain</b> as a paid Snorkl domain?
           All teachers signing up with this domain should be automatically upgraded to premium.</p>
         <div style="background:#f0f7ff;border:1px solid #dbeafe;border-radius:10px;padding:14px 16px;margin:16px 0">
@@ -500,7 +499,44 @@ export async function sendDomainPaidRequest(payload: {
         <p style="color:#9ca3af;font-size:11px;margin:0">Sent from Snorkl 주문관리 · LearnToday</p>
       </div>
     `,
-    text: `${hqGreeting(true)}\n\nCould you please enable the following domain as a paid Snorkl domain?\nAll teachers signing up with this domain should be automatically upgraded to premium.\n\nDomain: @${payload.domain}\nSchool: ${payload.schoolNameEn || payload.schoolName}${payload.team ? ` [${payload.team}]` : ""}${payload.note ? `\nNote: ${payload.note}` : ""}${payload.confirmLink ? `\n\nOnce enabled, please click to confirm:\n${payload.confirmLink}` : ""}\n\nThanks,\nBanghyun`,
+    text: `${hqGreeting()}\n\nCould you please enable the following domain as a paid Snorkl domain?\nAll teachers signing up with this domain should be automatically upgraded to premium.\n\nDomain: @${payload.domain}\nSchool: ${payload.schoolNameEn || payload.schoolName}${payload.team ? ` [${payload.team}]` : ""}${payload.note ? `\nNote: ${payload.note}` : ""}${payload.confirmLink ? `\n\nOnce enabled, please click to confirm:\n${payload.confirmLink}` : ""}\n\nThanks,\nBanghyun`,
+  }, { kind: "account_email", relatedType: "school" });
+}
+
+/**
+ * 도메인 유료화 인보이스 요청 — To: Cailie, CC: Jon.
+ * 처리 요청(sendDomainPaidRequest)과 짝을 이루며 같은 도메인으로 대조한다.
+ */
+export async function sendDomainInvoiceRequest(payload: {
+  schoolName: string;
+  schoolNameEn?: string | null;
+  domain: string;
+}): Promise<EmailResult> {
+  const t = getTransporter();
+  if (!t) return { success: false, skipped: true };
+  const school = payload.schoolNameEn || payload.schoolName;
+  const subject = `[Snorkl] Invoice Request — Paid domain @${payload.domain}`;
+  const text = `${invoiceGreeting()}\n\nCould you please issue an invoice for the following?\n\n[domain] ${school} — Paid domain @${payload.domain}\n\nJon is enabling the domain separately (cc'd).\n\nThank you,\nBanghyun`;
+  return sendAndLog(t, {
+    from: ADMIN_EMAIL,
+    to: HQ_INVOICE_TO,
+    cc: HQ_EMAIL,
+    subject,
+    text,
+    html: `
+      <div style="max-width:560px;margin:0 auto;font-family:-apple-system,sans-serif;color:#1f2937;font-size:14px;line-height:1.6">
+        <h3 style="margin:0 0 12px">${escapeHtml(invoiceGreeting())}</h3>
+        <p style="margin:0 0 12px">Could you please issue an invoice for the following?</p>
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px;margin:16px 0">
+          <p style="margin:0;font-size:13px"><b>[domain]</b> ${escapeHtml(school)} — Paid domain
+            <span style="font-family:monospace">@${safe(payload.domain)}</span></p>
+        </div>
+        <p style="margin:0 0 12px;color:#64748b;font-size:12px">Jon is enabling the domain separately (cc&rsquo;d).</p>
+        <p style="margin:16px 0 0">Thank you,<br>Banghyun</p>
+        <hr style="border:none;border-top:1px solid #eee;margin:20px 0">
+        <p style="color:#9ca3af;font-size:11px;margin:0">Sent from Snorkl 주문관리 · LearnToday</p>
+      </div>
+    `,
   }, { kind: "account_email", relatedType: "school" });
 }
 
