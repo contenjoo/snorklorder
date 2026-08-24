@@ -28,6 +28,12 @@ function isPublicApiRequest(request: NextRequest, pathname: string) {
     return true;
   }
 
+  // market 상태 되읽기: 라우트 내부에서 x-api-key(INTEGRATION_API_KEY)로 기계 인증한다.
+  // 키 미설정/불일치 판정은 라우트가 503/401로 직접 응답하므로 proxy는 통과만 시킨다.
+  if (pathname === "/api/account-requests/market-status" && request.method === "GET") {
+    return true;
+  }
+
   return false;
 }
 
