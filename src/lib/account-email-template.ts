@@ -160,7 +160,7 @@ export function buildInvoiceEmail(items: InvoiceEmailItem[]): { subject: string;
 
 export interface AccountEmailInput {
   type: string;
-  applicantType?: string;
+  applicantType?: string | null;
   schoolName: string;
   schoolNameEn?: string | null;
   emails: string[] | string;

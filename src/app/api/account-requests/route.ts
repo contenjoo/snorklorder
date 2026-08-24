@@ -9,6 +9,10 @@ import { sendAccountUpgradeCompletion } from "@/lib/email";
 // 인보이스 필요 여부 기본값은 SSOT 한 곳에서만 정의한다 (미리보기/발송/저장이 갈라지지 않도록).
 import { defaultNeedsInvoice } from "@/lib/account-email-template";
 import {
+  hydrateAccountRequestSchoolNames,
+  resolveAccountRequestSchoolNameEn,
+} from "@/lib/account-request-school-name";
+import {
   MARKET_DRAFT_DELIVERY_MODE,
   classifyMarketReplay,
   containsMarketIdentity,
@@ -100,7 +104,7 @@ export async function GET() {
     .select()
     .from(accountRequests)
     .orderBy(desc(accountRequests.createdAt));
-  return NextResponse.json(result);
+  return NextResponse.json(await hydrateAccountRequestSchoolNames(result));
 }
 
 export async function POST(req: NextRequest) {
@@ -212,6 +216,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "schoolName is required" }, { status: 400 });
     }
 
+    const resolvedSchoolNameEn = await resolveAccountRequestSchoolNameEn(
+      normalizedSchoolName,
+      normalizedSchoolNameEn,
+    );
+
     const insertedApplicantType = isAuthenticated ? (data.applicantType === "individual" ? "individual" : "school") : "school";
     const insertedType = isAuthenticated ? data.type || "upgrade" : "upgrade";
     const insertedAccountType = isAuthenticated ? data.accountType || "teacher" : "teacher";
@@ -229,7 +238,7 @@ export async function POST(req: NextRequest) {
       applicantType: insertedApplicantType,
       type: insertedType,
       schoolName: normalizedSchoolName,
-      schoolNameEn: normalizedSchoolNameEn,
+      schoolNameEn: resolvedSchoolNameEn,
       emails: uniqueValidEmails.join(", "),
       accountType: insertedAccountType,
       quantity: insertedQuantity,
@@ -332,6 +341,12 @@ export async function POST(req: NextRequest) {
       "invoiceDueDate", "paymentLink", "paymentDate", "paymentMethod"];
     for (const f of fields) {
       if (data[f] !== undefined) updates[f] = data[f];
+    }
+    if (typeof updates.schoolName === "string") {
+      updates.schoolNameEn = await resolveAccountRequestSchoolNameEn(
+        updates.schoolName,
+        typeof updates.schoolNameEn === "string" ? updates.schoolNameEn : null,
+      );
     }
     // Jon 처리완료(processed) 전환 감지를 위해 이전 상태 조회
     const [prev] = await db.select({ status: accountRequests.status }).from(accountRequests).where(eq(accountRequests.id, id));

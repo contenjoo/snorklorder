@@ -5,7 +5,11 @@ import { db } from "@/db";
 import { accountRequests } from "@/db/schema";
 import { and, eq, isNotNull, isNull } from "drizzle-orm";
 import { getTransporter, logEmail, escapeHtml, formatLogRecipients, BASE_URL, HQ_EMAIL, HQ_INVOICE_TO } from "@/lib/email";
-import { withHqGreeting, defaultNeedsInvoice, buildInvoiceEmail } from "@/lib/account-email-template";
+import { withHqGreeting, defaultNeedsInvoice, buildInvoiceEmail, generateAccountEmail } from "@/lib/account-email-template";
+import {
+  hydrateAccountRequestSchoolNames,
+  needsEnglishSchoolNameForHq,
+} from "@/lib/account-request-school-name";
 import {
   getAccountEmailDeliveryState,
   invoiceDeliveryFailureMessage,
@@ -64,12 +68,17 @@ export async function POST(req: NextRequest) {
       confirmToken: string | null;
       status: string;
       needsInvoice: boolean;
+      applicantType: string | null;
       schoolName: string;
       schoolNameEn: string | null;
       type: string;
+      emails: string;
       accountType: string | null;
       quantity: number | null;
+      oldEmail: string | null;
+      fromType: string | null;
       extensionDate: string | null;
+      notes: string | null;
       processingEmailSendStartedAt: Date | null;
       processingEmailSentAt: Date | null;
       invoiceEmailSendStartedAt: Date | null;
@@ -82,12 +91,17 @@ export async function POST(req: NextRequest) {
           confirmToken: accountRequests.confirmToken,
           status: accountRequests.status,
           needsInvoice: accountRequests.needsInvoice,
+          applicantType: accountRequests.applicantType,
           type: accountRequests.type,
           schoolName: accountRequests.schoolName,
           schoolNameEn: accountRequests.schoolNameEn,
+          emails: accountRequests.emails,
           accountType: accountRequests.accountType,
           quantity: accountRequests.quantity,
+          oldEmail: accountRequests.oldEmail,
+          fromType: accountRequests.fromType,
           extensionDate: accountRequests.extensionDate,
+          notes: accountRequests.notes,
           processingEmailSendStartedAt: accountRequests.processingEmailSendStartedAt,
           processingEmailSentAt: accountRequests.processingEmailSentAt,
           invoiceEmailSendStartedAt: accountRequests.invoiceEmailSendStartedAt,
@@ -98,6 +112,14 @@ export async function POST(req: NextRequest) {
 
       if (!existing) {
         return NextResponse.json({ error: "Account request not found" }, { status: 404 });
+      }
+      [existing] = await hydrateAccountRequestSchoolNames([existing]);
+      if (needsEnglishSchoolNameForHq(existing)) {
+        return NextResponse.json({
+          success: false,
+          code: "ENGLISH_SCHOOL_NAME_REQUIRED",
+          error: "English school name is required before sending this request to HQ.",
+        }, { status: 400 });
       }
 
       const deliveryState = getAccountEmailDeliveryState(existing);
@@ -169,8 +191,10 @@ export async function POST(req: NextRequest) {
         existing.processingEmailSendStartedAt = processingClaimedAt;
       }
 
-      // 클라이언트 본문의 인사말을 실제 수신자(Jon 단독)에 맞춰 치환한다.
-      const finalBody = withHqGreeting(String(body));
+      // 실제 발송 본문은 DB 기준으로 재생성한다. 낡은 미리보기/클라이언트 값이 한국어 학교명을 보내지 못하게 한다.
+      const generated = existing ? generateAccountEmail(existing) : { subject: String(subject), body: String(body) };
+      const finalSubject = generated.subject;
+      const finalBody = withHqGreeting(generated.body);
       const bodyHtml = escapeHtml(finalBody).replace(/\n/g, "<br>");
       const buttonBlock = confirmLink
         ? `<div style="text-align:center;margin:24px 0;padding:20px;background:#f0f7ff;border-radius:12px;border:1px solid #dbeafe">
@@ -188,7 +212,7 @@ export async function POST(req: NextRequest) {
         await transporter.sendMail({
           from,
           to: HQ_EMAIL,
-          subject,
+          subject: finalSubject,
           text: confirmLink ? `${finalBody}\n\n---\nOnce the upgrade is done, please click to confirm:\n${confirmLink}\n` : finalBody,
           html: `<div style="max-width:560px;margin:0 auto;font-family:-apple-system,sans-serif;color:#1f2937;font-size:14px;line-height:1.6">
                    ${buttonBlock}
@@ -197,7 +221,7 @@ export async function POST(req: NextRequest) {
         });
       } catch {
         try {
-          await logEmail({ to: logTo, subject, kind: "account_email", status: "failed", error: "Jon processing email delivery failed", relatedType: "account_request", relatedId: requestId || null });
+          await logEmail({ to: logTo, subject: finalSubject, kind: "account_email", status: "failed", error: "Jon processing email delivery failed", relatedType: "account_request", relatedId: requestId || null });
         } catch {
           console.error("[account-email] failed to persist processing email failure log");
         }
@@ -222,7 +246,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: false, error: "Failed to send Jon processing email" }, { status: 502 });
       }
       try {
-        await logEmail({ to: logTo, subject, kind: "account_email", status: "success", relatedType: "account_request", relatedId: requestId || null });
+        await logEmail({ to: logTo, subject: finalSubject, kind: "account_email", status: "success", relatedType: "account_request", relatedId: requestId || null });
       } catch {
         console.error("[account-email] failed to persist processing email success log");
       }

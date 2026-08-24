@@ -5,7 +5,11 @@ import { db } from "@/db";
 import { accountRequests } from "@/db/schema";
 import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { getTransporter, logEmail, formatLogRecipients, BASE_URL, HQ_EMAIL, HQ_INVOICE_TO } from "@/lib/email";
-import { buildBatchEmail, buildInvoiceEmail, defaultNeedsInvoice, type BatchEmailItem, type InvoiceEmailItem } from "@/lib/account-email-template";
+import { buildBatchEmail, buildInvoiceEmail, defaultNeedsInvoice, generateAccountEmail, type BatchEmailItem, type InvoiceEmailItem } from "@/lib/account-email-template";
+import {
+  hydrateAccountRequestSchoolNames,
+  needsEnglishSchoolNameForHq,
+} from "@/lib/account-request-school-name";
 import { parseEmailList } from "@/lib/security";
 import {
   getAccountEmailDeliveryState,
@@ -74,19 +78,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Gmail not configured (GMAIL_USER / GMAIL_APP_PASSWORD missing)" }, { status: 500 });
     }
 
-    const rows = await db
+    const rawRows = await db
       .select({
         id: accountRequests.id,
         confirmToken: accountRequests.confirmToken,
         emails: accountRequests.emails,
         status: accountRequests.status,
         type: accountRequests.type,
+        applicantType: accountRequests.applicantType,
         needsInvoice: accountRequests.needsInvoice,
         schoolName: accountRequests.schoolName,
         schoolNameEn: accountRequests.schoolNameEn,
         accountType: accountRequests.accountType,
         quantity: accountRequests.quantity,
+        oldEmail: accountRequests.oldEmail,
+        fromType: accountRequests.fromType,
         extensionDate: accountRequests.extensionDate,
+        notes: accountRequests.notes,
         processingEmailSendStartedAt: accountRequests.processingEmailSendStartedAt,
         processingEmailSentAt: accountRequests.processingEmailSentAt,
         invoiceEmailSendStartedAt: accountRequests.invoiceEmailSendStartedAt,
@@ -94,10 +102,21 @@ export async function POST(req: NextRequest) {
       })
       .from(accountRequests)
       .where(inArray(accountRequests.id, requestIds));
+    const rows = await hydrateAccountRequestSchoolNames(rawRows);
 
     const uniqueRequestIds = [...new Set(requestIds)];
     if (uniqueRequestIds.length !== requestIds.length || rows.length !== uniqueRequestIds.length) {
       return NextResponse.json({ error: "requestIds must be unique existing account requests" }, { status: 400 });
+    }
+
+    const missingEnglishSchoolNames = rows.filter(needsEnglishSchoolNameForHq);
+    if (missingEnglishSchoolNames.length > 0) {
+      return NextResponse.json({
+        success: false,
+        code: "ENGLISH_SCHOOL_NAME_REQUIRED",
+        error: "English school name is required before sending selected requests to HQ.",
+        blockedRequestIds: missingEnglishSchoolNames.map((row) => row.id),
+      }, { status: 400 });
     }
 
     const deliveryStates = rows.map((row) => ({
@@ -162,15 +181,15 @@ export async function POST(req: NextRequest) {
     const totalEmails = mode === "send_all"
       ? rows.reduce((sum, row) => sum + parseEmailList(row.emails).length, 0)
       : 0;
-    const sendSections = Array.isArray(sections) ? sections : [];
-
-    // 요청별 인보이스 필요 여부와 Claude의 요청번호 [#id] 블록을 그대로 유지한다.
+    // 요청별 인보이스 필요 여부와 요청번호 [#id] 블록을 유지한다.
+    // 제목/본문은 DB 기준으로 재생성해 낡은 미리보기의 한국어 학교명이 발송되지 않게 한다.
     const items: BatchEmailItem[] = mode === "send_all" ? requestIds.map((id, i) => {
       const row = rows.find((r) => r.id === id);
       const token = tokenMap.get(id);
+      const generated = row ? generateAccountEmail(row) : sections![i];
       return {
-        subject: sendSections[i].subject,
-        body: sendSections[i].body,
+        subject: generated.subject,
+        body: generated.body,
         requestId: id,
         needsInvoice: row
           ? typeof row.needsInvoice === "boolean"

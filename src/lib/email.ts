@@ -191,10 +191,11 @@ export async function sendBatchNotification(
       const emailList = g.teachers.map((tc) =>
         `<div style="padding:4px 0;font-size:14px;font-family:monospace">${safe(tc.email)}</div>`
       ).join("");
-      const enName = g.schoolNameEn ? ` · ${safe(g.schoolNameEn)}` : "";
+      const schoolName = g.schoolNameEn || g.schoolName;
+      const nativeName = g.schoolNameEn ? ` · ${safe(g.schoolName)}` : "";
       return `
         <div style="margin-bottom:16px">
-          <h4 style="color:#1e3a5f;margin:0 0 6px;font-size:14px">🏫 ${safe(g.schoolName)}${enName} <span style="color:#999;font-weight:normal">(${g.teachers.length})</span></h4>
+          <h4 style="color:#1e3a5f;margin:0 0 6px;font-size:14px">🏫 ${safe(schoolName)}${nativeName} <span style="color:#999;font-weight:normal">(${g.teachers.length})</span></h4>
           <div style="background:#f8f9fa;border-radius:6px;padding:6px 14px">
             ${emailList}
           </div>
@@ -224,10 +225,11 @@ export async function sendBatchNotification(
           const emailList = g.teachers.map((tc) =>
             `<div style="padding:4px 0;font-size:14px;font-family:monospace">${safe(tc.email)}</div>`
           ).join("");
-          const enName = g.schoolNameEn ? ` · ${safe(g.schoolNameEn)}` : "";
+          const schoolName = g.schoolNameEn || g.schoolName;
+          const nativeName = g.schoolNameEn ? ` · ${safe(g.schoolName)}` : "";
           return `
             <div style="margin-bottom:16px">
-              <h4 style="color:#1e3a5f;margin:0 0 6px;font-size:14px">🏫 ${safe(g.schoolName)}${enName} <span style="color:#999;font-weight:normal">(${g.teachers.length})</span></h4>
+              <h4 style="color:#1e3a5f;margin:0 0 6px;font-size:14px">🏫 ${safe(schoolName)}${nativeName} <span style="color:#999;font-weight:normal">(${g.teachers.length})</span></h4>
               <div style="background:#f8f9fa;border-radius:6px;padding:6px 14px">
                 ${emailList}
               </div>
@@ -600,4 +602,3 @@ export async function sendStaleSentReminder(items: { email: string; name: string
     return { success: false, error: String(err) };
   }
 }
-
