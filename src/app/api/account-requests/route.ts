@@ -21,6 +21,7 @@ import {
   validateMarketQuantity,
   type MarketEnvelope,
 } from "@/lib/market-account-request";
+import { shouldMarkInvoicedOnNumberEntry } from "@/lib/account-email-template";
 import { authorizeMarketStatusRequest } from "@/lib/market-status";
 import { getReceiverFulfillmentPausedResponse } from "@/lib/receiver-fulfillment-pause";
 import { hasMarketLegacyOrderNote } from "@/lib/market-legacy-audit";
@@ -421,6 +422,7 @@ export async function POST(req: NextRequest) {
     // Jon 처리완료(processed) 전환 감지를 위해 이전 상태 조회
     const [prev] = await db.select({
       status: accountRequests.status,
+      invoiceNumber: accountRequests.invoiceNumber,
       externalSource: accountRequests.externalSource,
       channel: accountRequests.channel,
       notes: accountRequests.notes,
@@ -435,6 +437,19 @@ export async function POST(req: NextRequest) {
     )) {
       return legacyMarketIdentityRequiredResponse();
     }
+    // 인보이스 번호가 새로 채워지면 업무 상태도 함께 invoiced 로 넘긴다.
+    // 번호만 채우고 status 를 두면 "청구 대기"(번호 없음 조건)에서도
+    // "최근 청구"(status 조건)에서도 빠져 어느 화면에도 안 뜬다.
+    // 명시적으로 status 를 보낸 요청은 그 뜻을 존중한다.
+    if (shouldMarkInvoicedOnNumberEntry({
+      prevStatus: prev.status,
+      prevInvoiceNumber: prev.invoiceNumber,
+      nextInvoiceNumber: typeof updates.invoiceNumber === "string" ? updates.invoiceNumber : null,
+      explicitStatus: updates.status,
+    })) {
+      updates.status = "invoiced";
+    }
+
     if (prev.externalSource === "market" && prev.marketOrderId) {
       const [fence] = await db
         .select({ state: marketOrderVoidFences.state })

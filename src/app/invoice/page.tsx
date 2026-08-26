@@ -5,6 +5,10 @@
 // 목적 한 줄: "내가 이거 보냈나?" 를 메일을 뒤지지 않고 답하게 하는 것.
 // 그래서 링크가 늘 같고(북마크 한 번), 로그인이 없고, 위/아래 두 목록뿐이다.
 // 위 = 남은 것, 아래 = 최근 끝낸 것. 여기 없으면 끝난 것이다.
+//
+// **읽기 전용이다. 버튼을 두지 말 것.** 목록을 닫는 일은 인보이스 번호를 받는 쪽
+// (관리자 정산 화면)이 맡는다. 인보이스를 보내면 Cailie 의 일은 끝이고, 여기서 한 번 더
+// 누르게 하면 안 눌렀을 때 목록이 거짓말을 한다.
 
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -41,8 +45,6 @@ function InvoiceLedger() {
   const [recentTruncated, setRecentTruncated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [busyId, setBusyId] = useState<number | null>(null);
-  const [notice, setNotice] = useState("");
 
   const load = useCallback(async () => {
     setError("");
@@ -66,35 +68,6 @@ function InvoiceLedger() {
   useEffect(() => {
     void load();
   }, [load]);
-
-  async function markInvoiced(item: OpenItem) {
-    setBusyId(item.id);
-    setNotice("");
-    try {
-      const res = await fetch("/api/invoice", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ k: token, id: item.id }),
-      });
-      const data = await res.json().catch(() => null);
-
-      if (!res.ok) {
-        // 이미 닫힌 건이면 화면이 뒤처진 것뿐이다 — 다시 읽어오면 맞아진다.
-        setNotice(data?.error || "Could not save. Please try again.");
-        if (res.status === 409) await load();
-        return;
-      }
-
-      // 누른 줄은 즉시 지워 반응을 주고, 아래 목록은 서버 기준으로 다시 맞춘다.
-      // (상한이 걸린 목록이라 화면에서 직접 끼워넣으면 개수 표시가 서버와 어긋난다)
-      setOpen((prev) => prev.filter((r) => r.id !== item.id));
-      await load();
-    } catch {
-      setNotice("Connection error. Please try again.");
-    } finally {
-      setBusyId(null);
-    }
-  }
 
   if (loading) {
     return <p className="py-20 text-center text-slate-400">Loading…</p>;
@@ -129,12 +102,6 @@ function InvoiceLedger() {
         </div>
       </header>
 
-      {notice && (
-        <p className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-2 text-sm text-amber-900">
-          {notice}
-        </p>
-      )}
-
       <section className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="flex items-baseline gap-2 px-5 py-3 border-b border-slate-100">
           <h2 className="text-xs font-mono uppercase tracking-widest text-amber-700">
@@ -159,19 +126,10 @@ function InvoiceLedger() {
                   <span className="block text-sm font-medium text-slate-900">{r.school}</span>
                   <span className="block text-xs text-slate-500">{r.what}</span>
                 </span>
-                <span className="font-mono text-[11px] text-slate-400 text-right shrink-0 ml-16 sm:ml-0">
+                <span className="font-mono text-[11px] text-slate-400 text-right shrink-0 ml-16 sm:ml-auto">
                   <span className="block uppercase tracking-wider opacity-75">emailed</span>
                   {shortDate(r.emailedAt)}
                 </span>
-                <button
-                  type="button"
-                  onClick={() => markInvoiced(r)}
-                  disabled={busyId === r.id}
-                  aria-label={`Mark request #${r.id}, ${r.school}, as invoiced`}
-                  className="shrink-0 ml-auto sm:ml-0 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-50 hover:border-amber-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  {busyId === r.id ? "Saving…" : "Invoiced"}
-                </button>
               </li>
             ))}
           </ul>
@@ -217,8 +175,8 @@ function InvoiceLedger() {
         )}
 
         <p className="px-5 py-3 border-t border-slate-100 bg-slate-50/60 text-xs text-slate-500">
-          Invoice numbers fill in automatically once Stripe sync is switched on. Until then this page
-          shows the date it was marked.
+          This page is read-only. A request drops off the top list as soon as its invoice number is
+          recorded on our side — you don&apos;t need to do anything here.
         </p>
       </section>
     </div>

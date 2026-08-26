@@ -194,6 +194,25 @@ export function mergeOpenInvoiceItems(
   return { items, newIds };
 }
 
+/**
+ * 인보이스 번호를 새로 기록하면 업무 상태도 invoiced 로 넘겨야 하는가.
+ *
+ * 번호만 채우고 status 를 두면 "청구 대기"(번호 없음 조건)에서도
+ * "최근 청구"(status 조건)에서도 빠져 어느 화면에도 안 뜬다.
+ * 이미 번호가 있던 건을 고치는 경우와, 호출자가 status 를 명시한 경우는 건드리지 않는다.
+ */
+export function shouldMarkInvoicedOnNumberEntry(args: {
+  prevStatus: string;
+  prevInvoiceNumber: string | null;
+  nextInvoiceNumber: string | null | undefined;
+  explicitStatus: unknown;
+}): boolean {
+  if (args.explicitStatus !== undefined) return false;
+  if (!args.nextInvoiceNumber?.trim()) return false;
+  if (args.prevInvoiceNumber?.trim()) return false;
+  return (OPEN_INVOICE_STATUSES as readonly string[]).includes(args.prevStatus);
+}
+
 export interface InvoiceEmailOptions {
   /** 이번 메일에서 새로 추가된 요청번호. 생략하면 items 전체를 새 건으로 본다. */
   newIds?: Iterable<number>;

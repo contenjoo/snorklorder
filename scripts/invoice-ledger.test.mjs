@@ -6,6 +6,7 @@ import {
   invoiceWhat,
   isOpenInvoiceRequest,
   mergeOpenInvoiceItems,
+  shouldMarkInvoicedOnNumberEntry,
 } from "../src/lib/account-email-template.ts";
 import { checkInvoiceViewToken } from "../src/lib/invoice-token.ts";
 
@@ -117,4 +118,31 @@ test("확인 페이지 토큰은 미설정을 통과로 바꾸지 않는다", ()
   // 접두사만 맞아도 통과하면 안 된다
   assert.equal(checkInvoiceViewToken("sec", "secret"), "invalid");
   assert.equal(checkInvoiceViewToken("secretsecret", "secret"), "invalid");
+});
+
+test("인보이스 번호를 새로 넣으면 상태도 invoiced 로 따라간다", () => {
+  const base = { prevStatus: "processed", prevInvoiceNumber: null, nextInvoiceNumber: "1093", explicitStatus: undefined };
+
+  assert.equal(shouldMarkInvoicedOnNumberEntry(base), true);
+  assert.equal(shouldMarkInvoicedOnNumberEntry({ ...base, prevStatus: "sent" }), true);
+
+  // 번호가 안 들어온 수정(다른 필드만 고치는 경우)은 상태를 건드리지 않는다
+  assert.equal(shouldMarkInvoicedOnNumberEntry({ ...base, nextInvoiceNumber: null }), false);
+  assert.equal(shouldMarkInvoicedOnNumberEntry({ ...base, nextInvoiceNumber: "   " }), false);
+  // 이미 번호가 있던 건의 오타 수정 — 상태는 그대로
+  assert.equal(shouldMarkInvoicedOnNumberEntry({ ...base, prevInvoiceNumber: "1092" }), false);
+  // 호출자가 status 를 명시했으면 그 뜻이 이긴다
+  assert.equal(shouldMarkInvoicedOnNumberEntry({ ...base, explicitStatus: "paid" }), false);
+  // 아직 발송 전이거나 이미 끝난 건은 대상이 아니다
+  assert.equal(shouldMarkInvoicedOnNumberEntry({ ...base, prevStatus: "draft" }), false);
+  assert.equal(shouldMarkInvoicedOnNumberEntry({ ...base, prevStatus: "paid" }), false);
+});
+
+test("번호가 기록되면 청구 대기 목록에서 빠진다", () => {
+  // 관리자 화면에서 번호를 넣는 것만으로 Cailie 페이지 상단 목록이 줄어야 한다
+  const before = { needsInvoice: true, invoiceNumber: null, status: "processed", marketVoidState: "active" };
+  assert.equal(isOpenInvoiceRequest(before), true);
+
+  const after = { ...before, invoiceNumber: "1093", status: "invoiced" };
+  assert.equal(isOpenInvoiceRequest(after), false);
 });
