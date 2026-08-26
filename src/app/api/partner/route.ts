@@ -40,6 +40,7 @@ export async function GET() {
         type: accountRequests.type,
         emails: accountRequests.emails,
         status: accountRequests.status,
+        needsInvoice: accountRequests.needsInvoice,
         invoiceNumber: accountRequests.invoiceNumber,
         invoiceAmount: accountRequests.invoiceAmount,
         createdAt: accountRequests.createdAt,

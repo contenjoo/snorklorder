@@ -20,12 +20,18 @@ import {
   HQ_INVOICE_TO,
   buildInvoiceEmail,
   defaultNeedsInvoice,
+  isOpenInvoiceRequest,
+  mergeOpenInvoiceItems,
+  type InvoiceEmailItem,
   generateAccountEmail,
   buildBatchEmail,
   type BatchEmailItem,
 } from "@/lib/account-email-template";
 import { getAccountEmailDeliveryState } from "@/lib/account-email-delivery";
 import { hasMarketLegacyOrderNote } from "@/lib/market-legacy-audit";
+
+// 미리보기에는 실제 토큰을 넣지 않는다. 링크 줄의 존재와 위치만 확인되면 충분하다.
+const INVOICE_VIEW_PREVIEW_URL = "https://<snorkl>/invoice?k=\u2026";
 
 interface AccountRequest {
   id: number;
@@ -592,6 +598,16 @@ function AccountsPageContent() {
     setSendMsg("📋 복사됨");
     setTimeout(() => setSendMsg(""), 2000);
   }
+
+  // 인보이스 메일에는 이번 건뿐 아니라 아직 청구가 안 끝난 전체가 실린다.
+  // 미리보기가 실제 발송과 갈라지지 않도록 화면에서도 같은 규칙으로 목록을 만든다.
+  const openInvoiceItems: InvoiceEmailItem[] = requests
+    .filter(isOpenInvoiceRequest)
+    .sort((a, b) => a.id - b.id)
+    .map((r) => ({
+      requestId: r.id, schoolName: r.schoolName, schoolNameEn: r.schoolNameEn,
+      type: r.type, accountType: r.accountType, quantity: r.quantity, extensionDate: r.extensionDate,
+    }));
 
   const filtered = requests.filter((r) => {
     if (filter !== "all" && r.status !== filter) return false;
@@ -1164,12 +1180,16 @@ function AccountsPageContent() {
                 <pre className="text-sm text-slate-800 whitespace-pre-wrap font-sans leading-relaxed">{body}</pre>
               </div>
               {emailPreview.needsInvoice && (() => {
-                const inv = buildInvoiceEmail([{
+                const merged = mergeOpenInvoiceItems([{
                   requestId: emailPreview.id, schoolName: emailPreview.schoolName,
                   schoolNameEn: emailPreview.schoolNameEn, type: emailPreview.type,
                   accountType: emailPreview.accountType, quantity: emailPreview.quantity,
                   extensionDate: emailPreview.extensionDate,
-                }]);
+                }], openInvoiceItems);
+                const inv = buildInvoiceEmail(merged.items, {
+                  newIds: merged.newIds,
+                  viewUrl: INVOICE_VIEW_PREVIEW_URL,
+                });
                 return (
                   <>
                     <div className="p-4 border-y bg-slate-50">
@@ -1280,11 +1300,18 @@ function AccountsPageContent() {
             ? needsInvoiceRetry(request)
             : request.needsInvoice ?? defaultNeedsInvoice(request.type)
         ));
+        const invMerged = mergeOpenInvoiceItems(
+          invoiceRequests.map((r) => ({
+            requestId: r.id, schoolName: r.schoolName, schoolNameEn: r.schoolNameEn,
+            type: r.type, accountType: r.accountType, quantity: r.quantity, extensionDate: r.extensionDate,
+          })),
+          openInvoiceItems,
+        );
         const invPreview = invoiceRequests.length > 0
-          ? buildInvoiceEmail(invoiceRequests.map((r) => ({
-              requestId: r.id, schoolName: r.schoolName, schoolNameEn: r.schoolNameEn,
-              type: r.type, accountType: r.accountType, quantity: r.quantity, extensionDate: r.extensionDate,
-            })))
+          ? buildInvoiceEmail(invMerged.items, {
+              newIds: invMerged.newIds,
+              viewUrl: INVOICE_VIEW_PREVIEW_URL,
+            })
           : null;
         return (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setBatchPreviewOpen(false)}>

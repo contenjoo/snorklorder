@@ -110,50 +110,151 @@ export interface InvoiceEmailItem {
   extensionDate?: string | null;
 }
 
-/** 인보이스 한 건을 사람이 읽는 한 줄로. 교사 이메일 목록은 청구에 불필요하므로 넣지 않는다. */
-export function invoiceLine(it: InvoiceEmailItem): string {
-  const school = it.schoolNameEn || it.schoolName;
+/** 파트너에게 보이는 학교 이름은 영문 우선 — 메일과 화면이 같은 이름을 써야 대조가 된다. */
+export function invoiceSchool(it: InvoiceEmailItem): string {
+  return it.schoolNameEn || it.schoolName;
+}
+
+/** 청구 내용 한 조각. 메일 본문과 확인 페이지가 이 한 함수를 공유한다. */
+export function invoiceWhat(it: InvoiceEmailItem): string {
   const qty = it.quantity && it.quantity > 0 ? it.quantity : 1;
   const acc = it.accountType === "school" ? "school account" : it.accountType === "student" ? "student account" : "teacher account";
   const plural = qty > 1 ? `${qty} ${acc}s` : `1 ${acc}`;
 
-  let what: string;
   if (it.type === "extension") {
-    what = `Extension through ${it.extensionDate || "[DATE]"}, ${plural}`;
-  } else if (it.type === "upgrade" && it.accountType === "school") {
-    what = "School-wide upgrade";
-  } else {
-    what = `Upgrade, ${plural}`;
+    return `Extension through ${it.extensionDate || "[DATE]"}, ${plural}`;
   }
-  return `[#${it.requestId}] ${school} — ${what}`;
+  if (it.type === "upgrade" && it.accountType === "school") {
+    return "School-wide upgrade";
+  }
+  return `Upgrade, ${plural}`;
+}
+
+/** 인보이스 한 건을 사람이 읽는 한 줄로. 교사 이메일 목록은 청구에 불필요하므로 넣지 않는다. */
+export function invoiceLine(it: InvoiceEmailItem): string {
+  return `[#${it.requestId}] ${invoiceSchool(it)} — ${invoiceWhat(it)}`;
+}
+
+// ── 인보이스 대기 판정 (순수) ──────────────────────────────────────────────
+//
+// 이 규칙 하나가 인보이스 메일 본문·확인 페이지·파트너 포털·관리자 미리보기를 모두 지배한다.
+// 서버는 여기 상수로 drizzle 조건을 만들고(@/lib/invoice-ledger), 클라이언트는 아래 술어를 쓴다.
+// 둘 중 하나만 고치면 화면마다 다른 말을 하게 되므로 반드시 여기서 같이 고칠 것.
+
+/** 아직 청구가 안 끝난 업무 상태. invoiced/paid 로 넘어가면 목록에서 빠진다. */
+export const OPEN_INVOICE_STATUSES = ["sent", "processed"] as const;
+/** 청구가 끝난 상태. 확인 페이지의 "Recently invoiced" 가 이걸 본다. */
+export const DONE_INVOICE_STATUSES = ["invoiced", "paid"] as const;
+/** 취소 saga 진행/완료 건은 어느 목록에도 뜨면 안 된다. */
+export const VOID_EXCLUDED_STATES = ["prepared", "voided"] as const;
+
+export interface OpenInvoiceCandidate {
+  needsInvoice?: boolean | null;
+  invoiceNumber?: string | null;
+  status: string;
+  marketVoidState?: string | null;
 }
 
 /**
- * Cailie 에게 보내는 인보이스 요청 메일. 인보이스가 필요한 건만 넘긴다.
+ * 지금 청구를 기다리는 건인가.
+ *
+ * invoiceNumber 검사는 status 검사와 겹쳐 보이지만 아니다. Stripe 자동 감지가 꺼져 있는 동안
+ * 번호만 수동으로 먼저 채워두는 경우가 있고, 그때도 목록에서 빠져야 한다.
+ */
+export function isOpenInvoiceRequest(r: OpenInvoiceCandidate): boolean {
+  if (!r.needsInvoice) return false;
+  if (r.invoiceNumber) return false;
+  if (!(OPEN_INVOICE_STATUSES as readonly string[]).includes(r.status)) return false;
+  if (r.marketVoidState && (VOID_EXCLUDED_STATES as readonly string[]).includes(r.marketVoidState)) return false;
+  return true;
+}
+
+/**
+ * 이번에 새로 보내는 건 + 이미 열려 있던 건을 합쳐 메일에 실을 전체 목록을 만든다.
+ *
+ * 발송 경로마다 status 갱신 시점이 달라서 조회 결과에 이번 건이 들어있을 수도, 아닐 수도 있다.
+ * 합집합으로 만들면 그 순서에 의존하지 않는다.
+ */
+export function mergeOpenInvoiceItems(
+  newItems: InvoiceEmailItem[],
+  openItems: InvoiceEmailItem[],
+): { items: InvoiceEmailItem[]; newIds: Set<number> } {
+  const newIds = new Set(newItems.map((it) => it.requestId));
+  const byId = new Map<number, InvoiceEmailItem>();
+  for (const it of openItems) byId.set(it.requestId, it);
+  for (const it of newItems) byId.set(it.requestId, it);
+
+  const items = [...byId.values()].sort((a, b) => {
+    // 새 건을 위로, 나머지는 오래된 것부터 — 오래 열려 있을수록 급하다.
+    const aNew = newIds.has(a.requestId) ? 0 : 1;
+    const bNew = newIds.has(b.requestId) ? 0 : 1;
+    return aNew - bNew || a.requestId - b.requestId;
+  });
+
+  return { items, newIds };
+}
+
+export interface InvoiceEmailOptions {
+  /** 이번 메일에서 새로 추가된 요청번호. 생략하면 items 전체를 새 건으로 본다. */
+  newIds?: Iterable<number>;
+  /** 확인 페이지 링크. 없으면 안내 줄을 통째로 뺀다. */
+  viewUrl?: string | null;
+}
+
+/**
+ * Cailie 에게 보내는 인보이스 요청 메일.
+ *
+ * items 는 "이번에 새로 생긴 건"이 아니라 **아직 청구가 안 끝난 전체**다. 메일이 여러 통
+ * 쌓여도 맨 마지막 것만 열면 현황을 다 알 수 있게 하려는 것 — 이전 메일을 뒤져 대조하는
+ * 일이 없어야 한다. 그래서 본문이 "여기 없으면 끝난 것"이라고 명시한다.
+ *
  * 같은 요청의 처리 메일은 Jon 에게 따로 가며, 요청번호(#id)로 대조한다.
  */
-export function buildInvoiceEmail(items: InvoiceEmailItem[]): { subject: string; body: string } {
+export function buildInvoiceEmail(
+  items: InvoiceEmailItem[],
+  options: InvoiceEmailOptions = {},
+): { subject: string; body: string } {
   const count = items.length;
-  const accounts = items.reduce((s, it) => s + (it.quantity && it.quantity > 0 ? it.quantity : 1), 0);
+  const newIds = options.newIds ? new Set(options.newIds) : new Set(items.map((it) => it.requestId));
+  const freshCount = items.filter((it) => newIds.has(it.requestId)).length;
 
   const lines: string[] = [];
   lines.push(invoiceGreeting());
   lines.push("");
-  lines.push(
-    count === 1
-      ? "Could you please issue an invoice for the following?"
-      : `Could you please issue invoices for the following ${count} requests?`,
-  );
-  lines.push("");
-  for (const it of items) lines.push(invoiceLine(it));
-  lines.push("");
+
+  if (count === 0) {
+    lines.push("Nothing is waiting for an invoice right now — you're all caught up.");
+    lines.push("");
+  } else {
+    lines.push("Everything still waiting for an invoice is below.");
+    lines.push("This list replaces my earlier emails — anything not listed is already done.");
+    lines.push("");
+    // 새 건에만 표시를 달고 나머지는 같은 폭으로 들여써서 목록이 한 덩어리로 읽히게 한다.
+    for (const it of items) {
+      lines.push(`${newIds.has(it.requestId) ? "NEW  " : "     "}${invoiceLine(it)}`);
+    }
+    lines.push("");
+  }
+
   lines.push("Jon is handling the account processing separately (cc'd).");
+
+  if (options.viewUrl) {
+    lines.push("");
+    lines.push("See the live list and mark anything you've already invoiced:");
+    lines.push(options.viewUrl);
+    // Stripe 자동 감지가 최대 하루 늦으므로 사람이 읽고 넘길 여지를 남긴다.
+    lines.push("");
+    lines.push("If you've already issued one of these, please ignore that line.");
+  }
+
   lines.push("");
   lines.push("Thank you,");
   lines.push("Banghyun");
 
   return {
-    subject: `[Snorkl] Invoice Request — ${count} request${count !== 1 ? "s" : ""}, ${accounts} account${accounts !== 1 ? "s" : ""}`,
+    subject:
+      `[Snorkl] Invoice Request — ${count} open` +
+      (freshCount > 0 && freshCount < count ? ` (${freshCount} new)` : ""),
     body: lines.join("\n"),
   };
 }

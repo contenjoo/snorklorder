@@ -46,6 +46,12 @@ function isPublicApiRequest(request: NextRequest, pathname: string) {
     return true;
   }
 
+  // Cailie 인보이스 확인 페이지: exact path만 통과시키고 라우트 내부에서 ?k= 고정 토큰을 검증한다.
+  // 세션 폴백은 없다 — 토큰 미설정 503과 누락/불일치 401을 라우트가 직접 구분한다.
+  if (pathname === "/api/invoice" && (request.method === "GET" || request.method === "POST")) {
+    return true;
+  }
+
   return false;
 }
 

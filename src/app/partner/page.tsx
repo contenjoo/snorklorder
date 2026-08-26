@@ -33,6 +33,7 @@ interface BillingAccount {
   type: string;
   emails: string;
   status: string; // sent | processed | invoiced
+  needsInvoice: boolean;
   invoiceNumber: string | null;
   invoiceAmount: string | null;
   createdAt: string;
@@ -178,7 +179,12 @@ export default function PartnerDashboard() {
   // Billing: Jon이 직접 해야 할 일 분류 (early return 위에 위치 — hooks 순서 안정)
   const jonTodo = useMemo(() => {
     const acctProcess = billingAccounts.filter((r) => r.status === "sent");
-    const acctInvoice = billingAccounts.filter((r) => r.status === "processed" && !r.invoiceNumber);
+    // 청구 대기 판정은 Cailie 에게 나가는 인보이스 메일·확인 페이지와 같은 조건이어야 한다.
+    // (1) needsInvoice=false 인 계정 정보 변경 건은 애초에 청구 대상이 아니고,
+    // (2) 인보이스 메일은 발송 즉시(sent) 나가므로 processed 를 기다리면 화면이 메일보다 늦다.
+    const acctInvoice = billingAccounts.filter(
+      (r) => r.needsInvoice && !r.invoiceNumber && (r.status === "sent" || r.status === "processed")
+    );
     const domProcess = billingDomains.filter((r) => r.status === "pending");
     const domInvoice = billingDomains.filter((r) => r.status === "done" && !r.invoiceNumber);
     return { acctProcess, acctInvoice, domProcess, domInvoice, total: acctProcess.length + acctInvoice.length + domProcess.length + domInvoice.length };

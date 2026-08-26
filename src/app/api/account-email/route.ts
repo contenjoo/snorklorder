@@ -16,6 +16,7 @@ import {
   isValidAccountEmailRequestId,
   parseAccountEmailSendMode,
 } from "@/lib/account-email-delivery";
+import { invoiceViewUrl, loadOpenInvoiceItemsForEmail } from "@/lib/invoice-ledger";
 import { claimAccountRequestSideEffects } from "@/lib/market-void-db";
 import { getReceiverFulfillmentPausedResponse } from "@/lib/receiver-fulfillment-pause";
 import { hasMarketLegacyOrderNote } from "@/lib/market-legacy-audit";
@@ -337,7 +338,12 @@ export async function POST(req: NextRequest) {
     existing.invoiceEmailSendStartedAt = invoiceClaimedAt;
 
     // 최초 발송과 invoice_only 재시도는 이 한 경로만 사용하며 Jon 메일은 여기서 절대 보내지 않는다.
-    const inv = buildInvoiceEmail([{ requestId: existing.id, ...existing }]);
+    // 이번 건만이 아니라 아직 청구가 안 끝난 전체를 싣는다 — 마지막 메일 한 통이 곧 현황.
+    const openInvoice = await loadOpenInvoiceItemsForEmail([{ requestId: existing.id, ...existing }]);
+    const inv = buildInvoiceEmail(openInvoice.items, {
+      newIds: openInvoice.newIds,
+      viewUrl: invoiceViewUrl(),
+    });
     const invLogTo = formatLogRecipients(HQ_INVOICE_TO, HQ_EMAIL);
     try {
       await transporter.sendMail({ from, to: HQ_INVOICE_TO, cc: HQ_EMAIL, subject: inv.subject, text: inv.body });
