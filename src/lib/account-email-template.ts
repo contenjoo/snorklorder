@@ -213,6 +213,43 @@ export function shouldMarkInvoicedOnNumberEntry(args: {
   return (OPEN_INVOICE_STATUSES as readonly string[]).includes(args.prevStatus);
 }
 
+// ── 인보이스 1장 ↔ 요청 여러 건 ────────────────────────────────────────────
+//
+// Cailie 는 요청 여러 건을 인보이스 한 장으로 묶는다 (예: inv 1098 = #195 + #196).
+// 번호를 건별로 따로 입력하면 한 건을 빠뜨리기 쉽고, 실제로 #195 가 그렇게 누락됐다.
+// 그래서 번호·총액을 한 번 입력하면 선택한 건 전체에 배분해 기록한다.
+
+/** "$1,160.00" / "160" / "￦160" 등에서 센트 단위 정수를 뽑는다. 못 읽으면 null. */
+export function parseInvoiceAmountToCents(raw: string): number | null {
+  const cleaned = raw.replace(/[^0-9.]/g, "");
+  if (!cleaned || !/^\d*\.?\d*$/.test(cleaned)) return null;
+  const value = Number(cleaned);
+  if (!Number.isFinite(value) || value < 0) return null;
+  return Math.round(value * 100);
+}
+
+export function formatCentsAsAmount(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
+/**
+ * 인보이스 총액을 요청별 계정 수에 비례해 나눈다.
+ *
+ * 반올림 잔여 센트는 마지막 건이 흡수해 **합계가 총액과 정확히 일치**하도록 한다.
+ * 합이 안 맞으면 나중에 결제 대조가 깨지므로 이 불변식이 핵심이다.
+ */
+export function allocateInvoiceAmounts(totalCents: number, weights: number[]): number[] {
+  const safe = weights.map((w) => (Number.isFinite(w) && w > 0 ? Math.floor(w) : 1));
+  const sum = safe.reduce((a, b) => a + b, 0);
+  if (safe.length === 0) return [];
+  if (sum <= 0) return safe.map(() => 0);
+
+  const out = safe.map((w) => Math.floor((totalCents * w) / sum));
+  const allocated = out.reduce((a, b) => a + b, 0);
+  out[out.length - 1] += totalCents - allocated;
+  return out;
+}
+
 export interface InvoiceEmailOptions {
   /** 이번 메일에서 새로 추가된 요청번호. 생략하면 items 전체를 새 건으로 본다. */
   newIds?: Iterable<number>;

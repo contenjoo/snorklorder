@@ -7,6 +7,9 @@ import {
   isOpenInvoiceRequest,
   mergeOpenInvoiceItems,
   shouldMarkInvoicedOnNumberEntry,
+  allocateInvoiceAmounts,
+  parseInvoiceAmountToCents,
+  formatCentsAsAmount,
 } from "../src/lib/account-email-template.ts";
 import { checkInvoiceViewToken } from "../src/lib/invoice-token.ts";
 
@@ -148,4 +151,45 @@ test("번호가 기록되면 청구 대기 목록에서 빠진다", () => {
 
   const after = { ...before, invoiceNumber: "1093", status: "invoiced" };
   assert.equal(isOpenInvoiceRequest(after), false);
+});
+
+test("인보이스 총액은 계정 수에 비례해 나뉘고 합계가 정확히 맞는다", () => {
+  // inv 1098: #195(1계정) + #196(1계정), $160 → 각 $80
+  assert.deepEqual(allocateInvoiceAmounts(16000, [1, 1]), [8000, 8000]);
+  // inv 1090: #189(1계정) + #190(5계정), $480 → $80 / $400
+  assert.deepEqual(allocateInvoiceAmounts(48000, [1, 5]), [8000, 40000]);
+  // inv 1091: #191(2계정) + #192(1계정), $240 → $160 / $80
+  assert.deepEqual(allocateInvoiceAmounts(24000, [2, 1]), [16000, 8000]);
+});
+
+test("나눠떨어지지 않아도 합계는 총액과 1센트도 어긋나지 않는다", () => {
+  for (const [total, weights] of [
+    [10000, [1, 1, 1]],   // $100 / 3
+    [16667, [2, 3, 5]],
+    [1, [1, 1]],          // 1센트를 둘로
+    [99999, [7, 11, 13]],
+  ]) {
+    const parts = allocateInvoiceAmounts(total, weights);
+    assert.equal(parts.reduce((a, b) => a + b, 0), total,
+      `합계 불일치: total=${total} weights=${weights} parts=${parts}`);
+    assert.equal(parts.length, weights.length);
+  }
+});
+
+test("가중치가 비어 있거나 이상해도 터지지 않는다", () => {
+  assert.deepEqual(allocateInvoiceAmounts(16000, []), []);
+  // 수량이 없거나 0인 건은 1계정으로 취급
+  assert.deepEqual(allocateInvoiceAmounts(16000, [0, 0]), [8000, 8000]);
+  assert.equal(allocateInvoiceAmounts(16000, [NaN, 1]).reduce((a, b) => a + b, 0), 16000);
+});
+
+test("금액 문자열 파싱은 통화기호·쉼표를 견딘다", () => {
+  assert.equal(parseInvoiceAmountToCents("$160.00"), 16000);
+  assert.equal(parseInvoiceAmountToCents("160"), 16000);
+  assert.equal(parseInvoiceAmountToCents("$1,160.50"), 116050);
+  assert.equal(parseInvoiceAmountToCents(" 80.5 "), 8050);
+  assert.equal(parseInvoiceAmountToCents(""), null);
+  assert.equal(parseInvoiceAmountToCents("abc"), null);
+  assert.equal(formatCentsAsAmount(8000), "$80.00");
+  assert.equal(formatCentsAsAmount(116050), "$1160.50");
 });

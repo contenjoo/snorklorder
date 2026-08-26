@@ -22,6 +22,9 @@ import {
   defaultNeedsInvoice,
   isOpenInvoiceRequest,
   mergeOpenInvoiceItems,
+  allocateInvoiceAmounts,
+  parseInvoiceAmountToCents,
+  formatCentsAsAmount,
   type InvoiceEmailItem,
   generateAccountEmail,
   buildBatchEmail,
@@ -167,6 +170,13 @@ function AccountsPageContent() {
   const [sendMsg, setSendMsg] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [batchPreviewOpen, setBatchPreviewOpen] = useState(false);
+  // 인보이스 1장을 선택한 여러 건에 나눠 기록하는 모달
+  const [invBulkOpen, setInvBulkOpen] = useState(false);
+  const [invBulkNum, setInvBulkNum] = useState("");
+  const [invBulkTotal, setInvBulkTotal] = useState("");
+  const [invBulkPaid, setInvBulkPaid] = useState(false);
+  const [invBulkPayDate, setInvBulkPayDate] = useState("");
+  const [invBulkSaving, setInvBulkSaving] = useState(false);
 
   // Form
   const [fChannel, setFChannel] = useState("company");
@@ -512,6 +522,60 @@ function AccountsPageContent() {
   }
 
   function clearSelection() { setSelectedIds(new Set()); }
+
+  /**
+   * 선택한 건들에 인보이스 번호 하나를 배분 기록한다.
+   *
+   * Cailie 는 요청 여러 건을 인보이스 한 장으로 묶는데(예: 1098 = #195 + #196),
+   * 건별로 따로 넣으면 한 건을 빠뜨린다 — 실제로 #195 가 그렇게 누락됐다.
+   * 총액은 계정 수에 비례해 나누고, 반올림 잔여는 마지막 건이 흡수해 합계를 맞춘다.
+   */
+  const invBulkTargets = Array.from(selectedIds)
+    .map((id) => requests.find((r) => r.id === id))
+    .filter((r): r is AccountRequest => Boolean(r))
+    .sort((a, b) => a.id - b.id);
+
+  const invBulkCents = parseInvoiceAmountToCents(invBulkTotal);
+  const invBulkSplit = invBulkCents === null
+    ? []
+    : allocateInvoiceAmounts(invBulkCents, invBulkTargets.map((r) => r.quantity || 1));
+
+  async function saveInvoiceBulk() {
+    if (!invBulkNum.trim() || invBulkCents === null || invBulkTargets.length === 0) return;
+    setInvBulkSaving(true);
+    let ok = 0;
+    const failed: number[] = [];
+    for (let i = 0; i < invBulkTargets.length; i++) {
+      const r = invBulkTargets[i];
+      const payload: Record<string, unknown> = {
+        action: "update", id: r.id,
+        invoiceNumber: invBulkNum.trim(),
+        invoiceAmount: formatCentsAsAmount(invBulkSplit[i] ?? 0),
+      };
+      if (invBulkPaid) {
+        payload.status = "paid";
+        payload.paymentDate = invBulkPayDate || null;
+        payload.paymentMethod = "card";
+      }
+      try {
+        const res = await fetch("/api/account-requests", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (res.ok) ok++; else failed.push(r.id);
+      } catch { failed.push(r.id); }
+    }
+    setInvBulkSaving(false);
+    setSendMsg(failed.length === 0
+      ? `✓ 인보이스 ${invBulkNum.trim()} — ${ok}건 기록 완료`
+      : `${ok}건 기록, 실패 #${failed.join(", #")}`);
+    if (failed.length === 0) {
+      setInvBulkOpen(false);
+      setInvBulkNum(""); setInvBulkTotal(""); setInvBulkPaid(false); setInvBulkPayDate("");
+      clearSelection();
+    }
+    load();
+  }
 
   async function sendBatch() {
     const ids = Array.from(selectedIds);
@@ -891,7 +955,90 @@ function AccountsPageContent() {
                 ? "↻ 인보이스 재시도 미리보기"
                 : "📧 묶음 발송 미리보기"}
           </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setInvBulkOpen(true)}
+            className="text-xs border-emerald-300 text-emerald-800 hover:bg-emerald-50"
+          >
+            🧾 인보이스 번호 입력
+          </Button>
           <button onClick={clearSelection} className="text-xs text-blue-700 hover:text-blue-900 underline">선택 해제</button>
+        </div>
+      )}
+
+      {/* 인보이스 번호 일괄 입력 — 인보이스 1장이 요청 여러 건을 덮는 구조라 건별 입력은 누락을 부른다 */}
+      {invBulkOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => !invBulkSaving && setInvBulkOpen(false)}>
+          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="p-4 border-b bg-slate-50 rounded-t-xl flex items-center justify-between">
+              <h3 className="font-bold text-sm">인보이스 번호 입력 — {invBulkTargets.length}건</h3>
+              <button onClick={() => !invBulkSaving && setInvBulkOpen(false)} className="text-slate-400 hover:text-slate-600">✕</button>
+            </div>
+
+            <div className="p-4 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-[11px]">인보이스 #</Label>
+                  <Input value={invBulkNum} onChange={(e) => setInvBulkNum(e.target.value)} placeholder="1098" className="h-8 text-sm" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[11px]">인보이스 총액</Label>
+                  <Input value={invBulkTotal} onChange={(e) => setInvBulkTotal(e.target.value)} placeholder="$160.00" className="h-8 text-sm" />
+                </div>
+              </div>
+
+              <label className="flex items-center gap-2 text-xs text-slate-700">
+                <input type="checkbox" checked={invBulkPaid} onChange={(e) => setInvBulkPaid(e.target.checked)} />
+                결제 완료로 표시
+              </label>
+              {invBulkPaid && (
+                <div className="space-y-1">
+                  <Label className="text-[11px]">결제일</Label>
+                  <Input type="date" value={invBulkPayDate} onChange={(e) => setInvBulkPayDate(e.target.value)} className="h-8 text-sm w-44" />
+                </div>
+              )}
+
+              <div className="rounded-lg border border-slate-200 overflow-hidden">
+                <div className="px-3 py-2 bg-slate-50 text-[11px] font-medium text-slate-500 border-b">
+                  계정 수 비례 배분 {invBulkCents !== null && `· 합계 ${formatCentsAsAmount(invBulkCents)}`}
+                </div>
+                <ul className="divide-y divide-slate-100">
+                  {invBulkTargets.map((r, i) => (
+                    <li key={r.id} className="flex items-center gap-3 px-3 py-2 text-xs">
+                      <span className="font-mono text-slate-400 w-11 shrink-0">#{r.id}</span>
+                      <span className="flex-1 min-w-0 truncate">{r.schoolNameEn || r.schoolName}</span>
+                      <span className="text-slate-400 shrink-0">{r.quantity || 1}계정</span>
+                      <span className="font-mono font-medium text-slate-900 shrink-0 w-20 text-right">
+                        {invBulkCents === null ? "—" : formatCentsAsAmount(invBulkSplit[i] ?? 0)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {invBulkTotal && invBulkCents === null && (
+                <p className="text-xs text-red-600">금액을 읽을 수 없습니다. 예: $160.00</p>
+              )}
+              {invBulkTargets.some((r) => r.invoiceNumber && r.invoiceNumber !== invBulkNum.trim()) && (
+                <p className="text-xs text-amber-700">
+                  ⚠️ 이미 다른 인보이스 번호가 있는 건이 포함돼 있습니다 — 덮어씁니다.
+                </p>
+              )}
+            </div>
+
+            <div className="p-4 border-t bg-slate-50 rounded-b-xl flex items-center gap-2">
+              <Button
+                size="sm"
+                onClick={saveInvoiceBulk}
+                disabled={invBulkSaving || !invBulkNum.trim() || invBulkCents === null || invBulkTargets.length === 0}
+                className="bg-emerald-600 hover:bg-emerald-700 text-xs"
+              >
+                {invBulkSaving ? "저장 중…" : `${invBulkTargets.length}건에 기록`}
+              </Button>
+              <button onClick={() => !invBulkSaving && setInvBulkOpen(false)} className="text-xs text-slate-500 hover:text-slate-700 underline">취소</button>
+            </div>
+          </div>
         </div>
       )}
 
