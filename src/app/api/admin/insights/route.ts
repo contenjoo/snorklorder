@@ -4,7 +4,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { schools, teachers, accountRequests } from "@/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { eq, notInArray, sql } from "drizzle-orm";
 import { schoolLevel, type SchoolLevel } from "@/lib/school-level";
 import { subjectFamily } from "@/lib/subject";
 
@@ -24,7 +24,9 @@ export async function GET() {
       month: sql<string>`to_char(${accountRequests.createdAt}, 'YYYY-MM')`,
       requests: sql<number>`count(*)::int`,
       seats: sql<number>`sum(coalesce(${accountRequests.quantity}, 0))::int`,
-    }).from(accountRequests).groupBy(sql`1`).orderBy(sql`1`),
+    }).from(accountRequests)
+      .where(notInArray(accountRequests.marketVoidState, ["prepared", "voided"]))
+      .groupBy(sql`1`).orderBy(sql`1`),
   ]);
 
   // ── 학교급 ──────────────────────────────────────────────

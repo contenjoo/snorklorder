@@ -59,14 +59,6 @@ export function containsMarketIdentity(input: Record<string, unknown>): boolean 
   return MARKET_IDENTITY_FIELDS.some((field) => input[field] !== undefined);
 }
 
-/** 2단계 배포 중 기존 market 호출은 초안 상태만 임시 허용한다. */
-export function validateLegacyMarketDraft(input: { status?: unknown }): MarketEnvelopeResult | { ok: true } {
-  if (input.status !== undefined && input.status !== "draft") {
-    return { ok: false, error: "status must be draft" };
-  }
-  return { ok: true };
-}
-
 function readReference(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const normalized = value.trim();

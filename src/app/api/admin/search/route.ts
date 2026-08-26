@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { schools, teachers, accountRequests, domainRequests, schoolRequests } from "@/db/schema";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, notInArray } from "drizzle-orm";
 
 export async function GET() {
   const [schoolRows, teacherRows, accountRows, domainRows, requestRows] = await Promise.all([
@@ -23,7 +23,9 @@ export async function GET() {
       id: accountRequests.id, schoolName: accountRequests.schoolName,
       schoolNameEn: accountRequests.schoolNameEn, emails: accountRequests.emails,
       status: accountRequests.status, type: accountRequests.type,
-    }).from(accountRequests).orderBy(desc(accountRequests.createdAt)),
+    }).from(accountRequests)
+      .where(notInArray(accountRequests.marketVoidState, ["prepared", "voided"]))
+      .orderBy(desc(accountRequests.createdAt)),
     db.select({
       id: domainRequests.id, schoolName: domainRequests.schoolName,
       domain: domainRequests.domain, status: domainRequests.status,

@@ -16,15 +16,21 @@ import {
   isValidAccountEmailRequestId,
   parseAccountEmailSendMode,
 } from "@/lib/account-email-delivery";
+import { claimAccountRequestSideEffects } from "@/lib/market-void-db";
+import { getReceiverFulfillmentPausedResponse } from "@/lib/receiver-fulfillment-pause";
+import { hasMarketLegacyOrderNote } from "@/lib/market-legacy-audit";
 
 function deliveryUnknownResponse(stage: "processing" | "invoice", status = 409) {
   return NextResponse.json({
     success: false,
-    partialSuccess: false,
+    partialSuccess: stage === "invoice",
     code: "EMAIL_DELIVERY_UNKNOWN",
     error: "Email delivery is in an unknown state. Check Gmail Sent before any retry.",
     deliveryUnknown: true,
     unknownStage: stage,
+    manualAuditRequired: true,
+    manualAuditTarget: "Gmail Sent",
+    automaticRetryBlocked: true,
     invoiceRetryAvailable: false,
   }, { status });
 }
@@ -40,7 +46,22 @@ function legacyDeliveryBlockedResponse() {
   }, { status: 409 });
 }
 
+function legacyMarketAuditBlockedResponse() {
+  return NextResponse.json({
+    success: false,
+    partialSuccess: false,
+    code: "MARKET_LEGACY_MANUAL_AUDIT_REQUIRED",
+    error: "This legacy Market order is audit-only and cannot send email automatically.",
+    manualAuditRequired: true,
+    automaticRetryBlocked: true,
+    invoiceRetryAvailable: false,
+  }, { status: 409 });
+}
+
 export async function POST(req: NextRequest) {
+  const pausedResponse = getReceiverFulfillmentPausedResponse();
+  if (pausedResponse) return pausedResponse;
+
   try {
     const { requestId, subject, body, mode: rawMode } = await req.json();
     const mode = parseAccountEmailSendMode(rawMode);
@@ -65,6 +86,8 @@ export async function POST(req: NextRequest) {
     let confirmLink = "";
     let existing: {
       id: number;
+      channel: string | null;
+      externalSource: string | null;
       confirmToken: string | null;
       status: string;
       needsInvoice: boolean;
@@ -88,6 +111,8 @@ export async function POST(req: NextRequest) {
       [existing] = await db
         .select({
           id: accountRequests.id,
+          channel: accountRequests.channel,
+          externalSource: accountRequests.externalSource,
           confirmToken: accountRequests.confirmToken,
           status: accountRequests.status,
           needsInvoice: accountRequests.needsInvoice,
@@ -112,6 +137,13 @@ export async function POST(req: NextRequest) {
 
       if (!existing) {
         return NextResponse.json({ error: "Account request not found" }, { status: 404 });
+      }
+      if (
+        (existing.channel || "company") === "company"
+        && existing.externalSource !== "market"
+        && hasMarketLegacyOrderNote(existing.notes)
+      ) {
+        return legacyMarketAuditBlockedResponse();
       }
       [existing] = await hydrateAccountRequestSchoolNames([existing]);
       if (needsEnglishSchoolNameForHq(existing)) {
@@ -153,6 +185,16 @@ export async function POST(req: NextRequest) {
           error: deliveryState === "ready"
             ? "Jon processing email must be sent before the invoice."
             : "Cailie invoice email was already sent.",
+        }, { status: 409 });
+      }
+
+      // 토큰 생성이나 SMTP보다 먼저 order fence를 선점한다. prepare가 먼저 이겼다면
+      // false이며, 이 요청에서는 어떤 외부 side effect도 시작하지 않는다.
+      if (!(await claimAccountRequestSideEffects([existing.id]))) {
+        return NextResponse.json({
+          success: false,
+          code: "MARKET_VOID_FENCED",
+          error: "This Market order is being cancelled or has already been voided.",
         }, { status: 409 });
       }
 
@@ -221,29 +263,13 @@ export async function POST(req: NextRequest) {
         });
       } catch {
         try {
-          await logEmail({ to: logTo, subject: finalSubject, kind: "account_email", status: "failed", error: "Jon processing email delivery failed", relatedType: "account_request", relatedId: requestId || null });
+          await logEmail({ to: logTo, subject: finalSubject, kind: "account_email", status: "failed", error: "Jon processing email delivery outcome unknown; check Gmail Sent", relatedType: "account_request", relatedId: requestId || null });
         } catch {
           console.error("[account-email] failed to persist processing email failure log");
         }
-        if (existing && processingClaimedAt) {
-          try {
-            const released = await db
-              .update(accountRequests)
-              .set({ processingEmailSendStartedAt: null, updatedAt: new Date() })
-              .where(and(
-                eq(accountRequests.id, existing.id),
-                eq(accountRequests.processingEmailSendStartedAt, processingClaimedAt),
-                isNull(accountRequests.processingEmailSentAt),
-              ))
-              .returning({ id: accountRequests.id });
-            if (released.length === 0) return deliveryUnknownResponse("processing", 500);
-            existing.processingEmailSendStartedAt = null;
-          } catch {
-            console.error("[account-email] failed to release processing email claim");
-            return deliveryUnknownResponse("processing", 500);
-          }
-        }
-        return NextResponse.json({ success: false, error: "Failed to send Jon processing email" }, { status: 502 });
+        // sendMail throw는 SMTP 미시도 증거가 아니다. claim을 UNKNOWN으로 보존해
+        // 운영자가 Gmail Sent를 확인하기 전 자동 중복 발송을 막는다.
+        return deliveryUnknownResponse("processing", 502);
       }
       try {
         await logEmail({ to: logTo, subject: finalSubject, kind: "account_email", status: "success", relatedType: "account_request", relatedId: requestId || null });
@@ -321,41 +347,29 @@ export async function POST(req: NextRequest) {
         await logEmail({ to: invLogTo, subject: inv.subject, kind: "account_email", status: "failed", error: safeError, relatedType: "account_request", relatedId: existing.id });
       } catch {
         console.error("[account-email] failed to persist invoice email failure log");
-      }
-      try {
-        const released = await db
-          .update(accountRequests)
-          .set({
-            invoiceEmailSendStartedAt: null,
-            invoiceEmailLastError: safeError,
-            updatedAt: new Date(),
+        }
+        try {
+          const preserved = await db
+            .update(accountRequests)
+            .set({
+              invoiceEmailLastError: safeError,
+              updatedAt: new Date(),
           })
           .where(and(
             eq(accountRequests.id, existing.id),
             eq(accountRequests.invoiceEmailSendStartedAt, invoiceClaimedAt),
             isNull(accountRequests.invoiceEmailSentAt),
-          ))
-          .returning({ id: accountRequests.id });
-        if (released.length === 0) return deliveryUnknownResponse("invoice", 500);
-        existing.invoiceEmailSendStartedAt = null;
-      } catch {
-        console.error("[account-email] failed to release invoice email claim");
-        return deliveryUnknownResponse("invoice", 500);
+            ))
+            .returning({ id: accountRequests.id });
+          if (preserved.length === 0) {
+            console.error("[account-email] failed to annotate unknown invoice claim");
+          }
+        } catch {
+          console.error("[account-email] failed to annotate unknown invoice claim");
+        }
+        // Cailie 발송도 결과가 불확실하다. startedAt을 남겨 invoice_only 자동 재시도를 막는다.
+        return deliveryUnknownResponse("invoice", 502);
       }
-
-      return NextResponse.json({
-        success: false,
-        partialSuccess: true,
-        code: "INVOICE_DELIVERY_FAILED",
-        error: "Jon processing email was sent, but the Cailie invoice email failed.",
-        confirmLink,
-        processingEmailSent: true,
-        processingEmailSentAt: existing.processingEmailSentAt,
-        invoiceRequired: true,
-        invoiceSent: false,
-        invoiceRetryAvailable: true,
-      }, { status: 502 });
-    }
 
     try {
       await logEmail({ to: invLogTo, subject: inv.subject, kind: "account_email", status: "success", relatedType: "account_request", relatedId: existing.id });

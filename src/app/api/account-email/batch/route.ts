@@ -16,6 +16,9 @@ import {
   invoiceDeliveryFailureMessage,
   parseAccountEmailSendMode,
 } from "@/lib/account-email-delivery";
+import { claimAccountRequestSideEffects } from "@/lib/market-void-db";
+import { getReceiverFulfillmentPausedResponse } from "@/lib/receiver-fulfillment-pause";
+import { hasMarketLegacyOrderNote } from "@/lib/market-legacy-audit";
 
 interface Section {
   subject: string;
@@ -29,12 +32,15 @@ function deliveryUnknownResponse(
 ) {
   return NextResponse.json({
     success: false,
-    partialSuccess: false,
+    partialSuccess: stage === "invoice",
     code: "EMAIL_DELIVERY_UNKNOWN",
     error: "Email delivery is in an unknown state. Check Gmail Sent before any retry.",
     deliveryUnknown: true,
     unknownStage: stage,
     blockedRequestIds: requestIds,
+    manualAuditRequired: true,
+    manualAuditTarget: "Gmail Sent",
+    automaticRetryBlocked: true,
     invoiceRetryAvailable: false,
   }, { status });
 }
@@ -51,11 +57,27 @@ function legacyDeliveryBlockedResponse(requestIds: number[]) {
   }, { status: 409 });
 }
 
+function legacyMarketAuditBlockedResponse(requestIds: number[]) {
+  return NextResponse.json({
+    success: false,
+    partialSuccess: false,
+    code: "MARKET_LEGACY_MANUAL_AUDIT_REQUIRED",
+    error: "Legacy Market orders are audit-only and cannot send email automatically.",
+    manualAuditRequired: true,
+    automaticRetryBlocked: true,
+    blockedRequestIds: requestIds,
+    invoiceRetryAvailable: false,
+  }, { status: 409 });
+}
+
 // 여러 account_requests를 메일로 묶어 발송한다. 수신자별로 두 통이 나간다:
 //   1) 처리 메일 → Jon (전체 건, 교사 이메일 목록·confirm 링크 포함)
 //   2) 인보이스 메일 → Cailie (CC: Jon). 인보이스 필요 건만, 청구 요약만.
 // 두 메일은 요청번호(#id)로 대조한다.
 export async function POST(req: NextRequest) {
+  const pausedResponse = getReceiverFulfillmentPausedResponse();
+  if (pausedResponse) return pausedResponse;
+
   try {
     const { requestIds, sections, mode: rawMode } = (await req.json()) as {
       requestIds?: number[];
@@ -81,6 +103,8 @@ export async function POST(req: NextRequest) {
     const rawRows = await db
       .select({
         id: accountRequests.id,
+        channel: accountRequests.channel,
+        externalSource: accountRequests.externalSource,
         confirmToken: accountRequests.confirmToken,
         emails: accountRequests.emails,
         status: accountRequests.status,
@@ -107,6 +131,15 @@ export async function POST(req: NextRequest) {
     const uniqueRequestIds = [...new Set(requestIds)];
     if (uniqueRequestIds.length !== requestIds.length || rows.length !== uniqueRequestIds.length) {
       return NextResponse.json({ error: "requestIds must be unique existing account requests" }, { status: 400 });
+    }
+
+    const legacyMarketAuditRows = rows.filter((row) => (
+      (row.channel || "company") === "company"
+      && row.externalSource !== "market"
+      && hasMarketLegacyOrderNote(row.notes)
+    ));
+    if (legacyMarketAuditRows.length > 0) {
+      return legacyMarketAuditBlockedResponse(legacyMarketAuditRows.map((row) => row.id));
     }
 
     const missingEnglishSchoolNames = rows.filter(needsEnglishSchoolNameForHq);
@@ -163,6 +196,17 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // 여러 주문의 fence를 DB 함수 한 번에서 all-or-none 선점한다. 한 건이라도 취소
+    // prepare/commit 상태면 token 생성과 SMTP를 포함한 묶음 전체를 시작하지 않는다.
+    if (!(await claimAccountRequestSideEffects(uniqueRequestIds))) {
+      return NextResponse.json({
+        success: false,
+        code: "MARKET_VOID_FENCED",
+        error: "One or more Market orders are being cancelled or have already been voided.",
+        blockedRequestIds: uniqueRequestIds,
+      }, { status: 409 });
+    }
+
     const tokenMap = new Map<number, string>();
     for (const id of mode === "send_all" ? requestIds : []) {
       const row = rows.find((r) => r.id === id);
@@ -216,6 +260,7 @@ export async function POST(req: NextRequest) {
       const claimedIds = claimed.map((item) => item.id);
       if (claimedIds.length !== requestIds.length) {
         if (claimedIds.length > 0) {
+          // SMTP 호출 전이므로 NOT_ATTEMPTED가 확실한 부분 선점만 해제한다.
           try {
             await db
               .update(accountRequests)
@@ -240,28 +285,12 @@ export async function POST(req: NextRequest) {
         await transporter.sendMail({ from, to: HQ_EMAIL, subject, text: body });
       } catch {
         try {
-          await logEmail({ to: logTo, subject, kind: "account_email", status: "failed", error: "Jon processing email delivery failed", relatedType: "account_request" });
+          await logEmail({ to: logTo, subject, kind: "account_email", status: "failed", error: "Jon processing email delivery outcome unknown; check Gmail Sent", relatedType: "account_request" });
         } catch {
           console.error("[batch-account-email] failed to persist processing email failure log");
         }
-        try {
-          const released = await db
-            .update(accountRequests)
-            .set({ processingEmailSendStartedAt: null, updatedAt: new Date() })
-            .where(and(
-              inArray(accountRequests.id, claimedIds),
-              eq(accountRequests.processingEmailSendStartedAt, processingClaimedAt),
-              isNull(accountRequests.processingEmailSentAt),
-            ))
-            .returning({ id: accountRequests.id });
-          if (released.length !== claimedIds.length) {
-            return deliveryUnknownResponse("processing", requestIds, 500);
-          }
-        } catch {
-          console.error("[batch-account-email] failed to release processing email claims");
-          return deliveryUnknownResponse("processing", requestIds, 500);
-        }
-        return NextResponse.json({ success: false, error: "Failed to send Jon processing email batch" }, { status: 502 });
+        // sendMail throw 뒤에는 수신 여부를 단정할 수 없으므로 모든 claim을 UNKNOWN으로 보존한다.
+        return deliveryUnknownResponse("processing", requestIds, 502);
       }
       try {
         await logEmail({ to: logTo, subject, kind: "account_email", status: "success", relatedType: "account_request" });
@@ -333,6 +362,7 @@ export async function POST(req: NextRequest) {
       const claimedIds = claimed.map((item) => item.id);
       if (claimedIds.length !== invoiceIds.length) {
         if (claimedIds.length > 0) {
+          // SMTP 호출 전이므로 NOT_ATTEMPTED가 확실한 부분 선점만 해제한다.
           try {
             await db
               .update(accountRequests)
@@ -364,10 +394,9 @@ export async function POST(req: NextRequest) {
           console.error("[batch-account-email] failed to persist invoice email failure log");
         }
         try {
-          const released = await db
+          const preserved = await db
             .update(accountRequests)
             .set({
-              invoiceEmailSendStartedAt: null,
               invoiceEmailLastError: safeError,
               updatedAt: new Date(),
             })
@@ -377,27 +406,14 @@ export async function POST(req: NextRequest) {
               isNull(accountRequests.invoiceEmailSentAt),
             ))
             .returning({ id: accountRequests.id });
-          if (released.length !== claimedIds.length) {
-            return deliveryUnknownResponse("invoice", invoiceIds, 500);
+          if (preserved.length !== claimedIds.length) {
+            console.error("[batch-account-email] failed to annotate all unknown invoice claims");
           }
         } catch {
-          console.error("[batch-account-email] failed to release invoice email claims");
-          return deliveryUnknownResponse("invoice", invoiceIds, 500);
+          console.error("[batch-account-email] failed to annotate unknown invoice claims");
         }
-
-        return NextResponse.json({
-          success: false,
-          partialSuccess: true,
-          code: "INVOICE_DELIVERY_FAILED",
-          error: "Jon processing email was sent, but the Cailie invoice email failed.",
-          count: requestIds.length,
-          totalEmails,
-          processingEmailSent: true,
-          invoiceSent: false,
-          invoiceCount: invoiceItems.length,
-          invoiceRetryAvailable: true,
-          invoiceRetryRequestIds: invoiceItems.map((item) => item.requestId),
-        }, { status: 502 });
+        // invoice_only도 Gmail Sent 감사 전까지 자동 재시도하지 않는다.
+        return deliveryUnknownResponse("invoice", invoiceIds, 502);
       }
 
       try {

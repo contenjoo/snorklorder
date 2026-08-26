@@ -1,5 +1,5 @@
-import { boolean, date, index, integer, pgTable, serial, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
-import { relations } from "drizzle-orm";
+import { boolean, check, date, index, integer, pgTable, serial, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { relations, sql } from "drizzle-orm";
 
 export const schools = pgTable("schools", {
   id: serial("id").primaryKey(),
@@ -104,6 +104,12 @@ export const accountRequests = pgTable("account_requests", {
   idempotencyKey: text("idempotency_key"),
   externalPayloadHash: text("external_payload_hash"),
   draftOnly: boolean("draft_only").notNull().default(false),
+  // Market 주문 취소 saga 상태. 실제 경합 차단의 SSOT는 market_order_void_fences이며,
+  // 이 컬럼들은 개별 요청의 감사 추적·UI/상태 되읽기용이다.
+  marketVoidState: text("market_void_state").notNull().default("active"), // active | non_voidable | prepared | voided
+  marketVoidOperationId: text("market_void_operation_id"),
+  marketVoidPreparedAt: timestamp("market_void_prepared_at"),
+  marketVoidedAt: timestamp("market_voided_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => [
@@ -115,6 +121,64 @@ export const accountRequests = pgTable("account_requests", {
   uniqueIndex("account_requests_external_request_unique_idx").on(table.externalSource, table.marketRequestId),
   index("account_requests_market_order_id_idx").on(table.marketOrderId),
   index("account_requests_order_number_idx").on(table.orderNumber),
+  index("account_requests_market_void_state_idx").on(table.marketVoidState),
+  check(
+    "account_requests_market_void_state_check",
+    sql`${table.marketVoidState} in ('active', 'non_voidable', 'prepared', 'voided')`,
+  ),
+]);
+
+/**
+ * Market 주문 단위 취소 fence.
+ *
+ * 같은 주문에 여러 account_request가 있거나 아직 원격 create가 도착하지 않았어도
+ * 한 행의 조건부 UPDATE로 발송 선점(non_voidable)과 취소 선점(prepared)을 직렬화한다.
+ */
+export const marketOrderVoidFences = pgTable("market_order_void_fences", {
+  marketOrderId: text("market_order_id").primaryKey(),
+  orderNumber: text("order_number").notNull(),
+  state: text("state").notNull().default("active"), // active | non_voidable | prepared | voided
+  operationId: text("operation_id"),
+  reasonCode: text("reason_code"),
+  requestFingerprint: text("request_fingerprint"),
+  version: integer("version").notNull().default(0),
+  preparedAt: timestamp("prepared_at"),
+  voidedAt: timestamp("voided_at"),
+  abortedAt: timestamp("aborted_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  index("market_order_void_fences_state_idx").on(table.state),
+  index("market_order_void_fences_operation_id_idx").on(table.operationId),
+  uniqueIndex("market_order_void_fences_operation_id_unique_idx")
+    .on(table.operationId)
+    .where(sql`${table.operationId} is not null`),
+  check(
+    "market_order_void_fences_state_check",
+    sql`${table.state} in ('active', 'non_voidable', 'prepared', 'voided')`,
+  ),
+]);
+
+/** abort/commit 이전 operationId까지 영구 보존하는 ABA 방지 원장. */
+export const marketOrderVoidOperations = pgTable("market_order_void_operations", {
+  operationId: text("operation_id").primaryKey(),
+  marketOrderId: text("market_order_id")
+    .notNull()
+    .references(() => marketOrderVoidFences.marketOrderId, { onDelete: "restrict" }),
+  orderNumber: text("order_number").notNull(),
+  requestFingerprint: text("request_fingerprint").notNull(),
+  state: text("state").notNull(), // prepared | aborted | voided
+  preparedAt: timestamp("prepared_at").defaultNow().notNull(),
+  abortedAt: timestamp("aborted_at"),
+  voidedAt: timestamp("voided_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  index("market_order_void_operations_order_id_idx").on(table.marketOrderId),
+  check(
+    "market_order_void_operations_state_check",
+    sql`${table.state} in ('prepared', 'aborted', 'voided')`,
+  ),
 ]);
 
 export const upgradeBatches = pgTable("upgrade_batches", {

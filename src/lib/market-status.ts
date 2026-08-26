@@ -8,6 +8,8 @@
  * 확인 토큰, 관리자 메모 등)는 어떤 경우에도 응답에 포함하지 않는다 (개인·금융정보 최소화).
  */
 
+import { createHash, timingSafeEqual } from "node:crypto";
+
 export const MARKET_STATUS_FIELDS = [
   "id",
   "status",
@@ -20,6 +22,11 @@ export const MARKET_STATUS_FIELDS = [
   "marketOrderId",
   "orderNumber",
   "idempotencyKey",
+  "marketVoidState",
+  "marketVoidOperationId",
+  "marketVoidVersion",
+  "marketVoidPreparedAt",
+  "marketVoidedAt",
   "updatedAt",
 ] as const;
 
@@ -41,7 +48,12 @@ export function authorizeMarketStatusRequest(
   if (!configuredKey) {
     return { ok: false, status: 503, error: "integration not configured" };
   }
-  if (!providedKey || providedKey !== configuredKey) {
+  if (!providedKey) {
+    return { ok: false, status: 401, error: "Unauthorized" };
+  }
+  const providedDigest = createHash("sha256").update(providedKey).digest();
+  const configuredDigest = createHash("sha256").update(configuredKey).digest();
+  if (!timingSafeEqual(providedDigest, configuredDigest)) {
     return { ok: false, status: 401, error: "Unauthorized" };
   }
   return { ok: true };
@@ -59,6 +71,11 @@ export interface MarketStatusSourceRow {
   marketOrderId: string | null;
   orderNumber: string | null;
   idempotencyKey: string | null;
+  marketVoidState: string;
+  marketVoidOperationId: string | null;
+  marketVoidVersion: number;
+  marketVoidPreparedAt: Date | string | null;
+  marketVoidedAt: Date | string | null;
   updatedAt: Date | string;
 }
 
@@ -74,11 +91,20 @@ export interface MarketStatusItem {
   marketOrderId: string | null;
   orderNumber: string | null;
   idempotencyKey: string | null;
+  marketVoidState: string;
+  marketVoidOperationId: string | null;
+  marketVoidVersion: number;
+  marketVoidPreparedAt: string | null;
+  marketVoidedAt: string | null;
   updatedAt: string;
 }
 
 function toIsoString(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+function toNullableIsoString(value: Date | string | null): string | null {
+  return value == null ? null : toIsoString(value);
 }
 
 /**
@@ -98,6 +124,11 @@ export function toMarketStatusItem(row: MarketStatusSourceRow): MarketStatusItem
     marketOrderId: row.marketOrderId ?? null,
     orderNumber: row.orderNumber ?? null,
     idempotencyKey: row.idempotencyKey ?? null,
+    marketVoidState: row.marketVoidState,
+    marketVoidOperationId: row.marketVoidOperationId ?? null,
+    marketVoidVersion: row.marketVoidVersion,
+    marketVoidPreparedAt: toNullableIsoString(row.marketVoidPreparedAt),
+    marketVoidedAt: toNullableIsoString(row.marketVoidedAt),
     updatedAt: toIsoString(row.updatedAt),
   };
 }

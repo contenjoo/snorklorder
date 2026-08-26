@@ -24,6 +24,8 @@ interface AccountRequest {
   status: string;
   notes: string | null;
   createdAt: string;
+  externalSource: string | null;
+  marketVoidState: string;
 }
 
 interface IndividualTeacher {
@@ -78,6 +80,7 @@ export default function TeachersPage() {
   const individualTeachers = useMemo(() => {
     const result: IndividualTeacher[] = [];
     for (const r of accountRequests) {
+      if (r.externalSource === "market" && ["prepared", "voided"].includes(r.marketVoidState)) continue;
       const emails = r.emails.split(/[,;\n]+/).map((e) => e.trim()).filter((e) => e && e.includes("@"));
       for (const email of emails) {
         result.push({ email, schoolName: r.schoolName, status: r.status, requestId: r.id });

@@ -25,6 +25,7 @@ import {
   type BatchEmailItem,
 } from "@/lib/account-email-template";
 import { getAccountEmailDeliveryState } from "@/lib/account-email-delivery";
+import { hasMarketLegacyOrderNote } from "@/lib/market-legacy-audit";
 
 interface AccountRequest {
   id: number;
@@ -53,6 +54,9 @@ interface AccountRequest {
   invoiceEmailSendStartedAt: string | null;
   invoiceEmailSentAt: string | null;
   invoiceEmailLastError: string | null;
+  externalSource: string | null;
+  marketOrderId: string | null;
+  marketVoidState: "active" | "non_voidable" | "prepared" | "voided";
   confirmedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -113,6 +117,21 @@ function needsDeliveryReview(request: AccountRequest): boolean {
 
 function isLegacyDeliveryComplete(request: AccountRequest): boolean {
   return getAccountEmailDeliveryState(request) === "legacy_complete";
+}
+
+function isMarketManaged(request: AccountRequest): boolean {
+  return request.externalSource === "market";
+}
+
+function isLegacyMarketAudit(request: AccountRequest): boolean {
+  return (request.channel || "company") === "company"
+    && !isMarketManaged(request)
+    && hasMarketLegacyOrderNote(request.notes);
+}
+
+function isMarketVoidFenced(request: AccountRequest): boolean {
+  return isMarketManaged(request)
+    && (request.marketVoidState === "prepared" || request.marketVoidState === "voided");
 }
 
 function AccountsPageContent() {
@@ -242,6 +261,10 @@ function AccountsPageContent() {
   }
 
   function openEdit(r: AccountRequest) {
+    if (isLegacyMarketAudit(r)) {
+      setSendMsg("⚠️ 구 Market 주문 수동 감사 필요: 감사 원본은 수정할 수 없습니다.");
+      return;
+    }
     setEditing(r);
     setFChannel(r.channel || "company"); setFApplicant(r.applicantType || "school"); setFType(r.type); setFSchool(r.schoolName); setFSchoolEn(r.schoolNameEn || ""); setFEmails(r.emails);
     setFAccType(r.accountType || "teacher"); setFQty(r.quantity || 1);
@@ -321,6 +344,11 @@ function AccountsPageContent() {
   }
 
   async function updateStatus(id: number, status: string) {
+    const request = requests.find((item) => item.id === id);
+    if (request && (isMarketVoidFenced(request) || isLegacyMarketAudit(request))) {
+      setSendMsg("⚠️ Market 감사 행의 상태는 변경할 수 없습니다.");
+      return;
+    }
     const res = await fetch("/api/account-requests", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "update", id, status }),
@@ -334,6 +362,11 @@ function AccountsPageContent() {
   }
 
   async function deleteRequest(id: number) {
+    const request = requests.find((item) => item.id === id);
+    if (request && (isMarketManaged(request) || isLegacyMarketAudit(request))) {
+      setSendMsg("⚠️ Market 감사 원본은 삭제할 수 없습니다.");
+      return;
+    }
     if (!confirm("삭제할까요?")) return;
     const res = await fetch("/api/account-requests", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -350,12 +383,16 @@ function AccountsPageContent() {
 
   // Jon에게 이메일 발송 (Nodemailer 통해)
   async function sendToJon(r: AccountRequest) {
+    if (isLegacyMarketAudit(r)) {
+      setSendMsg("⚠️ 구 Market 주문 수동 감사 필요: 직접 발송을 차단했습니다.");
+      return;
+    }
     const { subject, body } = generateAccountEmail(r);
     setSending(true); setSendMsg("");
     try {
       const res = await fetch("/api/account-email", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ requestId: r.id, subject, body }),
+        body: JSON.stringify({ requestId: r.id, subject, body, mode: "send_all" }),
       });
       const data = await res.json();
       if (res.ok && data.success) {
@@ -391,6 +428,10 @@ function AccountsPageContent() {
   }
 
   async function retryInvoiceOnly(r: AccountRequest) {
+    if (isLegacyMarketAudit(r)) {
+      setSendMsg("⚠️ 구 Market 주문 수동 감사 필요: 인보이스 재발송을 차단했습니다.");
+      return;
+    }
     setSending(true); setSendMsg("");
     try {
       const res = await fetch("/api/account-email", {
@@ -424,6 +465,14 @@ function AccountsPageContent() {
 
   // Gmail 열기
   function openGmail(r: AccountRequest) {
+    if (isLegacyMarketAudit(r)) {
+      setSendMsg("⚠️ 구 Market 주문 수동 감사 필요: Gmail 작성창을 열 수 없습니다.");
+      return;
+    }
+    if (isMarketManaged(r)) {
+      setSendMsg("⚠️ Market 주문은 취소 경합 보호를 위해 서버 발송만 허용합니다.");
+      return;
+    }
     const deliveryState = getAccountEmailDeliveryState(r);
     if (deliveryState === "legacy_complete") {
       setSendMsg("⚠️ 기존 발송 완료/중복 발송 차단: 이전 처리 완료 건은 Gmail 재발송을 열 수 없습니다.");
@@ -440,6 +489,15 @@ function AccountsPageContent() {
   }
 
   function toggleSelect(id: number) {
+    const request = requests.find((item) => item.id === id);
+    if (request && isLegacyMarketAudit(request)) {
+      setSendMsg("⚠️ 구 Market 주문 수동 감사 필요: 묶음 발송 선택을 차단했습니다.");
+      return;
+    }
+    if (request && isMarketManaged(request)) {
+      setSendMsg("⚠️ Market 주문은 개별 서버 발송만 허용합니다.");
+      return;
+    }
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
@@ -455,6 +513,14 @@ function AccountsPageContent() {
     const selectedRequests = ids
       .map((id) => requests.find((r) => r.id === id))
       .filter((r): r is AccountRequest => !!r);
+    if (selectedRequests.some(isLegacyMarketAudit)) {
+      setSendMsg("⚠️ 구 Market 주문 수동 감사 필요: 묶음 발송을 차단했습니다.");
+      return;
+    }
+    if (selectedRequests.some(isMarketManaged)) {
+      setSendMsg("⚠️ Market 주문은 미리보기 없는 개별 서버 발송만 허용합니다.");
+      return;
+    }
     if (selectedRequests.some(needsDeliveryReview)) {
       setSendMsg("⚠️ Gmail 보낸편지함 확인이 필요한 건은 자동 발송할 수 없습니다.");
       return;
@@ -513,6 +579,14 @@ function AccountsPageContent() {
 
   // 클립보드 복사
   function copyEmail(r: AccountRequest) {
+    if (isLegacyMarketAudit(r)) {
+      setSendMsg("⚠️ 구 Market 주문 수동 감사 필요: 메일 복사를 허용하지 않습니다.");
+      return;
+    }
+    if (isMarketManaged(r)) {
+      setSendMsg("⚠️ Market 주문은 취소 경합 보호를 위해 메일 복사를 허용하지 않습니다.");
+      return;
+    }
     const { subject, body } = generateAccountEmail(r);
     navigator.clipboard.writeText(`Subject: ${subject}\n\n${body}`);
     setSendMsg("📋 복사됨");
@@ -533,8 +607,15 @@ function AccountsPageContent() {
     return true;
   });
 
-  const statusCounts = STATUSES.map((s) => ({ ...s, count: requests.filter((r) => r.status === s.value).length }));
-  const emailCount = requests.reduce((s, r) => s + r.emails.split(/[,;\n]+/).filter((e) => e.trim() && e.includes("@")).length, 0);
+  // prepared/voided 및 구 Market marker 행은 원본 목록에 보존하되 운영 집계에서는 제외한다.
+  const operationalRequests = requests.filter((request) => (
+    !isMarketVoidFenced(request) && !isLegacyMarketAudit(request)
+  ));
+  const selectableFiltered = filtered.filter((request) => (
+    !isMarketManaged(request) && !isLegacyMarketAudit(request)
+  ));
+  const statusCounts = STATUSES.map((s) => ({ ...s, count: operationalRequests.filter((r) => r.status === s.value).length }));
+  const emailCount = operationalRequests.reduce((s, r) => s + r.emails.split(/[,;\n]+/).filter((e) => e.trim() && e.includes("@")).length, 0);
   const selectedRequestsForAction = Array.from(selectedIds)
     .map((id) => requests.find((request) => request.id === id))
     .filter((request): request is AccountRequest => Boolean(request));
@@ -542,6 +623,7 @@ function AccountsPageContent() {
     && selectedRequestsForAction.every(needsInvoiceRetry);
   const selectionNeedsDeliveryReview = selectedRequestsForAction.some(needsDeliveryReview);
   const selectionHasLegacyDelivery = selectedRequestsForAction.some(isLegacyDeliveryComplete);
+  const selectionHasLegacyMarketAudit = selectedRequestsForAction.some(isLegacyMarketAudit);
 
   return (
     <div className="space-y-3 pb-20 md:pb-0">
@@ -550,7 +632,7 @@ function AccountsPageContent() {
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-bold text-slate-900">정산</h1>
           <div className="flex items-center gap-2 text-xs text-slate-500">
-            <span><strong className="text-slate-900 text-sm">{requests.length}</strong> 건</span>
+            <span><strong className="text-slate-900 text-sm">{operationalRequests.length}</strong> 건</span>
             <span className="text-slate-200">|</span>
             <span><strong className="text-slate-900 text-sm">{emailCount}</strong> 명</span>
           </div>
@@ -777,8 +859,15 @@ function AccountsPageContent() {
       {selectedIds.size > 0 && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-50 border border-blue-200">
           <span className="text-sm font-medium text-blue-900">{selectedIds.size}건 선택됨</span>
-          <Button size="sm" onClick={() => setBatchPreviewOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-xs">
-            {selectionNeedsDeliveryReview
+          <Button
+            size="sm"
+            onClick={() => setBatchPreviewOpen(true)}
+            disabled={selectionHasLegacyMarketAudit}
+            className="bg-blue-600 hover:bg-blue-700 text-xs"
+          >
+            {selectionHasLegacyMarketAudit
+              ? "⛔ 구 Market 주문 수동 감사 필요"
+              : selectionNeedsDeliveryReview
               ? "⛔ 보낸편지함 확인"
               : selectionHasLegacyDelivery
                 ? "⛔ 기존 발송 완료/중복 발송 차단"
@@ -794,7 +883,7 @@ function AccountsPageContent() {
       <div className="flex gap-1 flex-wrap">
         <button onClick={() => setFilter("all")}
           className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors ${filter === "all" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-500"}`}>
-          전체 {requests.length}
+          전체 {operationalRequests.length}
         </button>
         {statusCounts.map((s) => (
           <button key={s.value} onClick={() => setFilter(filter === s.value ? "all" : s.value)}
@@ -812,9 +901,9 @@ function AccountsPageContent() {
             <input
               type="checkbox"
               aria-label="전체 선택"
-              checked={filtered.length > 0 && filtered.every((r) => selectedIds.has(r.id))}
+              checked={selectableFiltered.length > 0 && selectableFiltered.every((r) => selectedIds.has(r.id))}
               onChange={(e) => {
-                if (e.target.checked) setSelectedIds(new Set(filtered.map((r) => r.id)));
+                if (e.target.checked) setSelectedIds(new Set(selectableFiltered.map((r) => r.id)));
                 else clearSelection();
               }}
             />
@@ -834,6 +923,9 @@ function AccountsPageContent() {
           const dday = dDayInfo(r.invoiceDueDate, r.paymentDate);
           const deliveryState = getAccountEmailDeliveryState(r);
           const legacyDeliveryComplete = deliveryState === "legacy_complete";
+          const marketManaged = isMarketManaged(r);
+          const marketVoidFenced = isMarketVoidFenced(r);
+          const legacyMarketAudit = isLegacyMarketAudit(r);
 
           return (
             <div
@@ -849,6 +941,12 @@ function AccountsPageContent() {
                     aria-label={`${r.schoolName} 선택`}
                     checked={selectedIds.has(r.id)}
                     onChange={() => toggleSelect(r.id)}
+                    disabled={marketManaged || legacyMarketAudit}
+                    title={legacyMarketAudit
+                      ? "구 Market 주문 수동 감사 필요 — 묶음 발송 선택 금지"
+                      : marketManaged
+                        ? "Market 주문은 개별 서버 발송만 허용"
+                        : undefined}
                   />
                 </span>
                 <span className="text-sm w-5 text-center" title={typeInfo?.label}>{typeInfo?.icon}</span>
@@ -883,6 +981,19 @@ function AccountsPageContent() {
                         title="0016 이전 처리 완료 건 — 중복 발송 차단"
                       >⛔ 기존 발송 완료</span>
                     )}
+                    {marketManaged && (
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold ${
+                        marketVoidFenced ? "bg-rose-100 text-rose-800" : "bg-cyan-100 text-cyan-800"
+                      }`}>
+                        {r.marketVoidState === "voided" ? "Market 취소됨" : r.marketVoidState === "prepared" ? "Market 취소 준비" : "Market 서버 발송"}
+                      </span>
+                    )}
+                    {legacyMarketAudit && (
+                      <span
+                        className="text-[9px] px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-800 font-semibold"
+                        title="메일·복사·묶음·수정·삭제·상태 변경을 금지한 감사 전용 행"
+                      >⛔ 구 Market 주문 수동 감사 필요</span>
+                    )}
                     <span className="text-[10px] text-slate-400">{emails.length > 1 ? `${emails.length}명` : ""}</span>
                   </div>
                   <div className="text-[11px] font-mono text-slate-500 truncate">
@@ -894,8 +1005,8 @@ function AccountsPageContent() {
                   <div className={r.confirmedAt ? "text-emerald-600" : "text-slate-300"}>{fmtMD(r.confirmedAt)}</div>
                 </div>
                 <div className="w-20">
-                  <select value={r.status} onChange={(e) => updateStatus(r.id, e.target.value)}
-                    className={`w-full text-[10px] font-medium rounded-full px-2 py-0.5 border-0 cursor-pointer ${statusInfo?.color || "bg-slate-100"}`}>
+                  <select value={r.status} onChange={(e) => updateStatus(r.id, e.target.value)} disabled={marketVoidFenced || legacyMarketAudit}
+                    className={`w-full text-[10px] font-medium rounded-full px-2 py-0.5 border-0 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 ${statusInfo?.color || "bg-slate-100"}`}>
                     {STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
                   </select>
                 </div>
@@ -910,20 +1021,36 @@ function AccountsPageContent() {
                   {dday && <span className={`inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-full mt-0.5 ${dday.cls}`} title={`결제 기한: ${r.invoiceDueDate}`}>{dday.label}</span>}
                 </div>
                 <div className="w-28 flex items-center justify-end gap-0.5">
-                  <button onClick={() => setEmailPreview(r)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-blue-50 text-slate-400 hover:text-blue-600" title="미리보기">📧</button>
-                  <button
-                    onClick={() => openGmail(r)}
-                    disabled={deliveryState !== "ready"}
-                    className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-slate-100 text-slate-400 hover:text-slate-600 disabled:opacity-30 disabled:cursor-not-allowed"
-                    title={legacyDeliveryComplete
-                      ? "기존 발송 완료/중복 발송 차단"
-                      : deliveryState !== "ready"
-                        ? "Jon 처리 메일 발송 완료/확인 필요 — 중복 발송 차단"
-                        : "Gmail"}
-                  >📨</button>
-                  <button onClick={() => copyEmail(r)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-slate-100 text-slate-400 hover:text-slate-600" title="복사">📋</button>
-                  <button onClick={() => openEdit(r)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-slate-100 text-slate-400 hover:text-slate-600" title="수정">✎</button>
-                  <button onClick={() => deleteRequest(r.id)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-red-50 text-slate-300 hover:text-red-500" title="삭제">✕</button>
+                  {legacyMarketAudit ? (
+                    <span
+                      className="h-7 px-2 rounded text-[10px] font-semibold bg-orange-50 text-orange-800 inline-flex items-center"
+                      title="구 Market 주문은 자동 처리하지 않고 수동 감사만 허용"
+                    >수동 감사</span>
+                  ) : marketManaged ? (
+                    <button
+                      onClick={() => needsInvoiceRetry(r) ? retryInvoiceOnly(r) : sendToJon(r)}
+                      disabled={sending || marketVoidFenced || deliveryState === "complete" || deliveryState === "legacy_complete" || needsDeliveryReview(r)}
+                      className="h-7 px-2 rounded text-[10px] font-semibold bg-cyan-50 text-cyan-700 hover:bg-cyan-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                      title="미리보기·mailto·복사 없이 DB fence를 선점한 서버 발송"
+                    >서버 발송</button>
+                  ) : (
+                    <>
+                      <button onClick={() => setEmailPreview(r)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-blue-50 text-slate-400 hover:text-blue-600" title="미리보기">📧</button>
+                      <button
+                        onClick={() => openGmail(r)}
+                        disabled={deliveryState !== "ready"}
+                        className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-slate-100 text-slate-400 hover:text-slate-600 disabled:opacity-30 disabled:cursor-not-allowed"
+                        title={legacyDeliveryComplete
+                          ? "기존 발송 완료/중복 발송 차단"
+                          : deliveryState !== "ready"
+                            ? "Jon 처리 메일 발송 완료/확인 필요 — 중복 발송 차단"
+                            : "Gmail"}
+                      >📨</button>
+                      <button onClick={() => copyEmail(r)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-slate-100 text-slate-400 hover:text-slate-600" title="복사">📋</button>
+                    </>
+                  )}
+                  <button onClick={() => openEdit(r)} disabled={marketVoidFenced || legacyMarketAudit} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-slate-100 text-slate-400 hover:text-slate-600 disabled:opacity-30 disabled:cursor-not-allowed" title={legacyMarketAudit ? "구 Market 감사 원본 수정 금지" : "수정"}>✎</button>
+                  {!marketManaged && !legacyMarketAudit && <button onClick={() => deleteRequest(r.id)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-red-50 text-slate-300 hover:text-red-500" title="삭제">✕</button>}
                 </div>
               </div>
 
@@ -935,6 +1062,7 @@ function AccountsPageContent() {
                     aria-label={`${r.schoolName} 선택`}
                     checked={selectedIds.has(r.id)}
                     onChange={() => toggleSelect(r.id)}
+                    disabled={marketManaged || legacyMarketAudit}
                     className="shrink-0"
                   />
                   <span className="text-sm">{typeInfo?.icon}</span>
@@ -951,9 +1079,12 @@ function AccountsPageContent() {
                     {legacyDeliveryComplete && (
                       <span className="text-[9px] px-1 py-0.5 rounded bg-slate-200 text-slate-700 font-semibold ml-1">⛔ 기존 완료</span>
                     )}
+                    {legacyMarketAudit && (
+                      <span className="text-[9px] px-1 py-0.5 rounded bg-orange-100 text-orange-800 font-semibold ml-1">⛔ 구 Market 수동 감사</span>
+                    )}
                   </span>
-                  <select value={r.status} onChange={(e) => updateStatus(r.id, e.target.value)}
-                    className={`text-[10px] font-medium rounded-full px-2 py-0.5 border-0 ${statusInfo?.color || "bg-slate-100"}`}>
+                  <select value={r.status} onChange={(e) => updateStatus(r.id, e.target.value)} disabled={marketVoidFenced || legacyMarketAudit}
+                    className={`text-[10px] font-medium rounded-full px-2 py-0.5 border-0 disabled:opacity-50 ${statusInfo?.color || "bg-slate-100"}`}>
                     {STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
                   </select>
                 </div>
@@ -965,9 +1096,21 @@ function AccountsPageContent() {
                   {r.confirmedAt && <span className="text-emerald-600">✓ {fmtMD(r.confirmedAt)}</span>}
                 </div>
                 <div className="flex items-center gap-1.5 mt-1.5 ml-6">
-                  <button onClick={() => setEmailPreview(r)} className="text-[11px] text-slate-400 hover:text-blue-600 px-2 py-1 rounded bg-slate-50 min-h-[28px]">미리보기</button>
-                  <button onClick={() => copyEmail(r)} className="text-[11px] text-slate-400 hover:text-blue-600 px-2 py-1 rounded bg-slate-50 min-h-[28px]">복사</button>
-                  <button onClick={() => openEdit(r)} className="text-[11px] text-slate-400 hover:text-blue-600 px-2 py-1 rounded bg-slate-50 min-h-[28px]">수정</button>
+                  {legacyMarketAudit ? (
+                    <span className="text-[11px] text-orange-800 px-2 py-1 rounded bg-orange-50 min-h-[28px] inline-flex items-center font-semibold">수동 감사만</span>
+                  ) : marketManaged ? (
+                    <button
+                      onClick={() => needsInvoiceRetry(r) ? retryInvoiceOnly(r) : sendToJon(r)}
+                      disabled={sending || marketVoidFenced || deliveryState === "complete" || deliveryState === "legacy_complete" || needsDeliveryReview(r)}
+                      className="text-[11px] text-cyan-700 px-2 py-1 rounded bg-cyan-50 min-h-[28px] disabled:opacity-40"
+                    >서버 발송</button>
+                  ) : (
+                    <>
+                      <button onClick={() => setEmailPreview(r)} className="text-[11px] text-slate-400 hover:text-blue-600 px-2 py-1 rounded bg-slate-50 min-h-[28px]">미리보기</button>
+                      <button onClick={() => copyEmail(r)} className="text-[11px] text-slate-400 hover:text-blue-600 px-2 py-1 rounded bg-slate-50 min-h-[28px]">복사</button>
+                    </>
+                  )}
+                  <button onClick={() => openEdit(r)} disabled={marketVoidFenced || legacyMarketAudit} className="text-[11px] text-slate-400 hover:text-blue-600 px-2 py-1 rounded bg-slate-50 min-h-[28px] disabled:opacity-40">수정</button>
                   {r.invoiceAmount && <span className="text-[10px] font-semibold text-slate-700 ml-auto">{r.invoiceAmount}{r.paymentDate && " ✓"}</span>}
                   {dday && <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${dday.cls} ${r.invoiceAmount ? "" : "ml-auto"}`} title={`결제 기한: ${r.invoiceDueDate}`}>{dday.label}</span>}
                 </div>
@@ -997,7 +1140,7 @@ function AccountsPageContent() {
       )}
 
       {/* Email Preview Modal */}
-      {emailPreview && (() => {
+      {emailPreview && !isMarketManaged(emailPreview) && !isLegacyMarketAudit(emailPreview) && (() => {
         const { subject, body } = generateAccountEmail(emailPreview);
         const deliveryState = getAccountEmailDeliveryState(emailPreview);
         const invoiceRetryOnly = deliveryState === "invoice_retry";
@@ -1109,6 +1252,8 @@ function AccountsPageContent() {
         const selectedRequests = ids
           .map((id) => requests.find((r) => r.id === id))
           .filter((r): r is AccountRequest => !!r);
+        // 새 목록을 불러오기 전의 오래된 선택 상태가 남아도 legacy 감사행 본문을 렌더링하지 않는다.
+        if (selectedRequests.some(isLegacyMarketAudit)) return null;
         const invoiceRetryOnly = selectedRequests.length > 0 && selectedRequests.every(needsInvoiceRetry);
         const deliveryUnknown = selectedRequests.some(needsDeliveryReview);
         const legacyDeliveryComplete = selectedRequests.some(isLegacyDeliveryComplete);

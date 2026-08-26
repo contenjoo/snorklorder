@@ -88,6 +88,11 @@ const fullRow = {
   marketOrderId: "order_1",
   orderNumber: "ORD-20260823-ABCD",
   idempotencyKey: "market:order_1:snorkl:teacher",
+  marketVoidState: "prepared",
+  marketVoidOperationId: "cancel_order_1",
+  marketVoidVersion: 3,
+  marketVoidPreparedAt: new Date("2026-08-24T00:01:00.000Z"),
+  marketVoidedAt: null,
   updatedAt: new Date("2026-08-24T00:00:00.000Z"),
   // 금지 필드 — DB 전체 행이 그대로 넘어와도 응답에 실리면 안 된다
   quantity: 30,
@@ -119,6 +124,10 @@ test("응답 항목은 화이트리스트 필드만 포함한다 (금지 필드 
   // market은 externalRequestId를 String(...)으로 저장하므로 id는 문자열 계약이다
   assert.equal(item.id, "42");
   assert.equal(item.status, "invoiced");
+  assert.equal(item.marketVoidState, "prepared");
+  assert.equal(item.marketVoidVersion, 3);
+  assert.equal(item.marketVoidPreparedAt, "2026-08-24T00:01:00.000Z");
+  assert.equal(item.marketVoidedAt, null);
   assert.equal(item.updatedAt, "2026-08-24T00:00:00.000Z");
 });
 
@@ -160,11 +169,17 @@ test("market-status Route Handler는 API 키 전용·읽기 전용이며 화이�
   assert.match(route, /toMarketStatusItem/);
   assert.match(route, /orderBy\(desc\(accountRequests\.updatedAt\)\)/);
 
-  // 라우트가 참조하는 accountRequests 컬럼 집합 == 화이트리스트 (select 단계 유출 차단)
+  // 라우트가 참조하는 accountRequests 컬럼은 화이트리스트 안에만 있어야 한다.
+  // operation/version은 fence SSOT에서 읽으므로 accountRequests 참조에는 없다.
   const referencedColumns = new Set(
     [...route.matchAll(/accountRequests\.([A-Za-z0-9]+)/g)].map((m) => m[1]),
   );
-  assert.deepEqual([...referencedColumns].sort(), [...MARKET_STATUS_FIELDS].sort());
+  for (const column of referencedColumns) {
+    assert.ok(MARKET_STATUS_FIELDS.includes(column), `허용되지 않은 accountRequests 컬럼 참조: ${column}`);
+  }
+  assert.match(route, /eq\(accountRequests\.externalSource, "market"\)/);
+  assert.match(route, /marketOrderId/);
+  assert.match(route, /voidState/);
 });
 
 test("기존 관리자용 GET /api/account-requests 는 세션 인증 그대로다 (동작 불변)", async () => {
@@ -189,6 +204,10 @@ test("Proxy는 market-status GET만 공개 예외로 두고 기존 계약은 불
   );
   // 기존 market 수신 계약 불변: POST /api/account-requests 만 공개
   assert.match(proxy, /pathname === "\/api\/account-requests" && request\.method === "POST"/);
+  assert.match(
+    proxy,
+    /pathname === "\/api\/account-requests\/market-void" && request\.method === "POST"/,
+  );
   // prefix 개방 금지 — 관리자용 GET /api/account-requests 는 계속 세션 보호를 받는다
   assert.doesNotMatch(proxy, /startsWith\("\/api\/account-requests/);
 });

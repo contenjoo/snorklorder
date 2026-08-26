@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { schools, teachers, accountRequests, domainRequests } from "@/db/schema";
-import { desc, inArray } from "drizzle-orm";
+import { and, desc, inArray, notInArray } from "drizzle-orm";
 import { canConfirmUpgrades } from "@/lib/partner-roles";
 import { PARTNER_SESSION_COOKIE_NAME, verifyPartnerSessionToken } from "@/lib/signed-session";
 
@@ -46,7 +46,10 @@ export async function GET() {
         updatedAt: accountRequests.updatedAt,
       })
       .from(accountRequests)
-      .where(inArray(accountRequests.status, ["sent", "processed", "invoiced"]))
+      .where(and(
+        inArray(accountRequests.status, ["sent", "processed", "invoiced"]),
+        notInArray(accountRequests.marketVoidState, ["prepared", "voided"]),
+      ))
       .orderBy(desc(accountRequests.updatedAt)),
     db
       .select({

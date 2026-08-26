@@ -1,8 +1,8 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { accountRequests } from "@/db/schema";
-import { and, desc, eq, or } from "drizzle-orm";
+import { accountRequests, marketOrderVoidFences } from "@/db/schema";
+import { and, desc, eq, inArray, or } from "drizzle-orm";
 import { checkAuth } from "@/lib/auth";
 import { checkRateLimit, createRateLimitResponse, isValidEmail, normalizeText } from "@/lib/security";
 import { sendAccountUpgradeCompletion } from "@/lib/email";
@@ -17,23 +17,35 @@ import {
   classifyMarketReplay,
   containsMarketIdentity,
   hashMarketPayload,
-  validateLegacyMarketDraft,
   validateMarketEnvelope,
   validateMarketQuantity,
   type MarketEnvelope,
 } from "@/lib/market-account-request";
+import { authorizeMarketStatusRequest } from "@/lib/market-status";
+import { getReceiverFulfillmentPausedResponse } from "@/lib/receiver-fulfillment-pause";
+import { hasMarketLegacyOrderNote } from "@/lib/market-legacy-audit";
 
 type ExistingMarketRequest = {
   id: number;
   status: string;
   externalSource: string | null;
   marketRequestId: string | null;
+  marketOrderId: string | null;
   idempotencyKey: string | null;
   externalPayloadHash: string | null;
+  marketVoidState: string;
 };
 
 function normalizeOptionalText(value: unknown, maxLength: number): string | null {
   return typeof value === "string" && value.trim() ? normalizeText(value, maxLength) : null;
+}
+
+function legacyMarketIdentityRequiredResponse() {
+  return NextResponse.json({
+    success: false,
+    code: "MARKET_LEGACY_IDENTITY_REQUIRED",
+    error: "Legacy Market order notes are no longer accepted without strict Market identity.",
+  }, { status: 409 });
 }
 
 async function findExistingMarketRequest(envelope: MarketEnvelope): Promise<ExistingMarketRequest | null> {
@@ -43,8 +55,10 @@ async function findExistingMarketRequest(envelope: MarketEnvelope): Promise<Exis
       status: accountRequests.status,
       externalSource: accountRequests.externalSource,
       marketRequestId: accountRequests.marketRequestId,
+      marketOrderId: accountRequests.marketOrderId,
       idempotencyKey: accountRequests.idempotencyKey,
       externalPayloadHash: accountRequests.externalPayloadHash,
+      marketVoidState: accountRequests.marketVoidState,
     })
     .from(accountRequests)
     .where(
@@ -66,11 +80,34 @@ async function findExistingMarketRequest(envelope: MarketEnvelope): Promise<Exis
     ?? null;
 }
 
-function marketReplayResponse(
+async function marketReplayResponse(
   existing: ExistingMarketRequest,
   envelope: MarketEnvelope,
   payloadHash: string,
 ) {
+  const [fence] = existing.marketOrderId
+    ? await db
+        .select({ state: marketOrderVoidFences.state })
+        .from(marketOrderVoidFences)
+        .where(eq(marketOrderVoidFences.marketOrderId, existing.marketOrderId))
+        .limit(1)
+    : [];
+  const voidState = fence?.state ?? existing.marketVoidState;
+  if (voidState === "prepared") {
+    return NextResponse.json({
+      success: false,
+      code: "MARKET_REQUEST_VOID_PREPARED",
+      error: "This Market order is being cancelled.",
+    }, { status: 409 });
+  }
+  if (voidState === "voided") {
+    return NextResponse.json({
+      success: false,
+      code: "MARKET_REQUEST_VOIDED",
+      error: "This Market order has been voided.",
+    }, { status: 410 });
+  }
+
   const sameIdentity = existing.externalSource === envelope.externalSource
     && existing.marketRequestId === envelope.marketRequestId
     && existing.idempotencyKey === envelope.idempotencyKey;
@@ -104,7 +141,25 @@ export async function GET() {
     .select()
     .from(accountRequests)
     .orderBy(desc(accountRequests.createdAt));
-  return NextResponse.json(await hydrateAccountRequestSchoolNames(result));
+  const marketOrderIds = [...new Set(
+    result
+      .filter((row) => row.externalSource === "market" && row.marketOrderId)
+      .map((row) => row.marketOrderId as string),
+  )];
+  const fences = marketOrderIds.length > 0
+    ? await db
+        .select({ marketOrderId: marketOrderVoidFences.marketOrderId, state: marketOrderVoidFences.state })
+        .from(marketOrderVoidFences)
+        .where(inArray(marketOrderVoidFences.marketOrderId, marketOrderIds))
+    : [];
+  const fenceState = new Map(fences.map((fence) => [fence.marketOrderId, fence.state]));
+  const hydrated = await hydrateAccountRequestSchoolNames(result);
+  return NextResponse.json(hydrated.map((row) => ({
+    ...row,
+    marketVoidState: row.marketOrderId
+      ? fenceState.get(row.marketOrderId) ?? row.marketVoidState
+      : row.marketVoidState,
+  })));
 }
 
 export async function POST(req: NextRequest) {
@@ -114,10 +169,10 @@ export async function POST(req: NextRequest) {
   if (action === "create") {
     // API 키 인증은 market 전용 수신 계약이다. 잘못된 키를 공개 폼으로 강등하지 않는다.
     const apiKey = req.headers.get("x-api-key");
-    const validApiKey = process.env.INTEGRATION_API_KEY;
-    const isApiKeyAuth = !!(validApiKey && apiKey && apiKey === validApiKey);
-    if (apiKey && !isApiKeyAuth) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const marketAuth = authorizeMarketStatusRequest(apiKey, process.env.INTEGRATION_API_KEY);
+    const isApiKeyAuth = marketAuth.ok;
+    if (apiKey !== null && !marketAuth.ok) {
+      return NextResponse.json({ error: marketAuth.error }, { status: marketAuth.status });
     }
 
     const isAuthenticated = isApiKeyAuth || (await checkAuth());
@@ -174,20 +229,30 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Invalid needsInvoice: must be a boolean" }, { status: 400 });
       }
 
-      if (containsMarketIdentity(data)) {
-        const envelopeResult = validateMarketEnvelope(data);
-        if (!envelopeResult.ok) {
-          return NextResponse.json({ error: envelopeResult.error }, { status: 400 });
+      if (!containsMarketIdentity(data)) {
+        if (hasMarketLegacyOrderNote(data.notes)) {
+          return legacyMarketIdentityRequiredResponse();
         }
-        marketEnvelope = envelopeResult.value;
-      } else {
-        const legacyResult = validateLegacyMarketDraft(data);
-        if (!legacyResult.ok) {
-          return NextResponse.json({ error: legacyResult.error }, { status: 400 });
-        }
-        // TODO: market 배포가 strict envelope로 전환된 뒤 이 호환 경로와 로그를 제거한다.
-        console.warn("[market-account-request] legacy draft-only request accepted without idempotency metadata");
+        return NextResponse.json({
+          error: "Strict Market identity envelope is required",
+        }, { status: 400 });
       }
+      const envelopeResult = validateMarketEnvelope(data);
+      if (!envelopeResult.ok) {
+        return NextResponse.json({ error: envelopeResult.error }, { status: 400 });
+      }
+      marketEnvelope = envelopeResult.value;
+      if (req.headers.get("idempotency-key") !== marketEnvelope.idempotencyKey) {
+        return NextResponse.json({
+          error: "Idempotency-Key header must match idempotencyKey",
+        }, { status: 400 });
+      }
+    }
+
+    // 관리자 세션도 구 writer 표식으로 Market 요청을 우회 생성할 수 없다.
+    // 공개 호출자의 notes는 아래에서 저장하지 않으므로 신뢰·판정 입력으로 쓰지 않는다.
+    if (isAuthenticated && !marketEnvelope && hasMarketLegacyOrderNote(data.notes)) {
+      return legacyMarketIdentityRequiredResponse();
     }
 
     const emailList = String(data.emails)
@@ -206,8 +271,10 @@ export async function POST(req: NextRequest) {
 
     const normalizedSchoolName = normalizeText(String(data.schoolName), 120);
     const normalizedSchoolNameEn = normalizeOptionalText(data.schoolNameEn, 160);
-    // H2: notes is admin-only context stored in unbounded Postgres text; raise cap from 500 to 4000
-    const normalizedNotes = typeof data.notes === "string" ? normalizeText(data.notes, 4000) : null;
+    // notes는 관리자/API-key 전용이다. 공개 body의 notes는 저장하거나 신뢰하지 않는다.
+    const normalizedNotes = isAuthenticated && typeof data.notes === "string"
+      ? normalizeText(data.notes, 4000)
+      : null;
     const normalizedOldEmail = isAuthenticated ? normalizeOptionalText(data.oldEmail, 254) : null;
     const normalizedFromType = isAuthenticated ? normalizeOptionalText(data.fromType, 80) : null;
     const normalizedExtensionDate = isAuthenticated ? normalizeOptionalText(data.extensionDate, 120) : null;
@@ -261,7 +328,7 @@ export async function POST(req: NextRequest) {
         draftOnly: true,
       });
       const existing = await findExistingMarketRequest(marketEnvelope);
-      if (existing) return marketReplayResponse(existing, marketEnvelope, payloadHash);
+      if (existing) return await marketReplayResponse(existing, marketEnvelope, payloadHash);
 
       try {
         const [item] = await db
@@ -295,9 +362,24 @@ export async function POST(req: NextRequest) {
         // 동시 재시도에서 unique 제약이 먼저 이긴 경우 동일 요청을 다시 찾아 멱등 응답한다.
         try {
           const raced = await findExistingMarketRequest(marketEnvelope);
-          if (raced) return marketReplayResponse(raced, marketEnvelope, payloadHash);
+          if (raced) return await marketReplayResponse(raced, marketEnvelope, payloadHash);
         } catch {
           // 개인정보나 SQL 오류 원문을 로그에 남기지 않고 일반 오류로 종료한다.
+        }
+        const [fence] = await db
+          .select({ state: marketOrderVoidFences.state })
+          .from(marketOrderVoidFences)
+          .where(eq(marketOrderVoidFences.marketOrderId, marketEnvelope.marketOrderId))
+          .limit(1)
+          .catch(() => []);
+        if (fence?.state === "prepared" || fence?.state === "voided") {
+          return NextResponse.json({
+            success: false,
+            code: fence.state === "prepared" ? "MARKET_REQUEST_VOID_PREPARED" : "MARKET_REQUEST_VOIDED",
+            error: fence.state === "prepared"
+              ? "This Market order is being cancelled."
+              : "This Market order has been voided.",
+          }, { status: fence.state === "prepared" ? 409 : 410 });
         }
         return NextResponse.json({ error: "Failed to create account request" }, { status: 500 });
       }
@@ -305,28 +387,13 @@ export async function POST(req: NextRequest) {
 
     const [item] = await db
       .insert(accountRequests)
-      .values(isApiKeyAuth
-        ? {
-          ...requestValues,
-          externalSource: "market",
-          draftOnly: true,
-        }
-        : requestValues)
+      .values(requestValues)
       .returning();
 
     // 자동 Jon 발송은 사용자 정책상 비활성. 정산 화면에서 수동으로 검토 후 발송.
     return NextResponse.json({
       success: true,
       requestId: item.id,
-      ...(isApiKeyAuth
-        ? {
-          status: item.status,
-          created: true,
-          duplicate: false,
-          legacy: true,
-          deliveryMode: MARKET_DRAFT_DELIVERY_MODE,
-        }
-        : {}),
     });
   }
 
@@ -335,6 +402,9 @@ export async function POST(req: NextRequest) {
   }
 
   if (action === "update" && id) {
+    const pausedResponse = getReceiverFulfillmentPausedResponse();
+    if (pausedResponse) return pausedResponse;
+
     const updates: Record<string, unknown> = { updatedAt: new Date() };
     const fields = ["channel", "applicantType", "type", "schoolName", "schoolNameEn", "emails", "accountType", "quantity", "oldEmail",
       "fromType", "extensionDate", "notes", "needsInvoice", "status", "invoiceNumber", "invoiceAmount",
@@ -349,12 +419,51 @@ export async function POST(req: NextRequest) {
       );
     }
     // Jon 처리완료(processed) 전환 감지를 위해 이전 상태 조회
-    const [prev] = await db.select({ status: accountRequests.status }).from(accountRequests).where(eq(accountRequests.id, id));
-    const [item] = await db
-      .update(accountRequests)
-      .set(updates)
-      .where(eq(accountRequests.id, id))
-      .returning();
+    const [prev] = await db.select({
+      status: accountRequests.status,
+      externalSource: accountRequests.externalSource,
+      channel: accountRequests.channel,
+      notes: accountRequests.notes,
+      marketOrderId: accountRequests.marketOrderId,
+      marketVoidState: accountRequests.marketVoidState,
+    }).from(accountRequests).where(eq(accountRequests.id, id));
+    if (!prev) return NextResponse.json({ error: "Account request not found" }, { status: 404 });
+    const nextChannel = typeof updates.channel === "string" ? updates.channel : prev.channel;
+    if (prev.externalSource !== "market" && (
+      (prev.channel === "company" && hasMarketLegacyOrderNote(prev.notes))
+      || (nextChannel === "company" && hasMarketLegacyOrderNote(updates.notes))
+    )) {
+      return legacyMarketIdentityRequiredResponse();
+    }
+    if (prev.externalSource === "market" && prev.marketOrderId) {
+      const [fence] = await db
+        .select({ state: marketOrderVoidFences.state })
+        .from(marketOrderVoidFences)
+        .where(eq(marketOrderVoidFences.marketOrderId, prev.marketOrderId));
+      if (fence?.state === "prepared" || fence?.state === "voided") {
+        return NextResponse.json({
+          code: "MARKET_VOID_FENCED",
+          error: "This Market order is being cancelled or has already been voided.",
+        }, { status: 409 });
+      }
+    }
+    let item: typeof accountRequests.$inferSelect | undefined;
+    try {
+      [item] = await db
+        .update(accountRequests)
+        .set(updates)
+        .where(eq(accountRequests.id, id))
+        .returning();
+    } catch (error) {
+      // read 이후 prepare가 선점한 경우 DB trigger가 최종 차단한다.
+      if (prev.externalSource === "market") {
+        return NextResponse.json({
+          code: "MARKET_VOID_FENCED",
+          error: "This Market order changed concurrently and cannot be updated.",
+        }, { status: 409 });
+      }
+      throw error;
+    }
     // 정산이 processed(Jon 처리완료)로 새로 전환된 교사 업그레이드 건 → 교사 본인에게 활성화 완료 메일 자동 발송
     // (Jon이 확인 링크로 처리하면 account-confirm 플로우가 이미 발송하므로, 여기선 대시보드 수동 전환 케이스를 커버)
     if (item && prev?.status !== "processed" && item.status === "processed" && item.type === "upgrade" && item.accountType === "teacher") {
@@ -364,6 +473,27 @@ export async function POST(req: NextRequest) {
   }
 
   if (action === "delete" && id) {
+    const [existing] = await db
+      .select({
+        externalSource: accountRequests.externalSource,
+        channel: accountRequests.channel,
+        notes: accountRequests.notes,
+      })
+      .from(accountRequests)
+      .where(eq(accountRequests.id, id));
+    if (!existing) return NextResponse.json({ error: "Account request not found" }, { status: 404 });
+    if (existing.externalSource === "market") {
+      return NextResponse.json({
+        code: "MARKET_REQUEST_DELETE_BLOCKED",
+        error: "Market requests are retained for cancellation audit history.",
+      }, { status: 409 });
+    }
+    if (existing.channel === "company" && hasMarketLegacyOrderNote(existing.notes)) {
+      return NextResponse.json({
+        code: "MARKET_LEGACY_REQUEST_DELETE_BLOCKED",
+        error: "Legacy Market requests are retained for cancellation audit history.",
+      }, { status: 409 });
+    }
     await db.delete(accountRequests).where(eq(accountRequests.id, id));
     return NextResponse.json({ success: true });
   }

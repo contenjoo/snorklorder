@@ -2,8 +2,10 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { accountRequests, teachers } from "@/db/schema";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, ne, notInArray } from "drizzle-orm";
 import { sendAccountConfirmNotification, sendTeacherUpgradedEmail } from "@/lib/email";
+import { claimAccountRequestSideEffects } from "@/lib/market-void-db";
+import { getReceiverFulfillmentPausedResponse } from "@/lib/receiver-fulfillment-pause";
 
 // GET: 토큰으로 요청 상세 조회 (Jon이 확인 페이지 열었을 때)
 export async function GET(
@@ -19,9 +21,11 @@ export async function GET(
   if (!r) {
     return NextResponse.json({ error: "Invalid or expired link" }, { status: 404 });
   }
+  if (["prepared", "voided"].includes(r.marketVoidState)) {
+    return NextResponse.json({ error: "Invalid or expired link" }, { status: 404 });
+  }
 
   // 같은 학교에 실제로 발송된(sent) 다른 요청들만 노출 — Jon이 받아보지 못한 draft까지 확인 페이지에 뜨는 것 방지
-  const { and, ne } = await import("drizzle-orm");
   const siblings = await db
     .select({
       id: accountRequests.id,
@@ -35,7 +39,12 @@ export async function GET(
       createdAt: accountRequests.createdAt,
     })
     .from(accountRequests)
-    .where(and(eq(accountRequests.schoolName, r.schoolName), ne(accountRequests.id, r.id), eq(accountRequests.status, "sent")));
+    .where(and(
+      eq(accountRequests.schoolName, r.schoolName),
+      ne(accountRequests.id, r.id),
+      eq(accountRequests.status, "sent"),
+      notInArray(accountRequests.marketVoidState, ["prepared", "voided"]),
+    ));
 
   return NextResponse.json({ request: r, siblings });
 }
@@ -45,6 +54,9 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ token: string }> }
 ) {
+  const pausedResponse = getReceiverFulfillmentPausedResponse();
+  if (pausedResponse) return pausedResponse;
+
   const { token } = await params;
   const body = await req.json().catch(() => ({}));
   const alsoConfirmIds: number[] = Array.isArray(body?.alsoConfirmIds) ? body.alsoConfirmIds.filter((n: unknown) => Number.isInteger(n)) : [];
@@ -67,6 +79,14 @@ export async function POST(
     : [];
   const sameSchoolSiblings = validSiblings.filter((s) => s.schoolName === r.schoolName);
   void allIds;
+
+  const sideEffectIds = [...new Set([r.id, ...sameSchoolSiblings.map((s) => s.id)])];
+  if (!(await claimAccountRequestSideEffects(sideEffectIds))) {
+    return NextResponse.json({
+      code: "MARKET_VOID_FENCED",
+      error: "One or more Market orders are being cancelled or have already been voided.",
+    }, { status: 409 });
+  }
 
   // 이미 processed/invoiced/paid 인 요청은 재클릭해도 상태·확인시각을 덮어쓰지 않음 (정산 단계 후퇴 방지)
   // — Jon 입장에선 "이미 처리됨"도 정상 완료이므로 아래에서 success 응답은 그대로 반환

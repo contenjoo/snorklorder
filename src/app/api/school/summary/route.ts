@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { teachers, schools, accountRequests } from "@/db/schema";
-import { eq, or, desc } from "drizzle-orm";
+import { and, desc, eq, notInArray, or } from "drizzle-orm";
 import { getSchoolSession } from "@/lib/school-auth";
 
 export async function GET() {
@@ -71,7 +71,7 @@ export async function GET() {
     (t) => t.verificationStatus === "email_verified"
   );
 
-  const requestConds = [
+  const schoolNameConds = [
     eq(accountRequests.schoolName, school.name),
     school.nameEn
       ? eq(accountRequests.schoolNameEn, school.nameEn)
@@ -81,7 +81,10 @@ export async function GET() {
   const accountRequestRows = await db
     .select()
     .from(accountRequests)
-    .where(requestConds.length > 1 ? or(...requestConds) : requestConds[0])
+    .where(and(
+      notInArray(accountRequests.marketVoidState, ["prepared", "voided"]),
+      schoolNameConds.length > 1 ? or(...schoolNameConds) : schoolNameConds[0],
+    ))
     .orderBy(desc(accountRequests.createdAt));
 
   return NextResponse.json({

@@ -34,6 +34,18 @@ function isPublicApiRequest(request: NextRequest, pathname: string) {
     return true;
   }
 
+  // 구 Market writer 주문번호 감사: exact path + GET만 통과시키며 세션 폴백은 없다.
+  // 라우트 내부 x-api-key가 미설정 503과 누락/불일치 401을 구분한다.
+  if (pathname === "/api/account-requests/market-legacy-audit" && request.method === "GET") {
+    return true;
+  }
+
+  // Market 주문 취소 2단계 수신부: exact path + POST만 통과시킨다.
+  // 세션 폴백 없이 라우트 내부 x-api-key가 503/401을 구분한다.
+  if (pathname === "/api/account-requests/market-void" && request.method === "POST") {
+    return true;
+  }
+
   return false;
 }
 

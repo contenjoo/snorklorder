@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { desc, eq, ne, inArray, sql, and, gte, isNotNull } from "drizzle-orm";
+import { desc, eq, ne, inArray, sql, and, gte, isNotNull, notInArray } from "drizzle-orm";
 import { db } from "@/db";
 import { schools, teachers, upgradeBatches, emailLogs, teams, accountRequests, domainRequests } from "@/db/schema";
 import { checkAuth } from "@/lib/auth";
@@ -136,7 +136,10 @@ export async function GET() {
       createdAt: accountRequests.createdAt,
       updatedAt: accountRequests.updatedAt,
       confirmedAt: accountRequests.confirmedAt,
-    }).from(accountRequests).where(inArray(accountRequests.status, ["draft", "sent", "processed", "invoiced"])).orderBy(desc(accountRequests.updatedAt)),
+    }).from(accountRequests).where(and(
+      inArray(accountRequests.status, ["draft", "sent", "processed", "invoiced"]),
+      notInArray(accountRequests.marketVoidState, ["prepared", "voided"]),
+    )).orderBy(desc(accountRequests.updatedAt)),
     db.select({
       id: domainRequests.id,
       schoolName: domainRequests.schoolName,
@@ -216,6 +219,7 @@ export async function GET() {
     db
       .select({ status: accountRequests.status, count: sql<number>`count(*)::int` })
       .from(accountRequests)
+      .where(notInArray(accountRequests.marketVoidState, ["prepared", "voided"]))
       .groupBy(accountRequests.status),
   ]);
 

@@ -46,5 +46,5 @@ export function getAccountEmailDeliveryState(
 
 /** SMTP 원문 대신 운영 UI와 DB에 남겨도 안전한 고정 오류만 사용한다. */
 export function invoiceDeliveryFailureMessage(): string {
-  return "Cailie invoice email delivery failed";
+  return "Cailie invoice email delivery outcome unknown; check Gmail Sent";
 }

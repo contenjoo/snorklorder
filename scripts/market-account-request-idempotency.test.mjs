@@ -7,7 +7,6 @@ import {
   classifyMarketReplay,
   containsMarketIdentity,
   hashMarketPayload,
-  validateLegacyMarketDraft,
   validateMarketEnvelope,
   validateMarketQuantity,
 } from "../src/lib/market-account-request.ts";
@@ -44,13 +43,17 @@ test("market 수량 계약은 51과 1000을 허용하고 1001을 거절한다", 
   assert.equal(MARKET_MAX_QUANTITY, 1000);
 });
 
-test("식별자 없는 기존 market 호출만 임시 draft-only로 허용한다", () => {
+test("API-key Market 호출은 strict identity envelope 없이는 허용하지 않는다", async () => {
   assert.equal(containsMarketIdentity({ status: "draft" }), false);
-  assert.equal(validateLegacyMarketDraft({ status: "draft" }).ok, true);
-  assert.equal(validateLegacyMarketDraft({}).ok, true);
-  assert.equal(validateLegacyMarketDraft({ status: "sent" }).ok, false);
   assert.equal(containsMarketIdentity({ marketOrderId: "order_123" }), true);
   assert.equal(validateMarketEnvelope({ marketOrderId: "order_123" }).ok, false);
+
+  const route = await readFile(
+    new URL("../src/app/api/account-requests/route.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(route, /Strict Market identity envelope is required/);
+  assert.doesNotMatch(route, /legacy draft-only request accepted/);
 });
 
 test("동일 payload는 키 순서와 무관하게 같은 해시가 된다", () => {
@@ -86,7 +89,8 @@ test("market 수신 Route Handler는 자동 메일 모듈을 호출하지 않는
   );
   assert.doesNotMatch(createBranch, /sendAccount|sendEmail|account-email/);
   assert.match(createBranch, /MARKET_DRAFT_DELIVERY_MODE/);
-  assert.match(createBranch, /legacy draft-only request accepted without idempotency metadata/);
+  assert.match(createBranch, /Strict Market identity envelope is required/);
+  assert.match(createBranch, /Idempotency-Key header must match idempotencyKey/);
 });
 
 test("teacher-reg가 공급사 Stripe 자동 동기화 원장을 유지한다", async () => {
