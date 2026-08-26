@@ -69,7 +69,10 @@ test("인보이스 메일은 남은 전체를 싣고 새 건만 NEW 로 표시�
   // 오래된 건에 NEW 가 붙으면 안 된다
   assert.equal(lines.filter((l) => l.startsWith("NEW")).length, 1);
 
+  assert.match(body, /You can check this list anytime here:/);
   assert.match(body, /https:\/\/example\.test\/invoice\?k=tok/);
+  // 읽기 전용 페이지라 행동을 요구하는 문구가 있으면 안 된다
+  assert.doesNotMatch(body, /mark anything/);
   assert.match(body, /Jon is handling the account processing separately/);
 });
 
@@ -81,8 +84,8 @@ test("전부 새 건이면 제목에 (new) 를 덧붙이지 않는다", () => {
 
 test("링크가 없으면 안내 줄을 통째로 뺀다", () => {
   const { body } = buildInvoiceEmail([upgrade(1, "A")], { viewUrl: null });
-  assert.doesNotMatch(body, /See the live list/);
-  assert.doesNotMatch(body, /please ignore that line/);
+  assert.doesNotMatch(body, /check this list anytime/);
+  assert.doesNotMatch(body, /ignore that line/);
 });
 
 test("남은 게 없으면 목록 대신 다 끝났다고 말한다", () => {

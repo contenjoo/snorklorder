@@ -259,11 +259,14 @@ export function buildInvoiceEmail(
 
   if (options.viewUrl) {
     lines.push("");
-    lines.push("See the live list and mark anything you've already invoiced:");
+    // 페이지는 읽기 전용이다 — "mark" 같은 행동 동사를 쓰지 말 것.
+    lines.push("You can check this list anytime here:");
     lines.push(options.viewUrl);
-    // Stripe 자동 감지가 최대 하루 늦으므로 사람이 읽고 넘길 여지를 남긴다.
+    // 목록은 우리 쪽에서 인보이스 번호를 기록해야 줄어든다. 그 시차 동안
+    // 이미 청구한 건이 남아 보일 수 있으니 무시해도 된다고 말해 둔다.
     lines.push("");
-    lines.push("If you've already issued one of these, please ignore that line.");
+    lines.push("If you've already invoiced something above, just ignore that line —");
+    lines.push("it drops off once I log the invoice number.");
   }
 
   lines.push("");
