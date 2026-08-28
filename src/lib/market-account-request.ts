@@ -5,6 +5,22 @@ export const MARKET_DRAFT_DELIVERY_MODE = "manual_only" as const;
 export const MARKET_MAX_QUANTITY = 1000;
 
 const REFERENCE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/;
+
+/**
+ * 학교장터(S2B) 주문은 이 시스템으로 가져오지 않는다.
+ *
+ * 학교장터 건은 운영자가 직접 확인해서 수동으로 등록한다. 자동 수신이 초안까지 만들면
+ * 같은 건이 두 벌 생긴다 — 용신중학교 s2b-20260826-yongsin-143832917(2026-08-28 수신)이
+ * 수동 등록된 #190 과 같은 5계정이었고, 그대로 발송했으면 Snorkl 에 다시 청구할 뻔했다.
+ *
+ * 수신 자체를 거절해서 초안이 아예 안 생기게 한다. 조용히 무시하지 않고 명시적으로 거절해
+ * market 쪽 로그에 남게 한다.
+ */
+const SCHOOL_STORE_ORDER_PREFIX = "s2b-";
+
+export function isSchoolStoreOrderNumber(orderNumber: string): boolean {
+  return orderNumber.trim().toLowerCase().startsWith(SCHOOL_STORE_ORDER_PREFIX);
+}
 const MARKET_IDENTITY_FIELDS = [
   "externalSource",
   "marketRequestId",
@@ -88,6 +104,14 @@ export function validateMarketEnvelope(input: MarketEnvelopeInput): MarketEnvelo
     return {
       ok: false,
       error: "marketRequestId, marketOrderId, orderNumber and idempotencyKey are required",
+    };
+  }
+
+  // 학교장터 주문은 이 시스템 밖에서 처리한다 — 초안을 만들면 중복 청구로 이어진다.
+  if (isSchoolStoreOrderNumber(orderNumber)) {
+    return {
+      ok: false,
+      error: "School store (S2B) orders are handled outside this system and are not accepted here",
     };
   }
 

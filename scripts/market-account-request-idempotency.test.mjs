@@ -7,6 +7,7 @@ import {
   classifyMarketReplay,
   containsMarketIdentity,
   hashMarketPayload,
+  isSchoolStoreOrderNumber,
   validateMarketEnvelope,
   validateMarketQuantity,
 } from "../src/lib/market-account-request.ts";
@@ -150,4 +151,31 @@ test("Stripe Route Handler가 CAS 성공 후에만 동기화하며 PII를 로그
   assert.match(migration, /UNIQUE INDEX[^;]+invoice_gmail_message_id/s);
   assert.match(migration, /UNIQUE INDEX[^;]+receipt_gmail_message_id/s);
   assert.doesNotMatch(migration, /UNIQUE INDEX[^;]+gmail_thread_id/s);
+});
+
+test("학교장터(S2B) 주문은 수신 자체를 거절한다", () => {
+  const base = {
+    externalSource: "market",
+    draftOnly: true,
+    marketRequestId: "cmtc7vkym000404glejgezxbl",
+    marketOrderId: "cmtbcp67o0002wl8orsi1mwls",
+    idempotencyKey: "market:snorkl:draft:cmtbcp67o0002wl8orsi1mwls:0",
+  };
+
+  // 용신중학교 실제 건 — 이미 처리한 #190 과 중복이라 그대로 받으면 이중 청구가 된다
+  const s2b = validateMarketEnvelope({ ...base, orderNumber: "s2b-20260826-yongsin-143832917" });
+  assert.equal(s2b.ok, false);
+  assert.match(s2b.error, /School store/);
+
+  // 회사몰 주문은 그대로 통과해야 한다
+  const company = validateMarketEnvelope({ ...base, orderNumber: "1778562088256-0568b4d661e0a7276b4ba309" });
+  assert.equal(company.ok, true);
+});
+
+test("학교장터 주문번호 판정은 대소문자·공백을 견딘다", () => {
+  assert.equal(isSchoolStoreOrderNumber("s2b-20260826-yongsin-143832917"), true);
+  assert.equal(isSchoolStoreOrderNumber("  S2B-20260826-x  "), true);
+  assert.equal(isSchoolStoreOrderNumber("1778562088256-0568b4d661e0a7276b4ba309"), false);
+  // 접두사가 아니라 중간에 있는 건 학교장터가 아니다
+  assert.equal(isSchoolStoreOrderNumber("order-s2b-123"), false);
 });
