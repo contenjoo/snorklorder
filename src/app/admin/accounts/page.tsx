@@ -32,6 +32,7 @@ import {
 } from "@/lib/account-email-template";
 import { getAccountEmailDeliveryState } from "@/lib/account-email-delivery";
 import { hasMarketLegacyOrderNote } from "@/lib/market-legacy-audit";
+import { ACCOUNT_REQUEST_CHANNELS } from "@/lib/account-request-channel";
 
 // 미리보기에는 실제 토큰을 넣지 않는다. 링크 줄의 존재와 위치만 확인되면 충분하다.
 const INVOICE_VIEW_PREVIEW_URL = "https://<snorkl>/invoice?k=\u2026";
@@ -85,10 +86,7 @@ const TYPES = [
   { value: "extension", label: "연장", icon: "📅" },
 ];
 
-const CHANNELS = [
-  { value: "company", label: "회사몰", icon: "🏢" },
-  { value: "school_store", label: "학교장터", icon: "🏫" },
-];
+const CHANNELS = ACCOUNT_REQUEST_CHANNELS;
 
 const APPLICANT_TYPES = [
   { value: "school", label: "학교", icon: "🏫" },
@@ -1089,6 +1087,7 @@ function AccountsPageContent() {
           const marketManaged = isMarketManaged(r);
           const marketVoidFenced = isMarketVoidFenced(r);
           const legacyMarketAudit = isLegacyMarketAudit(r);
+          const channelInfo = CHANNELS.find((channel) => channel.value === (r.channel || "company"));
 
           return (
             <div
@@ -1120,8 +1119,12 @@ function AccountsPageContent() {
                     {(r.applicantType || "school") === "individual" && (
                       <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-purple-50 text-purple-700 font-medium">개인</span>
                     )}
-                    {(r.channel || "company") === "school_store" && (
-                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-medium">학교장터</span>
+                    {channelInfo && channelInfo.value !== "company" && (
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${
+                        channelInfo.value === "partner"
+                          ? "bg-amber-50 text-amber-700"
+                          : "bg-emerald-50 text-emerald-700"
+                      }`}>{channelInfo.label}</span>
                     )}
                     {r.needsInvoice && (
                       <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 font-medium" title="인보이스 필요 — Cailie CC">💳</span>
@@ -1231,6 +1234,13 @@ function AccountsPageContent() {
                   <span className="text-sm">{typeInfo?.icon}</span>
                   <span className="font-medium text-sm text-slate-900 truncate flex-1">
                     {(r.applicantType || "school") === "individual" && <span className="text-[9px] px-1 py-0.5 rounded bg-purple-50 text-purple-700 font-medium mr-1">개인</span>}
+                    {channelInfo && channelInfo.value !== "company" && (
+                      <span className={`text-[9px] px-1 py-0.5 rounded font-medium mr-1 ${
+                        channelInfo.value === "partner"
+                          ? "bg-amber-50 text-amber-700"
+                          : "bg-emerald-50 text-emerald-700"
+                      }`}>{channelInfo.label}</span>
+                    )}
                     {r.schoolName}
                     {r.needsInvoice && <span className="text-[9px] px-1 py-0.5 rounded bg-blue-50 text-blue-700 font-medium ml-1" title="인보이스 필요 — Cailie CC">💳</span>}
                     {needsInvoiceRetry(r) && (

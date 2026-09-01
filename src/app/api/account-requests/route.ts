@@ -25,6 +25,10 @@ import { shouldMarkInvoicedOnNumberEntry } from "@/lib/account-email-template";
 import { authorizeMarketStatusRequest } from "@/lib/market-status";
 import { getReceiverFulfillmentPausedResponse } from "@/lib/receiver-fulfillment-pause";
 import { hasMarketLegacyOrderNote } from "@/lib/market-legacy-audit";
+import {
+  ACCOUNT_REQUEST_CHANNEL_VALUES,
+  isAccountRequestChannel,
+} from "@/lib/account-request-channel";
 
 type ExistingMarketRequest = {
   id: number;
@@ -194,6 +198,12 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    if (isAuthenticated && data.channel !== undefined && !isAccountRequestChannel(data.channel)) {
+      return NextResponse.json({
+        error: `Invalid channel: must be one of ${ACCOUNT_REQUEST_CHANNEL_VALUES.join(", ")}`,
+      }, { status: 400 });
+    }
+
     if (!data.schoolName || !data.emails) {
       return NextResponse.json({ error: "schoolName and emails are required" }, { status: 400 });
     }
@@ -293,7 +303,9 @@ export async function POST(req: NextRequest) {
     const insertedType = isAuthenticated ? data.type || "upgrade" : "upgrade";
     const insertedAccountType = isAuthenticated ? data.accountType || "teacher" : "teacher";
     const insertedQuantity = isAuthenticated ? data.quantity || 1 : uniqueValidEmails.length;
-    const insertedChannel = isAuthenticated ? data.channel || "company" : "company";
+    const insertedChannel = isAuthenticated && isAccountRequestChannel(data.channel)
+      ? data.channel
+      : "company";
     // 인보이스 필요 여부: 미지정 시 유형별 스마트 기본값.
     // 돈이 드는 유형(upgrade/extension)은 true, 단순 계정 정보 변경(email_change/type_change)은 false.
     const insertedNeedsInvoice =
@@ -405,6 +417,12 @@ export async function POST(req: NextRequest) {
   if (action === "update" && id) {
     const pausedResponse = getReceiverFulfillmentPausedResponse();
     if (pausedResponse) return pausedResponse;
+
+    if (data.channel !== undefined && !isAccountRequestChannel(data.channel)) {
+      return NextResponse.json({
+        error: `Invalid channel: must be one of ${ACCOUNT_REQUEST_CHANNEL_VALUES.join(", ")}`,
+      }, { status: 400 });
+    }
 
     const updates: Record<string, unknown> = { updatedAt: new Date() };
     const fields = ["channel", "applicantType", "type", "schoolName", "schoolNameEn", "emails", "accountType", "quantity", "oldEmail",

@@ -44,7 +44,7 @@ export const teachers = pgTable("teachers", {
 
 export const schoolRequests = pgTable("school_requests", {
   id: serial("id").primaryKey(),
-  channel: text("channel").notNull().default("company"), // company | school_store
+  channel: text("channel").notNull().default("company"), // company | school_store | partner
   name: text("name").notNull(),
   nameEn: text("name_en"),
   region: text("region"),
