@@ -9,7 +9,7 @@
       "schedule": "0 0 * * *"
     },
     {
-      "path": "/api/cron/sync-stripe",
+      "path": "/api/cron/sync-billing",
       "schedule": "50 23 * * *"
     }
   ]
