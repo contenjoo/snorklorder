@@ -974,7 +974,7 @@ function AccountsPageContent() {
               variant="outline"
               onClick={syncBillingMail}
               disabled={billingSyncing}
-              title="Cailie 인보이스 PDF · QuickBooks 결제 확인 메일을 읽어 정산에 반영"
+              title="Cailie 인보이스 PDF · QuickBooks 결제 확인 메일을 읽어 계정 요청에 반영"
               className="h-7 text-xs whitespace-nowrap border-emerald-300 text-emerald-800 hover:bg-emerald-50"
             >
               {billingSyncing ? "⏳ 동기화 중…" : "📥 메일 동기화"}

@@ -47,8 +47,8 @@ interface Item {
 }
 
 const ACTIONS: Omit<Item, "score">[] = [
-  { key: "a-new", section: "액션", icon: "➕", title: "새 정산 요청", href: "/admin/accounts?new=1" },
-  { key: "a-acc", section: "액션", icon: "🧾", title: "정산으로 이동", href: "/admin/accounts" },
+  { key: "a-new", section: "액션", icon: "➕", title: "새 계정 요청", href: "/admin/accounts?new=1" },
+  { key: "a-acc", section: "액션", icon: "🧾", title: "계정 요청으로 이동", href: "/admin/accounts" },
   { key: "a-sch", section: "액션", icon: "🏫", title: "학교 관리로 이동", href: "/admin/schools" },
   { key: "a-tea", section: "액션", icon: "👩‍🏫", title: "교사 관리로 이동", href: "/admin/teachers" },
   { key: "a-dom", section: "액션", icon: "🌐", title: "도메인 유료 등록", href: "/admin/domains" },
@@ -113,7 +113,7 @@ function searchAll(ds: Dataset, rawQuery: string): Item[] {
       fieldScore(a.emails, q, cho, 60),
     );
     if (sc > 0) out.push({
-      key: `acc-${a.id}`, section: "정산", icon: "🧾", title: a.schoolName,
+      key: `acc-${a.id}`, section: "계정 요청", icon: "🧾", title: a.schoolName,
       meta: [a.type === "extension" ? "연장" : a.type === "email_change" ? "이메일 변경" : "업그레이드", STATUS_KO[a.status] || a.status].join(" · "),
       mono: a.emails.split(/[,;\n]+/)[0]?.trim() || null,
       href: `/admin/accounts?focus=${a.id}`, score: sc + 25,
@@ -137,13 +137,13 @@ function searchAll(ds: Dataset, rawQuery: string): Item[] {
   }
 
   // 섹션당 상한을 두고 점수순 정렬 (한 섹션이 결과를 독식하지 않도록)
-  const CAP: Record<string, number> = { "액션": 4, "학교": 6, "교사": 8, "정산": 6, "도메인": 4, "학교 등록 요청": 4 };
+  const CAP: Record<string, number> = { "액션": 4, "학교": 6, "교사": 8, "계정 요청": 6, "도메인": 4, "학교 등록 요청": 4 };
   const bySection = new Map<string, Item[]>();
   for (const item of out.sort((a, b) => b.score - a.score)) {
     const list = bySection.get(item.section) || [];
     if (list.length < (CAP[item.section] ?? 5)) { list.push(item); bySection.set(item.section, list); }
   }
-  const ORDER = ["액션", "학교", "교사", "정산", "도메인", "학교 등록 요청"];
+  const ORDER = ["액션", "학교", "교사", "계정 요청", "도메인", "학교 등록 요청"];
   return ORDER.flatMap((sec) => bySection.get(sec) || []);
 }
 
@@ -273,7 +273,7 @@ function PaletteInner({ onClose }: { onClose: () => void }) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="학교·교사·이메일·과목·정산·도메인 검색 — 초성(ㄱㅇㅈ)도 됩니다"
+            placeholder="학교·교사·이메일·과목·계정 요청·도메인 검색 — 초성(ㄱㅇㅈ)도 됩니다"
             className="w-full bg-transparent py-4 pl-11 pr-4 text-sm text-slate-900 outline-none placeholder:text-slate-400"
           />
         </div>

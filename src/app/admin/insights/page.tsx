@@ -185,9 +185,9 @@ export default function InsightsPage() {
           </div>
         </Card>
 
-        {/* ── 월별 정산 요청 ─────────────────────────────── */}
+        {/* ── 월별 계정 요청 ─────────────────────────────── */}
         <Card>
-          <CardTitle title="월별 정산 요청" badge={<span className="text-xs text-slate-400">요청 생성일 기준</span>} />
+          <CardTitle title="월별 계정 요청" badge={<span className="text-xs text-slate-400">요청 생성일 기준</span>} />
           <div className="p-4 md:p-5">
             <div className="flex items-end gap-1.5 h-40">
               {monthlyRequests.map((m) => {
