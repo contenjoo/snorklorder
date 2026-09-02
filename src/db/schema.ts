@@ -44,7 +44,7 @@ export const teachers = pgTable("teachers", {
 
 export const schoolRequests = pgTable("school_requests", {
   id: serial("id").primaryKey(),
-  channel: text("channel").notNull().default("company"), // company | school_store
+  channel: text("channel").notNull().default("company"), // company | school_store | partner
   name: text("name").notNull(),
   nameEn: text("name_en"),
   region: text("region"),
@@ -96,6 +96,16 @@ export const accountRequests = pgTable("account_requests", {
   invoiceEmailLastError: text("invoice_email_last_error"),
   confirmToken: text("confirm_token").unique(),
   confirmedAt: timestamp("confirmed_at"),
+  // 협력사 신청의 부모·항목 식별자. 협력사 이메일은 이 DB에 저장하지 않는다.
+  partnerRequestId: text("partner_request_id"),
+  partnerItemId: text("partner_item_id"),
+  partnerRevision: integer("partner_revision"),
+  partnerPayloadHash: text("partner_payload_hash"),
+  teacherName: text("teacher_name"),
+  subject: text("subject"),
+  partnerLifecycleState: text("partner_lifecycle_state").notNull().default("active"), // active | cancelled
+  partnerNotificationOperationId: text("partner_notification_operation_id"),
+  partnerNotificationSentAt: timestamp("partner_notification_sent_at"),
   // market 주문 수신 추적. 기존 수동/공개 요청은 모두 null이며 market API 수신 건만 채운다.
   externalSource: text("external_source"),
   marketRequestId: text("market_request_id"),
@@ -120,12 +130,27 @@ export const accountRequests = pgTable("account_requests", {
   uniqueIndex("account_requests_idempotency_key_unique_idx").on(table.idempotencyKey),
   uniqueIndex("account_requests_external_request_unique_idx").on(table.externalSource, table.marketRequestId),
   index("account_requests_market_order_id_idx").on(table.marketOrderId),
+  index("account_requests_partner_request_idx").on(table.partnerRequestId, table.partnerRevision),
+  uniqueIndex("account_requests_partner_item_unique_idx").on(table.partnerRequestId, table.partnerItemId),
   index("account_requests_order_number_idx").on(table.orderNumber),
   index("account_requests_market_void_state_idx").on(table.marketVoidState),
   check(
     "account_requests_market_void_state_check",
     sql`${table.marketVoidState} in ('active', 'non_voidable', 'prepared', 'voided')`,
   ),
+]);
+
+/** 협력사 신청 배치의 멱등 원장. 응답 유실 후 같은 operation은 결과를 재사용한다. */
+export const partnerRequestOperations = pgTable("partner_request_operations", {
+  operationId: text("operation_id").primaryKey(),
+  partnerRequestId: text("partner_request_id").notNull(),
+  revision: integer("revision").notNull(),
+  mode: text("mode").notNull(),
+  payloadHash: text("payload_hash").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("partner_request_operations_request_idx").on(table.partnerRequestId, table.revision),
+  check("partner_request_operations_mode_check", sql`${table.mode} in ('upsert', 'cancel')`),
 ]);
 
 /**

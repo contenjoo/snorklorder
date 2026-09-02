@@ -20,6 +20,7 @@ import { invoiceViewUrl, loadOpenInvoiceItemsForEmail } from "@/lib/invoice-ledg
 import { claimAccountRequestSideEffects } from "@/lib/market-void-db";
 import { getReceiverFulfillmentPausedResponse } from "@/lib/receiver-fulfillment-pause";
 import { hasMarketLegacyOrderNote } from "@/lib/market-legacy-audit";
+import { checkAuth } from "@/lib/auth";
 
 function deliveryUnknownResponse(stage: "processing" | "invoice", status = 409) {
   return NextResponse.json({
@@ -60,6 +61,7 @@ function legacyMarketAuditBlockedResponse() {
 }
 
 export async function POST(req: NextRequest) {
+  if (!(await checkAuth())) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const pausedResponse = getReceiverFulfillmentPausedResponse();
   if (pausedResponse) return pausedResponse;
 
@@ -107,6 +109,7 @@ export async function POST(req: NextRequest) {
       processingEmailSentAt: Date | null;
       invoiceEmailSendStartedAt: Date | null;
       invoiceEmailSentAt: Date | null;
+      partnerLifecycleState: string;
     } | null = null;
     if (requestId) {
       [existing] = await db
@@ -132,12 +135,19 @@ export async function POST(req: NextRequest) {
           processingEmailSentAt: accountRequests.processingEmailSentAt,
           invoiceEmailSendStartedAt: accountRequests.invoiceEmailSendStartedAt,
           invoiceEmailSentAt: accountRequests.invoiceEmailSentAt,
+          partnerLifecycleState: accountRequests.partnerLifecycleState,
         })
         .from(accountRequests)
         .where(eq(accountRequests.id, requestId));
 
       if (!existing) {
         return NextResponse.json({ error: "Account request not found" }, { status: 404 });
+      }
+      if (existing.channel === 'partner' && existing.partnerLifecycleState !== 'active') {
+        return NextResponse.json({ error: 'Cancelled partner request' }, { status: 409 });
+      }
+      if (existing.channel === 'partner') {
+        return NextResponse.json({ error: 'Partner requests must be sent as one application batch' }, { status: 409 });
       }
       if (
         (existing.channel || "company") === "company"
@@ -228,6 +238,7 @@ export async function POST(req: NextRequest) {
             eq(accountRequests.status, "draft"),
             isNull(accountRequests.processingEmailSentAt),
             isNull(accountRequests.processingEmailSendStartedAt),
+            eq(accountRequests.partnerLifecycleState, 'active'),
           ))
           .returning({ id: accountRequests.id });
         if (claimed.length === 0) return deliveryUnknownResponse("processing");

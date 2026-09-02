@@ -20,6 +20,7 @@ import { invoiceViewUrl, loadOpenInvoiceItemsForEmail } from "@/lib/invoice-ledg
 import { claimAccountRequestSideEffects } from "@/lib/market-void-db";
 import { getReceiverFulfillmentPausedResponse } from "@/lib/receiver-fulfillment-pause";
 import { hasMarketLegacyOrderNote } from "@/lib/market-legacy-audit";
+import { checkAuth } from "@/lib/auth";
 
 interface Section {
   subject: string;
@@ -76,6 +77,7 @@ function legacyMarketAuditBlockedResponse(requestIds: number[]) {
 //   2) 인보이스 메일 → Cailie (CC: Jon). 인보이스 필요 건만, 청구 요약만.
 // 두 메일은 요청번호(#id)로 대조한다.
 export async function POST(req: NextRequest) {
+  if (!(await checkAuth())) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const pausedResponse = getReceiverFulfillmentPausedResponse();
   if (pausedResponse) return pausedResponse;
 
@@ -105,6 +107,7 @@ export async function POST(req: NextRequest) {
       .select({
         id: accountRequests.id,
         channel: accountRequests.channel,
+        partnerRequestId: accountRequests.partnerRequestId,
         externalSource: accountRequests.externalSource,
         confirmToken: accountRequests.confirmToken,
         emails: accountRequests.emails,
@@ -124,6 +127,7 @@ export async function POST(req: NextRequest) {
         processingEmailSentAt: accountRequests.processingEmailSentAt,
         invoiceEmailSendStartedAt: accountRequests.invoiceEmailSendStartedAt,
         invoiceEmailSentAt: accountRequests.invoiceEmailSentAt,
+        partnerLifecycleState: accountRequests.partnerLifecycleState,
       })
       .from(accountRequests)
       .where(inArray(accountRequests.id, requestIds));
@@ -141,6 +145,26 @@ export async function POST(req: NextRequest) {
     ));
     if (legacyMarketAuditRows.length > 0) {
       return legacyMarketAuditBlockedResponse(legacyMarketAuditRows.map((row) => row.id));
+    }
+    if (rows.some((row) => row.channel === 'partner' && row.partnerLifecycleState !== 'active')) {
+      return NextResponse.json({ error: 'Cancelled partner request' }, { status: 409 });
+    }
+    const partnerRows = rows.filter((row) => row.channel === 'partner');
+    if (partnerRows.length > 0) {
+      const partnerRequestIds = new Set(partnerRows.map((row) => row.partnerRequestId).filter((value): value is string => Boolean(value)));
+      if (partnerRows.length !== rows.length || partnerRequestIds.size !== 1 || partnerRows.some((row) => !row.partnerRequestId)) {
+        return NextResponse.json({ error: 'Partner batches must contain one complete partner request only' }, { status: 409 });
+      }
+      const [partnerRequestId] = partnerRequestIds;
+      const activePartnerRows = await db.select({ id: accountRequests.id }).from(accountRequests).where(and(
+        eq(accountRequests.partnerRequestId, partnerRequestId),
+        eq(accountRequests.channel, 'partner'),
+        eq(accountRequests.partnerLifecycleState, 'active'),
+      ));
+      const selected = new Set(rows.map((row) => row.id));
+      if (activePartnerRows.length !== selected.size || activePartnerRows.some((row) => !selected.has(row.id))) {
+        return NextResponse.json({ error: 'Partner batches must include every active teacher in the application' }, { status: 409 });
+      }
     }
 
     const missingEnglishSchoolNames = rows.filter(needsEnglishSchoolNameForHq);
@@ -256,6 +280,7 @@ export async function POST(req: NextRequest) {
           eq(accountRequests.status, "draft"),
           isNull(accountRequests.processingEmailSentAt),
           isNull(accountRequests.processingEmailSendStartedAt),
+          eq(accountRequests.partnerLifecycleState, 'active'),
         ))
         .returning({ id: accountRequests.id });
       const claimedIds = claimed.map((item) => item.id);

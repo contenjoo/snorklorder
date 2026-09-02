@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { accountRequests, marketOrderVoidFences } from "@/db/schema";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, or, sql } from "drizzle-orm";
 import {
   authorizeMarketStatusRequest,
   toMarketStatusItem,
@@ -51,6 +51,16 @@ export async function GET(req: NextRequest) {
       marketOrderId: accountRequests.marketOrderId,
       orderNumber: accountRequests.orderNumber,
       idempotencyKey: accountRequests.idempotencyKey,
+      channel: accountRequests.channel,
+      partnerRequestId: accountRequests.partnerRequestId,
+      partnerItemId: accountRequests.partnerItemId,
+      partnerRevision: accountRequests.partnerRevision,
+      teacherName: accountRequests.teacherName,
+      subject: accountRequests.subject,
+      partnerLifecycleState: accountRequests.partnerLifecycleState,
+      confirmedAt: accountRequests.confirmedAt,
+      processingEmailSentAt: accountRequests.processingEmailSentAt,
+      partnerNotificationSentAt: accountRequests.partnerNotificationSentAt,
       marketVoidState: effectiveVoidState,
       marketVoidOperationId: marketOrderVoidFences.operationId,
       marketVoidVersion: sql<number>`COALESCE(${marketOrderVoidFences.version}, 0)`,
@@ -70,7 +80,10 @@ export async function GET(req: NextRequest) {
       eq(marketOrderVoidFences.marketOrderId, accountRequests.marketOrderId),
     )
     .where(and(
-      eq(accountRequests.externalSource, "market"),
+      or(
+        eq(accountRequests.externalSource, "market"),
+        eq(accountRequests.externalSource, "market_partner"),
+      ),
       ...(marketOrderId ? [eq(accountRequests.marketOrderId, marketOrderId)] : []),
       ...(voidState ? [eq(effectiveVoidState, voidState)] : []),
     ))
