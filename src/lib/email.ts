@@ -124,7 +124,8 @@ export function getTransporter() {
   // 로컬·미리보기 E2E에서는 외부 수신자에게 메일을 보내지 않고 RFC 메시지만
   // 메모리 스트림에 생성한다. production에서는 이 플래그를 무시해 테스트 운송이
   // 실발송 성공으로 기록되는 일을 막는다.
-  if (process.env.NODE_ENV !== "production" && process.env.EMAIL_TRANSPORT_MODE === "stream") {
+  const previewOrLocal = process.env.VERCEL_ENV === "preview" || process.env.NODE_ENV !== "production";
+  if (previewOrLocal && process.env.EMAIL_TRANSPORT_MODE === "stream") {
     return nodemailer.createTransport({ streamTransport: true, buffer: true, newline: "unix" });
   }
   const user = process.env.GMAIL_USER;

@@ -122,7 +122,7 @@ test("관리자 UI는 협력사 태그·신청 묶음·본사 발송 미리보�
 
 test("메일 stream 운송은 비운영 E2E에서만 허용한다", async () => {
   const source = await readFile(new URL("../src/lib/email.ts", import.meta.url), "utf8");
-  assert.match(source, /process\.env\.NODE_ENV !== "production"/);
+  assert.match(source, /process\.env\.VERCEL_ENV === "preview" \|\| process\.env\.NODE_ENV !== "production"/);
   assert.match(source, /process\.env\.EMAIL_TRANSPORT_MODE === "stream"/);
   assert.match(source, /streamTransport:\s*true/);
 });
