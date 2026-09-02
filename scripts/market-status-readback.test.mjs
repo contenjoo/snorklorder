@@ -26,15 +26,12 @@ const FORBIDDEN_FIELDS = [
   "receiptGmailMessageId",
   "receiptGmailThreadId",
   "processingEmailSendStartedAt",
-  "processingEmailSentAt",
   "invoiceEmailSendStartedAt",
   "invoiceEmailSentAt",
   "invoiceEmailLastError",
   "confirmToken",
-  "confirmedAt",
   "externalPayloadHash",
   "draftOnly",
-  "channel",
   "schoolNameEn",
   "createdAt",
 ];
@@ -88,6 +85,16 @@ const fullRow = {
   marketOrderId: "order_1",
   orderNumber: "ORD-20260823-ABCD",
   idempotencyKey: "market:order_1:snorkl:teacher",
+  channel: "partner",
+  partnerRequestId: "partner_request_1",
+  partnerItemId: "partner_item_1",
+  partnerRevision: 2,
+  teacherName: "홍길동",
+  subject: "수학",
+  partnerLifecycleState: "active",
+  confirmedAt: new Date("2026-08-24T00:02:00.000Z"),
+  processingEmailSentAt: new Date("2026-08-24T00:01:30.000Z"),
+  partnerNotificationSentAt: null,
   marketVoidState: "prepared",
   marketVoidOperationId: "cancel_order_1",
   marketVoidVersion: 3,
@@ -110,7 +117,6 @@ const fullRow = {
   confirmToken: "tok_secret",
   externalPayloadHash: "hash",
   draftOnly: true,
-  channel: "company",
   schoolNameEn: "Test Elementary",
   createdAt: new Date("2026-08-01T00:00:00.000Z"),
 };
@@ -195,7 +201,7 @@ test("기존 관리자용 GET /api/account-requests 는 세션 인증 그대로�
   assert.doesNotMatch(getBranch, /x-api-key/);
 });
 
-test("Proxy는 market-status GET만 공개 예외로 두고 기존 계약은 불변이다", async () => {
+test("Proxy는 Market 기계 인증 경로를 정확한 메서드와 경로로만 통과시킨다", async () => {
   const proxy = await readFile(new URL("../src/proxy.ts", import.meta.url), "utf8");
   // 새 예외: 정확 경로 + GET 한정 (라우트 내부의 x-api-key 인증이 실제 게이트)
   assert.match(
@@ -208,6 +214,11 @@ test("Proxy는 market-status GET만 공개 예외로 두고 기존 계약은 불
     proxy,
     /pathname === "\/api\/account-requests\/market-void" && request\.method === "POST"/,
   );
+  assert.match(
+    proxy,
+    /\^\\\/api\\\/account-requests\\\/market-partner\\\/\[\^\/\]\+\$\/\.test\(pathname\)/,
+  );
+  assert.match(proxy, /request\.method === "PUT"/);
   // prefix 개방 금지 — 관리자용 GET /api/account-requests 는 계속 세션 보호를 받는다
   assert.doesNotMatch(proxy, /startsWith\("\/api\/account-requests/);
 });

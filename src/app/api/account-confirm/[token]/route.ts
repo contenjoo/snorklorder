@@ -21,10 +21,15 @@ export async function GET(
   if (!r) {
     return NextResponse.json({ error: "Invalid or expired link" }, { status: 404 });
   }
+  if (r.channel === 'partner' && r.partnerLifecycleState !== 'active') {
+    return NextResponse.json({ error: "Invalid or expired link" }, { status: 404 });
+  }
+  if (r.channel === 'partner' && (!r.processingEmailSentAt || r.status === 'draft')) {
+    return NextResponse.json({ error: "Request has not been sent to HQ" }, { status: 409 });
+  }
   if (["prepared", "voided"].includes(r.marketVoidState)) {
     return NextResponse.json({ error: "Invalid or expired link" }, { status: 404 });
   }
-
   // 같은 학교에 실제로 발송된(sent) 다른 요청들만 노출 — Jon이 받아보지 못한 draft까지 확인 페이지에 뜨는 것 방지
   const siblings = await db
     .select({
@@ -37,13 +42,21 @@ export async function GET(
       status: accountRequests.status,
       notes: accountRequests.notes,
       createdAt: accountRequests.createdAt,
+      teacherName: accountRequests.teacherName,
+      subject: accountRequests.subject,
     })
     .from(accountRequests)
     .where(and(
-      eq(accountRequests.schoolName, r.schoolName),
+      r.channel === 'partner' && r.partnerRequestId
+        ? and(
+            eq(accountRequests.partnerRequestId, r.partnerRequestId),
+            eq(accountRequests.channel, 'partner'),
+          )
+        : eq(accountRequests.schoolName, r.schoolName),
       ne(accountRequests.id, r.id),
       eq(accountRequests.status, "sent"),
       notInArray(accountRequests.marketVoidState, ["prepared", "voided"]),
+      eq(accountRequests.partnerLifecycleState, 'active'),
     ));
 
   return NextResponse.json({ request: r, siblings });
@@ -68,16 +81,30 @@ export async function POST(
   if (!r) {
     return NextResponse.json({ error: "Invalid or expired link" }, { status: 404 });
   }
+  if (r.channel === 'partner' && r.partnerLifecycleState !== 'active') {
+    return NextResponse.json({ error: "Invalid or expired link" }, { status: 404 });
+  }
+  if (r.channel === 'partner' && (!r.processingEmailSentAt || r.status === 'draft')) {
+    return NextResponse.json({ error: "Request has not been sent to HQ" }, { status: 409 });
+  }
 
   const allIds = [r.id, ...alsoConfirmIds];
   // 형제 요청도 같은 학교에 한해서만 처리 (보안: 임의 id 처리 방지)
   const validSiblings = alsoConfirmIds.length > 0
     ? await db
-        .select({ id: accountRequests.id, emails: accountRequests.emails, schoolName: accountRequests.schoolName, schoolNameEn: accountRequests.schoolNameEn, type: accountRequests.type, applicantType: accountRequests.applicantType, status: accountRequests.status })
+        .select({ id: accountRequests.id, emails: accountRequests.emails, schoolName: accountRequests.schoolName, schoolNameEn: accountRequests.schoolNameEn, type: accountRequests.type, applicantType: accountRequests.applicantType, status: accountRequests.status, channel: accountRequests.channel, partnerRequestId: accountRequests.partnerRequestId, confirmedAt: accountRequests.confirmedAt, partnerLifecycleState: accountRequests.partnerLifecycleState, processingEmailSentAt: accountRequests.processingEmailSentAt })
         .from(accountRequests)
         .where(inArray(accountRequests.id, alsoConfirmIds))
     : [];
-  const sameSchoolSiblings = validSiblings.filter((s) => s.schoolName === r.schoolName);
+  const sameSchoolSiblings = validSiblings.filter((s) => r.channel === 'partner'
+    ? Boolean(
+        r.partnerRequestId
+        && s.channel === 'partner'
+        && s.partnerRequestId === r.partnerRequestId
+        && s.partnerLifecycleState === 'active'
+        && s.processingEmailSentAt
+      )
+    : s.schoolName === r.schoolName).filter((s) => ['sent', 'processed', 'invoiced', 'paid'].includes(s.status));
   void allIds;
 
   const sideEffectIds = [...new Set([r.id, ...sameSchoolSiblings.map((s) => s.id)])];
@@ -90,7 +117,20 @@ export async function POST(
 
   // 이미 processed/invoiced/paid 인 요청은 재클릭해도 상태·확인시각을 덮어쓰지 않음 (정산 단계 후퇴 방지)
   // — Jon 입장에선 "이미 처리됨"도 정상 완료이므로 아래에서 success 응답은 그대로 반환
-  const isMainUpdatable = ["draft", "sent"].includes(r.status);
+  const confirmationAt = new Date();
+  const confirmationCandidateIds = [
+    ...(!r.confirmedAt ? [r.id] : []),
+    ...sameSchoolSiblings.filter((s) => !s.confirmedAt).map((s) => s.id),
+  ];
+  if (confirmationCandidateIds.length > 0) {
+    await db.update(accountRequests)
+      .set({ confirmedAt: confirmationAt, updatedAt: confirmationAt })
+      .where(and(
+        inArray(accountRequests.id, confirmationCandidateIds),
+        eq(accountRequests.partnerLifecycleState, 'active'),
+      ));
+  }
+  const isMainUpdatable = !r.confirmedAt && ["draft", "sent"].includes(r.status);
   const updatableSiblingIds = sameSchoolSiblings
     .filter((s) => ["draft", "sent"].includes(s.status))
     .map((s) => s.id);
@@ -99,13 +139,12 @@ export async function POST(
   if (finalIds.length > 0) {
     await db
       .update(accountRequests)
-      .set({ status: "processed", confirmedAt: new Date(), updatedAt: new Date() })
+      .set({ status: "processed", updatedAt: confirmationAt })
       .where(inArray(accountRequests.id, finalIds));
   }
 
   // 교사 환영 메일은 응답 후 백그라운드로 발송 (형제 요청 포함)
-  const siblingEmailStrings = validSiblings
-    .filter((s) => s.schoolName === r.schoolName)
+  const siblingEmailStrings = sameSchoolSiblings
     .map((s) => s.emails)
     .filter(Boolean);
   const combinedEmailString = [r.emails, ...siblingEmailStrings].join(",");
@@ -115,7 +154,9 @@ export async function POST(
     .filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
 
   // 이미 처리완료(processed/invoiced/paid)였던 건을 다시 클릭하면 완료 메일 재발송 방지 (r.status는 이 확인 직전 상태)
-  if (emails.length > 0 && ["draft", "sent"].includes(r.status)) {
+  // 협력사 채널은 교사에게 직접 완료 메일을 보내지 않는다. 승인 사실은 confirmedAt으로
+  // 보존하고, 협력사 통보는 관리자의 별도 확인 작업으로 Market에 위임한다.
+  if (confirmationCandidateIds.length > 0 && emails.length > 0) {
     void (async () => {
       try {
         const { schools: schoolsTable } = await import("@/db/schema");
@@ -140,16 +181,17 @@ export async function POST(
         const nameByEmail = new Map(matched.map((m) => [m.email.toLowerCase(), m.name]));
 
         // Jon 확인 완료 시점: ① 관리자(나) 알림 ② 업그레이드된 이메일(선생님) 본인에게 완료 메일 (병렬)
-        const [, teacherResults] = await Promise.all([
-          sendAccountConfirmNotification({
+        const adminNotification = sendAccountConfirmNotification({
             schoolName: r.schoolName,
             schoolNameEn: r.schoolNameEn,
             emails,
             type: r.type,
             applicantType: r.applicantType || "school",
-            confirmedAt: new Date(),
-          }),
-          Promise.allSettled(
+            confirmedAt: confirmationAt,
+          });
+        const teacherResults = r.channel === 'partner'
+          ? []
+          : await Promise.allSettled(
             emails.map((email) =>
               sendTeacherUpgradedEmail({
                 name: nameByEmail.get(email) || "선생님",
@@ -158,8 +200,8 @@ export async function POST(
                 schoolNameEn: r.schoolNameEn,
               })
             )
-          ),
-        ]);
+          );
+        await adminNotification;
         const failed = teacherResults.filter((res) => res.status === "rejected" || (res.status === "fulfilled" && !res.value.success && !res.value.skipped)).length;
         if (failed > 0) console.warn(`[account-confirm] ${failed}/${emails.length} teacher emails failed`);
       } catch (err) {

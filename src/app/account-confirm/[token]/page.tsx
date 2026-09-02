@@ -18,6 +18,9 @@ interface AccountRequest {
   notes: string | null;
   status: string;
   confirmedAt: string | null;
+  channel: string;
+  teacherName: string | null;
+  subject: string | null;
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -37,6 +40,8 @@ interface SiblingRequest {
   status: string;
   notes: string | null;
   createdAt: string;
+  teacherName: string | null;
+  subject: string | null;
 }
 
 export default function AccountConfirmPage({ params }: { params: Promise<{ token: string }> }) {
@@ -154,6 +159,14 @@ export default function AccountConfirmPage({ params }: { params: Promise<{ token
           </div>
         </div>
 
+        {req.channel === 'partner' && (
+          <div className="rounded-lg border border-cyan-200 bg-cyan-50 p-3 text-sm">
+            <div className="font-semibold text-cyan-900">Sales partner request</div>
+            <div className="mt-1 text-cyan-800">Teacher: {req.teacherName || '—'}</div>
+            <div className="text-cyan-800">Subject: {req.subject || '—'}</div>
+          </div>
+        )}
+
         {req.notes && (
           <div>
             <div className="text-[10px] text-gray-400 uppercase tracking-wider font-medium mb-1">Notes</div>
@@ -186,6 +199,9 @@ export default function AccountConfirmPage({ params }: { params: Promise<{ token
                   <div className="flex-1 min-w-0">
                     <div className="text-xs font-medium text-gray-700">{TYPE_LABELS[s.type] || s.type} · {s.applicantType === "individual" ? "개인" : "학교"} · {s.status}</div>
                     <div className="text-[11px] font-mono text-gray-500 truncate">{s.emails}</div>
+                    {req.channel === 'partner' && (
+                      <div className="text-[11px] text-gray-500">{s.teacherName || '—'} · {s.subject || '—'}</div>
+                    )}
                   </div>
                 </label>
               ))}

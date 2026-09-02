@@ -65,6 +65,13 @@ interface AccountRequest {
   invoiceEmailLastError: string | null;
   externalSource: string | null;
   marketOrderId: string | null;
+  partnerRequestId: string | null;
+  partnerItemId: string | null;
+  teacherName: string | null;
+  subject: string | null;
+  partnerLifecycleState: string;
+  partnerNotificationOperationId: string | null;
+  partnerNotificationSentAt: string | null;
   marketVoidState: "active" | "non_voidable" | "prepared" | "voided";
   confirmedAt: string | null;
   createdAt: string;
@@ -88,6 +95,7 @@ const TYPES = [
 const CHANNELS = [
   { value: "company", label: "회사몰", icon: "🏢" },
   { value: "school_store", label: "학교장터", icon: "🏫" },
+  { value: "partner", label: "협력사", icon: "🤝" },
 ];
 
 const APPLICANT_TYPES = [
@@ -129,7 +137,7 @@ function isLegacyDeliveryComplete(request: AccountRequest): boolean {
 }
 
 function isMarketManaged(request: AccountRequest): boolean {
-  return request.externalSource === "market";
+  return request.externalSource === "market" || request.externalSource === "market_partner";
 }
 
 function isLegacyMarketAudit(request: AccountRequest): boolean {
@@ -166,6 +174,14 @@ function AccountsPageContent() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<AccountRequest | null>(null);
   const [emailPreview, setEmailPreview] = useState<AccountRequest | null>(null);
+  const [partnerHqPreview, setPartnerHqPreview] = useState<{ requestId: string; rows: AccountRequest[] } | null>(null);
+  const [partnerNotifySelected, setPartnerNotifySelected] = useState<Set<number>>(new Set());
+  const [partnerNotificationPreview, setPartnerNotificationPreview] = useState<{
+    requestId: string;
+    recipientEmail: string;
+    schoolName: string;
+    rows: Array<{ id: number; teacherName: string | null; email: string; subject: string | null }>;
+  } | null>(null);
   const [sending, setSending] = useState(false);
   const [sendMsg, setSendMsg] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -442,6 +458,176 @@ function AccountsPageContent() {
       }
     } catch { setSendMsg("연결 오류"); }
     finally { setSending(false); }
+  }
+
+  async function sendPartnerGroup() {
+    if (!partnerHqPreview || sending) return;
+    const rows = partnerHqPreview.rows.filter((row) => getAccountEmailDeliveryState(row) === "ready");
+    if (rows.length === 0) return;
+    setSending(true);
+    setSendMsg("");
+    try {
+      const response = await fetch("/api/account-email/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          requestIds: rows.map((row) => row.id),
+          mode: "send_all",
+          sections: rows.map((row) => generateAccountEmail(row)),
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (response.ok && result.success) {
+        setSendMsg(`✓ 협력사 신청 ${partnerHqPreview.requestId}의 ${rows.length}명 본사 발송 완료`);
+        setPartnerHqPreview(null);
+        await load();
+      } else if (result.deliveryUnknown) {
+        setSendMsg("⚠️ Gmail 보낸편지함 확인 필요: 발송 결과가 불확실하여 자동 재시도를 차단했습니다.");
+        setPartnerHqPreview(null);
+        await load();
+      } else if (result.partialSuccess) {
+        setSendMsg("⚠️ Jon 처리 메일은 발송됐지만 Cailie 인보이스는 실패했습니다. 인보이스만 재시도해 주세요.");
+        setPartnerHqPreview(null);
+        await load();
+      } else {
+        setSendMsg("실패: " + (result.error || "본사 발송을 완료하지 못했습니다."));
+      }
+    } catch {
+      setSendMsg("연결 오류가 발생했습니다.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  function togglePartnerNotify(id: number) {
+    setPartnerNotifySelected((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  async function previewPartnerNotification(requestId: string, rows: AccountRequest[]) {
+    const selected = rows.filter((row) => partnerNotifySelected.has(row.id));
+    if (selected.length === 0 || sending) return;
+    setSending(true);
+    setSendMsg("");
+    try {
+      const response = await fetch("/api/admin/partner-approval-notification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "preview", partnerRequestId: requestId, requestIds: selected.map((row) => row.id) }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setSendMsg("실패: " + (result.error || "승인 안내 미리보기를 만들지 못했습니다."));
+        return;
+      }
+      setPartnerNotificationPreview({
+        requestId,
+        recipientEmail: result.recipientEmail,
+        schoolName: result.schoolName,
+        rows: result.rows,
+      });
+    } catch {
+      setSendMsg("Market 연결 오류가 발생했습니다.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function sendPartnerNotification() {
+    if (!partnerNotificationPreview || sending) return;
+    setSending(true);
+    setSendMsg("");
+    const operationId = crypto.randomUUID();
+    try {
+      const response = await fetch("/api/admin/partner-approval-notification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "send",
+          partnerRequestId: partnerNotificationPreview.requestId,
+          requestIds: partnerNotificationPreview.rows.map((row) => row.id),
+          operationId,
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (result.status === "sent") {
+        setSendMsg(`✓ ${partnerNotificationPreview.rows.length}명 승인 안내를 협력사에 발송했습니다.`);
+        setPartnerNotifySelected((previous) => {
+          const next = new Set(previous);
+          partnerNotificationPreview.rows.forEach((row) => next.delete(row.id));
+          return next;
+        });
+        setPartnerNotificationPreview(null);
+        await load();
+      } else if (result.status === "unknown" || response.status === 202) {
+        setSendMsg("⚠️ 발송 결과가 불확실합니다. 자동 재발송하지 말고 상태 확인 또는 Gmail 보낸편지함 수동 확인을 진행하세요.");
+        setPartnerNotificationPreview(null);
+        await load();
+      } else {
+        setSendMsg("실패: " + (result.error || "승인 안내를 발송하지 못했습니다."));
+        await load();
+      }
+    } catch {
+      setSendMsg("⚠️ Market 응답을 확인하지 못했습니다. 자동 재발송하지 말고 발송 상태를 확인하세요.");
+      setPartnerNotificationPreview(null);
+      await load();
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function reconcilePartnerNotification(operationId: string) {
+    if (sending) return;
+    setSending(true);
+    try {
+      const response = await fetch("/api/admin/partner-approval-notification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "status", operationId }),
+      });
+      const result = await response.json().catch(() => ({}));
+      setSendMsg(result.status === "sent"
+        ? "✓ Market 원장에서 발송 완료를 확인했습니다."
+        : result.status === "failed"
+          ? "미발송 상태를 확인했습니다. 다시 선택해 발송할 수 있습니다."
+          : "⚠️ 아직 발송 결과 불명입니다. Gmail 보낸편지함을 확인하세요.");
+      await load();
+    } catch {
+      setSendMsg("발송 상태를 확인하지 못했습니다.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function reviewPartnerNotification(operationId: string, outcome: "sent" | "not_sent") {
+    if (sending) return;
+    const note = window.prompt(outcome === "sent"
+      ? "Gmail 보낸편지함에서 확인한 근거를 입력하세요."
+      : "미발송으로 판단한 근거를 입력하세요.");
+    if (!note || note.trim().length < 3) {
+      setSendMsg("수동 확인 메모를 3자 이상 입력해야 합니다.");
+      return;
+    }
+    setSending(true);
+    try {
+      const response = await fetch("/api/admin/partner-approval-notification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "review", operationId, outcome, note: note.trim() }),
+      });
+      const result = await response.json().catch(() => ({}));
+      setSendMsg(response.ok
+        ? outcome === "sent" ? "✓ 수동 확인으로 발송 완료 처리했습니다." : "미발송으로 확인했습니다. 다시 선택해 발송할 수 있습니다."
+        : "실패: " + (result.error || "수동 확인을 저장하지 못했습니다."));
+      await load();
+    } catch {
+      setSendMsg("수동 확인 결과를 저장하지 못했습니다.");
+    } finally {
+      setSending(false);
+    }
   }
 
   async function retryInvoiceOnly(r: AccountRequest) {
@@ -731,13 +917,20 @@ function AccountsPageContent() {
   const selectionNeedsDeliveryReview = selectedRequestsForAction.some(needsDeliveryReview);
   const selectionHasLegacyDelivery = selectedRequestsForAction.some(isLegacyDeliveryComplete);
   const selectionHasLegacyMarketAudit = selectedRequestsForAction.some(isLegacyMarketAudit);
+  const partnerGroups = Array.from(filtered.reduce((groups, request) => {
+    if (request.channel !== "partner" || request.partnerLifecycleState !== "active" || !request.partnerRequestId) return groups;
+    const rows = groups.get(request.partnerRequestId) || [];
+    rows.push(request);
+    groups.set(request.partnerRequestId, rows);
+    return groups;
+  }, new Map<string, AccountRequest[]>()).entries());
 
   return (
     <div className="space-y-3 pb-20 md:pb-0">
       {/* Compact header */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-3">
         <div className="flex items-center gap-3">
-          <h1 className="text-lg font-bold text-slate-900">정산</h1>
+          <h1 className="text-lg font-bold text-slate-900">Snorkl 계정 요청 관리</h1>
           <div className="flex items-center gap-2 text-xs text-slate-500">
             <span><strong className="text-slate-900 text-sm">{operationalRequests.length}</strong> 건</span>
             <span className="text-slate-200">|</span>
@@ -1093,6 +1286,90 @@ function AccountsPageContent() {
         ))}
       </div>
 
+      {partnerGroups.length > 0 && (
+        <section className="rounded-xl border border-cyan-200 bg-cyan-50/50 p-3 space-y-2" aria-labelledby="partner-request-groups">
+          <div>
+            <h2 id="partner-request-groups" className="text-sm font-semibold text-cyan-950">협력사 신청 묶음</h2>
+            <p className="text-[11px] text-cyan-800">같은 신청의 교사를 함께 확인한 뒤 본사로 발송합니다.</p>
+          </div>
+          {partnerGroups.map(([requestId, rows]) => {
+            const readyRows = rows.filter((row) => getAccountEmailDeliveryState(row) === "ready");
+            const unknown = rows.some(needsDeliveryReview);
+            const notificationCandidates = rows.filter((row) => (
+              Boolean(row.confirmedAt)
+              && !row.partnerNotificationSentAt
+              && !row.partnerNotificationOperationId
+            ));
+            const selectedNotificationRows = notificationCandidates.filter((row) => partnerNotifySelected.has(row.id));
+            const unknownOperations = [...new Set(rows
+              .filter((row) => !row.partnerNotificationSentAt && row.partnerNotificationOperationId)
+              .map((row) => row.partnerNotificationOperationId!))];
+            return (
+              <div key={requestId} className="rounded-lg border border-cyan-100 bg-white p-3 space-y-2">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-semibold text-slate-900">{rows[0]?.schoolName} · {rows.length}명</div>
+                  {rows[0]?.schoolNameEn && <div className="text-[11px] text-slate-500">{rows[0].schoolNameEn}</div>}
+                  <div className="mt-1 text-[11px] text-slate-500 truncate">{rows.map((row) => `${row.teacherName || "—"} (${row.subject || "—"})`).join(", ")}</div>
+                  <div className="mt-1 font-mono text-[9px] text-slate-400">{requestId}</div>
+                </div>
+                <Button
+                  size="sm"
+                  disabled={sending || readyRows.length === 0 || unknown}
+                  onClick={() => setPartnerHqPreview({ requestId, rows: readyRows })}
+                  className="bg-cyan-700 hover:bg-cyan-800 text-xs"
+                >
+                  {unknown ? "보낸편지함 확인 필요" : readyRows.length > 0 ? `본사 발송 미리보기 (${readyRows.length})` : "본사 발송 완료"}
+                </Button>
+                </div>
+                {rows.some((row) => row.confirmedAt) && (
+                  <div className="rounded-md border border-emerald-100 bg-emerald-50/60 p-2 space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-[11px] font-semibold text-emerald-900">협력사 승인 안내</span>
+                      <Button
+                        size="sm"
+                        disabled={sending || selectedNotificationRows.length === 0}
+                        onClick={() => previewPartnerNotification(requestId, rows)}
+                        className="h-7 bg-emerald-700 hover:bg-emerald-800 text-[11px]"
+                      >
+                        수신자·교사 미리보기 ({selectedNotificationRows.length})
+                      </Button>
+                    </div>
+                    <ul className="space-y-1">
+                      {rows.filter((row) => row.confirmedAt).map((row) => {
+                        const selectable = !row.partnerNotificationSentAt && !row.partnerNotificationOperationId;
+                        return (
+                          <li key={row.id} className="flex items-center gap-2 text-[11px] text-slate-700">
+                            <input
+                              type="checkbox"
+                              aria-label={`${row.teacherName || row.emails} 협력사 안내 선택`}
+                              checked={partnerNotifySelected.has(row.id)}
+                              disabled={!selectable || sending}
+                              onChange={() => togglePartnerNotify(row.id)}
+                            />
+                            <span className="flex-1">{row.teacherName || "—"} · {row.subject || "—"} · {row.emails}</span>
+                            <span className={row.partnerNotificationSentAt ? "text-emerald-700" : row.partnerNotificationOperationId ? "text-amber-700" : "text-slate-400"}>
+                              {row.partnerNotificationSentAt ? "안내 완료" : row.partnerNotificationOperationId ? "확인 필요" : "안내 대기"}
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                    {unknownOperations.map((operationId) => (
+                      <div key={operationId} className="flex flex-wrap gap-1 border-t border-emerald-100 pt-2">
+                        <Button size="sm" variant="outline" disabled={sending} onClick={() => reconcilePartnerNotification(operationId)} className="h-7 text-[10px]">Market 상태 확인</Button>
+                        <Button size="sm" variant="outline" disabled={sending} onClick={() => reviewPartnerNotification(operationId, "sent")} className="h-7 text-[10px]">Gmail에서 발송 확인</Button>
+                        <Button size="sm" variant="outline" disabled={sending} onClick={() => reviewPartnerNotification(operationId, "not_sent")} className="h-7 text-[10px]">미발송 확인</Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </section>
+      )}
+
       {/* Request list */}
       <div className="bg-white rounded-xl border overflow-hidden">
         {/* Desktop header */}
@@ -1160,6 +1437,9 @@ function AccountsPageContent() {
                     {(r.channel || "company") === "school_store" && (
                       <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-medium">학교장터</span>
                     )}
+                    {(r.channel || "company") === "partner" && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-cyan-100 text-cyan-800 font-semibold">협력사</span>
+                    )}
                     {r.needsInvoice && (
                       <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 font-medium" title="인보이스 필요 — Cailie CC">💳</span>
                     )}
@@ -1199,6 +1479,11 @@ function AccountsPageContent() {
                   <div className="text-[11px] font-mono text-slate-500 truncate">
                     {emails.length <= 2 ? emails.join(", ") : `${emails[0]} +${emails.length - 1}`}
                   </div>
+                  {r.channel === 'partner' && (
+                    <div className="text-[10px] text-cyan-800 truncate">
+                      {r.teacherName || '—'} · {r.subject || '—'}
+                    </div>
+                  )}
                 </div>
                 <div className="w-16 text-center text-[10px] leading-tight" title={`신청: ${r.createdAt || "—"}\n완료: ${r.confirmedAt || "—"}`}>
                   <div className="text-slate-600">{fmtMD(r.createdAt)}</div>
@@ -1226,6 +1511,8 @@ function AccountsPageContent() {
                       className="h-7 px-2 rounded text-[10px] font-semibold bg-orange-50 text-orange-800 inline-flex items-center"
                       title="구 Market 주문은 자동 처리하지 않고 수동 감사만 허용"
                     >수동 감사</span>
+                  ) : marketManaged && r.channel === "partner" ? (
+                    <span className="h-7 px-2 rounded text-[10px] font-semibold bg-cyan-50 text-cyan-700 inline-flex items-center">위 묶음에서 발송</span>
                   ) : marketManaged ? (
                     <button
                       onClick={() => needsInvoiceRetry(r) ? retryInvoiceOnly(r) : sendToJon(r)}
@@ -1298,6 +1585,8 @@ function AccountsPageContent() {
                 <div className="flex items-center gap-1.5 mt-1.5 ml-6">
                   {legacyMarketAudit ? (
                     <span className="text-[11px] text-orange-800 px-2 py-1 rounded bg-orange-50 min-h-[28px] inline-flex items-center font-semibold">수동 감사만</span>
+                  ) : marketManaged && r.channel === "partner" ? (
+                    <span className="text-[11px] text-cyan-700 px-2 py-1 rounded bg-cyan-50 min-h-[28px] inline-flex items-center">위 묶음에서 발송</span>
                   ) : marketManaged ? (
                     <button
                       onClick={() => needsInvoiceRetry(r) ? retryInvoiceOnly(r) : sendToJon(r)}
@@ -1336,6 +1625,65 @@ function AccountsPageContent() {
               : "bg-red-600 text-white"
         }`}>
           {sendMsg}
+        </div>
+      )}
+
+      {partnerHqPreview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => !sending && setPartnerHqPreview(null)}>
+          <div className="w-full max-w-lg rounded-xl bg-white shadow-xl" onClick={(event) => event.stopPropagation()}>
+            <div className="border-b bg-cyan-50 p-4 rounded-t-xl">
+              <h3 className="font-bold text-cyan-950">협력사 신청 본사 발송 미리보기</h3>
+              <p className="mt-1 text-xs text-cyan-800">Jon 처리 요청과 Cailie 인보이스 요청을 기존 서버 발송 흐름으로 보냅니다.</p>
+            </div>
+            <div className="p-4 space-y-3">
+              <div className="text-xs text-slate-500"><b>신청 ID:</b> {partnerHqPreview.requestId}</div>
+              <div className="text-sm"><b>학교:</b> {partnerHqPreview.rows[0]?.schoolNameEn || partnerHqPreview.rows[0]?.schoolName}</div>
+              <ul className="divide-y rounded-lg border">
+                {partnerHqPreview.rows.map((row) => (
+                  <li key={row.id} className="p-3 text-sm">
+                    <div className="font-medium">{row.teacherName || "—"} · {row.subject || "—"}</div>
+                    <div className="mt-0.5 font-mono text-xs text-slate-500">{row.emails}</div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="flex items-center gap-2 border-t bg-slate-50 p-4 rounded-b-xl">
+              <Button size="sm" disabled={sending} onClick={sendPartnerGroup} className="bg-cyan-700 hover:bg-cyan-800 text-xs">
+                {sending ? "발송 중…" : "확인 후 본사 발송"}
+              </Button>
+              <Button size="sm" variant="outline" disabled={sending} onClick={() => setPartnerHqPreview(null)} className="text-xs">취소</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {partnerNotificationPreview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => !sending && setPartnerNotificationPreview(null)}>
+          <div className="w-full max-w-lg rounded-xl bg-white shadow-xl" onClick={(event) => event.stopPropagation()}>
+            <div className="border-b bg-emerald-50 p-4 rounded-t-xl">
+              <h3 className="font-bold text-emerald-950">협력사 승인 안내 미리보기</h3>
+              <p className="mt-1 text-xs text-emerald-800">최종 확인 전에는 이메일을 발송하지 않습니다.</p>
+            </div>
+            <div className="p-4 space-y-3">
+              <div className="text-sm"><b>수신:</b> {partnerNotificationPreview.recipientEmail}</div>
+              <div className="text-sm"><b>학교:</b> {partnerNotificationPreview.schoolName}</div>
+              <ul className="divide-y rounded-lg border">
+                {partnerNotificationPreview.rows.map((row) => (
+                  <li key={row.id} className="p-3 text-sm">
+                    <div className="font-medium">{row.teacherName || "—"}</div>
+                    <div className="mt-0.5 text-xs text-slate-500">관리자 확인용: {row.email} · {row.subject || "—"}</div>
+                  </li>
+                ))}
+              </ul>
+              <p className="rounded-md bg-slate-50 p-2 text-xs text-slate-600">협력사 이메일 본문에는 교사명만 포함되며, 계정 이메일과 과목은 포함되지 않습니다.</p>
+            </div>
+            <div className="flex items-center gap-2 border-t bg-slate-50 p-4 rounded-b-xl">
+              <Button size="sm" disabled={sending} onClick={sendPartnerNotification} className="bg-emerald-700 hover:bg-emerald-800 text-xs">
+                {sending ? "발송 중…" : "확인 후 협력사에 발송"}
+              </Button>
+              <Button size="sm" variant="outline" disabled={sending} onClick={() => setPartnerNotificationPreview(null)} className="text-xs">취소</Button>
+            </div>
+          </div>
         </div>
       )}
 

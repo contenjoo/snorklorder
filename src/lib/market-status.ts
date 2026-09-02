@@ -22,6 +22,16 @@ export const MARKET_STATUS_FIELDS = [
   "marketOrderId",
   "orderNumber",
   "idempotencyKey",
+  "channel",
+  "partnerRequestId",
+  "partnerItemId",
+  "partnerRevision",
+  "teacherName",
+  "subject",
+  "partnerLifecycleState",
+  "confirmedAt",
+  "processingEmailSentAt",
+  "partnerNotificationSentAt",
   "marketVoidState",
   "marketVoidOperationId",
   "marketVoidVersion",
@@ -71,6 +81,16 @@ export interface MarketStatusSourceRow {
   marketOrderId: string | null;
   orderNumber: string | null;
   idempotencyKey: string | null;
+  channel: string;
+  partnerRequestId: string | null;
+  partnerItemId: string | null;
+  partnerRevision: number | null;
+  teacherName: string | null;
+  subject: string | null;
+  partnerLifecycleState: string;
+  confirmedAt: Date | string | null;
+  processingEmailSentAt: Date | string | null;
+  partnerNotificationSentAt: Date | string | null;
   marketVoidState: string;
   marketVoidOperationId: string | null;
   marketVoidVersion: number;
@@ -91,6 +111,16 @@ export interface MarketStatusItem {
   marketOrderId: string | null;
   orderNumber: string | null;
   idempotencyKey: string | null;
+  channel: string;
+  partnerRequestId: string | null;
+  partnerItemId: string | null;
+  partnerRevision: number | null;
+  teacherName: string | null;
+  subject: string | null;
+  partnerLifecycleState: string;
+  confirmedAt: string | null;
+  processingEmailSentAt: string | null;
+  partnerNotificationSentAt: string | null;
   marketVoidState: string;
   marketVoidOperationId: string | null;
   marketVoidVersion: number;
@@ -124,6 +154,16 @@ export function toMarketStatusItem(row: MarketStatusSourceRow): MarketStatusItem
     marketOrderId: row.marketOrderId ?? null,
     orderNumber: row.orderNumber ?? null,
     idempotencyKey: row.idempotencyKey ?? null,
+    channel: row.channel,
+    partnerRequestId: row.partnerRequestId ?? null,
+    partnerItemId: row.partnerItemId ?? null,
+    partnerRevision: row.partnerRevision ?? null,
+    teacherName: row.teacherName ?? null,
+    subject: row.subject ?? null,
+    partnerLifecycleState: row.partnerLifecycleState,
+    confirmedAt: toNullableIsoString(row.confirmedAt),
+    processingEmailSentAt: toNullableIsoString(row.processingEmailSentAt),
+    partnerNotificationSentAt: toNullableIsoString(row.partnerNotificationSentAt),
     marketVoidState: row.marketVoidState,
     marketVoidOperationId: row.marketVoidOperationId ?? null,
     marketVoidVersion: row.marketVoidVersion,

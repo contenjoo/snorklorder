@@ -34,6 +34,13 @@ function isPublicApiRequest(request: NextRequest, pathname: string) {
     return true;
   }
 
+  // Market 협력사 제품 신청 배치 수신부: 동적 ID 한 구간 + PUT만 통과시킨다.
+  // 관리자 쿠키 대신 라우트 내부 x-api-key로만 기계 인증한다.
+  if (/^\/api\/account-requests\/market-partner\/[^/]+$/.test(pathname)
+    && request.method === "PUT") {
+    return true;
+  }
+
   // 구 Market writer 주문번호 감사: exact path + GET만 통과시키며 세션 폴백은 없다.
   // 라우트 내부 x-api-key가 미설정 503과 누락/불일치 401을 구분한다.
   if (pathname === "/api/account-requests/market-legacy-audit" && request.method === "GET") {
