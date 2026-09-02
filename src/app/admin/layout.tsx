@@ -10,7 +10,7 @@ const navItems = [
   { href: "/admin", label: "대시보드", icon: "grid" },
   { href: "/admin/schools", label: "학교", icon: "school" },
   { href: "/admin/teachers", label: "교사", icon: "users" },
-  { href: "/admin/accounts", label: "정산", icon: "receipt" },
+  { href: "/admin/accounts", label: "계정 요청", icon: "receipt" },
   { href: "/admin/domains", label: "도메인", icon: "globe" },
   { href: "/admin/requests", label: "요청", icon: "inbox" },
   { href: "/admin/insights", label: "인사이트", icon: "chart" },

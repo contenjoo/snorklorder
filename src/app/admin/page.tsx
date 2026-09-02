@@ -181,7 +181,7 @@ const REQ_TYPE_CHIP: Record<string, string> = {
 const EMAIL_KIND_LABEL: Record<string, string> = {
   batch_notification: "Jon 발송",
   teacher_upgraded: "완료 안내",
-  account_email: "정산 메일",
+  account_email: "계정 요청 메일",
   account_confirm: "confirm 안내",
   stale_reminder: "리마인드",
   daily_digest: "다이제스트",
@@ -404,7 +404,7 @@ export default function AdminDashboard() {
       ? "🌐 도메인"
       : i.reqType === "upgrade" && i.emailCount > 0
         ? `⬆️ ${i.emailCount}명`
-        : `${REQ_TYPE_CHIP[i.reqType] || "📚"} ${i.reqType === "email_change" ? "이메일 변경" : i.reqType === "type_change" ? "타입 변경" : i.reqType === "extension" ? "연장" : "정산"}`;
+        : `${REQ_TYPE_CHIP[i.reqType] || "📚"} ${i.reqType === "email_change" ? "이메일 변경" : i.reqType === "type_change" ? "타입 변경" : i.reqType === "extension" ? "연장" : "계정 요청"}`;
     const jonChip = i.bucket === "JON_PROCESS" ? { label: "처리 대기", cls: "bg-purple-50 text-purple-700" }
       : i.bucket === "JON_INVOICE" ? { label: "인보이스 대기", cls: "bg-amber-50 text-amber-700" }
         : { label: "확인 대기", cls: "bg-blue-50 text-blue-700" };
@@ -730,8 +730,8 @@ export default function AdminDashboard() {
         <div className="space-y-4">
           <section className="bg-white rounded-2xl border overflow-hidden">
             <div className="flex items-center justify-between px-4 md:px-5 py-3.5 border-b">
-              <h2 className="font-bold text-slate-900 text-[15px]">정산 파이프라인</h2>
-              <Link href="/admin/accounts" className="text-xs text-blue-600 hover:underline font-medium">정산 →</Link>
+              <h2 className="font-bold text-slate-900 text-[15px]">계정 요청 파이프라인</h2>
+              <Link href="/admin/accounts" className="text-xs text-blue-600 hover:underline font-medium">계정 요청 →</Link>
             </div>
             <div className="grid grid-cols-5 gap-1.5 px-4 py-3.5">
               {PIPE_STAGES.map((stage) => {

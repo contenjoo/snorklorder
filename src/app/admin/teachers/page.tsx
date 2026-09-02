@@ -385,7 +385,7 @@ export default function TeachersPage() {
               </div>
             ))
           ) : (
-            <EmptyState icon="👤" title="개별 구매 교사 없음" hint="개별 구매 정산 요청이 생기면 여기에 표시됩니다." />
+            <EmptyState icon="👤" title="개별 구매 교사 없음" hint="개별 구매 계정 요청이 생기면 여기에 표시됩니다." />
           )}
         </div>
       )}

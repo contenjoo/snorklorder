@@ -336,7 +336,7 @@ export async function sendAccountConfirmNotification(payload: {
           <p style="margin:0 0 8px"><b>${schoolDisplay}</b></p>
           <p style="margin:0 0 12px">${emailList}</p>
           <hr style="border:none;border-top:1px solid #eee;margin:16px 0">
-          <p><a href="${BASE_URL}/admin/accounts" style="color:#2563eb">정산 페이지 열기 →</a></p>
+          <p><a href="${BASE_URL}/admin/accounts" style="color:#2563eb">계정 요청 관리 열기 →</a></p>
         </div>
       `,
     });
