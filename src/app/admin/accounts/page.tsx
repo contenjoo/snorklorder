@@ -1,6 +1,8 @@
 "use client";
 
 import { Suspense, useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
+import { FileText } from "lucide-react";
 import { STATUS_CHIP } from "@/lib/status";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -32,6 +34,8 @@ import {
 } from "@/lib/account-email-template";
 import { getAccountEmailDeliveryState } from "@/lib/account-email-delivery";
 import { hasMarketLegacyOrderNote } from "@/lib/market-legacy-audit";
+
+const LicenseCertificateDialog = dynamic(() => import("@/components/admin/license-certificate-dialog"), { ssr: false });
 
 // 미리보기에는 실제 토큰을 넣지 않는다. 링크 줄의 존재와 위치만 확인되면 충분하다.
 const INVOICE_VIEW_PREVIEW_URL = "https://<snorkl>/invoice?k=\u2026";
@@ -159,6 +163,7 @@ function AccountsPageContent() {
   const focusId = Number(searchParams.get("focus")) || null;
   const newParam = searchParams.get("new") === "1";
 
+  const [certificateRequest, setCertificateRequest] = useState<AccountRequest | null>(null);
   const [requests, setRequests] = useState<AccountRequest[]>([]);
   const [filter, setFilter] = useState(
     filterParam && STATUSES.some((s) => s.value === filterParam) ? filterParam : "all"
@@ -1536,6 +1541,7 @@ function AccountsPageContent() {
                       <button onClick={() => copyEmail(r)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-slate-100 text-slate-400 hover:text-slate-600" title="복사">📋</button>
                     </>
                   )}
+                  <button onClick={() => setCertificateRequest(r)} disabled={marketVoidFenced || legacyMarketAudit} className="w-7 h-7 rounded flex items-center justify-center text-slate-500 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-30 disabled:cursor-not-allowed" title="라이선스 확인서 발급" aria-label={`${r.schoolName} 라이선스 확인서 발급`}><FileText className="w-4 h-4" /></button>
                   <button onClick={() => openEdit(r)} disabled={marketVoidFenced || legacyMarketAudit} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-slate-100 text-slate-400 hover:text-slate-600 disabled:opacity-30 disabled:cursor-not-allowed" title={legacyMarketAudit ? "구 Market 감사 원본 수정 금지" : "수정"}>✎</button>
                   {!marketManaged && !legacyMarketAudit && <button onClick={() => deleteRequest(r.id)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-red-50 text-slate-300 hover:text-red-500" title="삭제">✕</button>}
                 </div>
@@ -1599,6 +1605,7 @@ function AccountsPageContent() {
                       <button onClick={() => copyEmail(r)} className="text-[11px] text-slate-400 hover:text-blue-600 px-2 py-1 rounded bg-slate-50 min-h-[28px]">복사</button>
                     </>
                   )}
+                  <button onClick={() => setCertificateRequest(r)} disabled={marketVoidFenced || legacyMarketAudit} className="text-[11px] text-blue-700 px-2 py-1 rounded bg-blue-50 min-h-[28px] disabled:opacity-40">라이선스 확인서</button>
                   <button onClick={() => openEdit(r)} disabled={marketVoidFenced || legacyMarketAudit} className="text-[11px] text-slate-400 hover:text-blue-600 px-2 py-1 rounded bg-slate-50 min-h-[28px] disabled:opacity-40">수정</button>
                   {r.invoiceAmount && <span className="text-[10px] font-semibold text-slate-700 ml-auto">{r.invoiceAmount}{r.paymentDate && " ✓"}</span>}
                   {dday && <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${dday.cls} ${r.invoiceAmount ? "" : "ml-auto"}`} title={`결제 기한: ${r.invoiceDueDate}`}>{dday.label}</span>}
@@ -1614,6 +1621,8 @@ function AccountsPageContent() {
           </div>
         )}
       </div>
+
+      {certificateRequest && <LicenseCertificateDialog request={certificateRequest} onClose={() => setCertificateRequest(null)} />}
 
       {/* 상태 메시지 */}
       {sendMsg && (
