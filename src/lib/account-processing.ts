@@ -40,9 +40,13 @@ export function processingReviewReason(r: ProcessingCandidate): string | null {
     || ["prepared", "voided"].includes(r.marketVoidState || "")
     || (r.channel === "partner" && r.partnerLifecycleState !== "active")
     || isMarketLegacyAuditRequest(r)) return null;
-  if (!r.processingEmailSentAt) return "최초 발송 기록 확인 필요";
   if (r.processingEmailSendStartedAt || (r.invoiceEmailSendStartedAt && !r.invoiceEmailSentAt)) {
     return "발송 결과 확인 필요";
+  }
+  // 발송 원장이 도입되기 전 요청은 시각 기록이 없다. 기록 부재만으로
+  // 미처리 경고를 만들거나 완료로 추정하지 않는다. 실제 시도/발송 근거가 있을 때만 검토한다.
+  if (!r.processingEmailSentAt) {
+    return r.invoiceEmailSentAt ? "처리 메일 발송 기록 확인 필요" : null;
   }
   if (!r.confirmToken) return "완료 확인 링크 확인 필요";
   return null;

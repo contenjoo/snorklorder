@@ -133,7 +133,7 @@ test("selection excludes completed, unrelated, cancelled, unknown and legacy aud
     row(15, { channel: "company", notes: "/ 주문번호: OLD-1 /" }), fresh(16)];
   const selected = selectProcessingReminders([fresh(17)], cases);
   assert.deepEqual(selected.reminders.map((r) => r.id), [1, 2, 3, 4]);
-  assert.deepEqual(selected.manualReview.map((r) => r.requestId), [11, 12, 13, 14]);
+  assert.deepEqual(selected.manualReview.map((r) => r.requestId), [11, 12, 14]);
   assert.equal(isProcessingConfirmed(row(3, { status: "invoiced" })), false);
   assert.equal(isOpenProcessingRequest(row(1)), true);
 });
@@ -278,4 +278,24 @@ test("partner confirmation keeps application boundaries and does not mail teache
   assert.equal(h.rows[1].confirmedAt, null); assert.equal(h.rows[2].confirmedAt, null);
   assert.equal(h.notifications.length, 1);
   assert.equal(isOpenProcessingRequest(h.rows[2]), false);
+});
+
+
+test("legacy records without a delivery ledger stay quiet while genuine delivery uncertainty remains visible", () => {
+  const legacy = ["sent", "invoiced", "paid"].map((status, i) => row(i + 1, {
+    status, processingEmailSentAt: null, confirmToken: null,
+  }));
+  const before = structuredClone(legacy);
+  const unknown = row(4, { processingEmailSentAt: null, processingEmailSendStartedAt: new Date() });
+  const inconsistent = row(5, { processingEmailSentAt: null, invoiceEmailSentAt: new Date() });
+  const invoiceUnknown = row(6, { processingEmailSentAt: null, invoiceEmailSendStartedAt: new Date() });
+  const selected = selectProcessingReminders([fresh(8)], [...legacy, unknown, inconsistent, invoiceUnknown, row(7)]);
+  assert.deepEqual(selected.reminders.map((r) => r.id), [7]);
+  assert.deepEqual(selected.manualReview, [
+    { requestId: 4, reason: "발송 결과 확인 필요" },
+    { requestId: 5, reason: "처리 메일 발송 기록 확인 필요" },
+    { requestId: 6, reason: "발송 결과 확인 필요" },
+  ]);
+  assert.deepEqual(legacy, before);
+  assert.ok(legacy.every((r) => !isProcessingConfirmed(r)));
 });
