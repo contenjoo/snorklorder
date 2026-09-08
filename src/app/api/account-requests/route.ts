@@ -23,8 +23,14 @@ import {
 } from "@/lib/market-account-request";
 import { shouldMarkInvoicedOnNumberEntry } from "@/lib/account-email-template";
 import { authorizeMarketStatusRequest } from "@/lib/market-status";
+import { isProcessingConfirmed } from "@/lib/account-processing";
+import { processingConfirmationValues, pendingProcessingConfirmationCondition } from "@/lib/processing-confirmation-db";
+import { claimAccountRequestSideEffects } from "@/lib/market-void-db";
 import { getReceiverFulfillmentPausedResponse } from "@/lib/receiver-fulfillment-pause";
-import { hasMarketLegacyOrderNote } from "@/lib/market-legacy-audit";
+import {
+  hasMarketLegacyOrderNote,
+  isMarketLegacyAuditRequest,
+} from "@/lib/market-legacy-audit";
 
 type ExistingMarketRequest = {
   id: number;
@@ -419,22 +425,28 @@ export async function POST(req: NextRequest) {
         typeof updates.schoolNameEn === "string" ? updates.schoolNameEn : null,
       );
     }
-    // Jon 처리완료(processed) 전환 감지를 위해 이전 상태 조회
+    // 완료 확인과 청구·결제 상태를 독립적으로 기록한다.
     const [prev] = await db.select({
       status: accountRequests.status,
+      confirmedAt: accountRequests.confirmedAt,
       invoiceNumber: accountRequests.invoiceNumber,
       externalSource: accountRequests.externalSource,
       channel: accountRequests.channel,
       notes: accountRequests.notes,
+      marketRequestId: accountRequests.marketRequestId,
       marketOrderId: accountRequests.marketOrderId,
+      orderNumber: accountRequests.orderNumber,
+      idempotencyKey: accountRequests.idempotencyKey,
+      draftOnly: accountRequests.draftOnly,
       marketVoidState: accountRequests.marketVoidState,
     }).from(accountRequests).where(eq(accountRequests.id, id));
     if (!prev) return NextResponse.json({ error: "Account request not found" }, { status: 404 });
     const nextChannel = typeof updates.channel === "string" ? updates.channel : prev.channel;
-    if (prev.externalSource !== "market" && (
-      (prev.channel === "company" && hasMarketLegacyOrderNote(prev.notes))
-      || (nextChannel === "company" && hasMarketLegacyOrderNote(updates.notes))
-    )) {
+    const nextNotes = updates.notes !== undefined ? updates.notes : prev.notes;
+    if (
+      isMarketLegacyAuditRequest(prev)
+      || isMarketLegacyAuditRequest({ ...prev, channel: nextChannel, notes: nextNotes })
+    ) {
       return legacyMarketIdentityRequiredResponse();
     }
     // 인보이스 번호가 새로 채워지면 업무 상태도 함께 invoiced 로 넘긴다.
@@ -462,12 +474,23 @@ export async function POST(req: NextRequest) {
         }, { status: 409 });
       }
     }
+    const confirmingProcessing = data.status === "processed";
+    if (confirmingProcessing) {
+      if (isProcessingConfirmed(prev)) {
+        const [request] = await db.select().from(accountRequests).where(eq(accountRequests.id, id));
+        return NextResponse.json({ request });
+      }
+      if (!(await claimAccountRequestSideEffects([id]))) {
+        return NextResponse.json({ code: "MARKET_VOID_FENCED", error: "취소 진행 중인 요청은 완료 처리할 수 없습니다." }, { status: 409 });
+      }
+      Object.assign(updates, processingConfirmationValues());
+    }
     let item: typeof accountRequests.$inferSelect | undefined;
     try {
       [item] = await db
         .update(accountRequests)
         .set(updates)
-        .where(eq(accountRequests.id, id))
+        .where(and(eq(accountRequests.id, id), confirmingProcessing ? pendingProcessingConfirmationCondition() : undefined))
         .returning();
     } catch (error) {
       // read 이후 prepare가 선점한 경우 DB trigger가 최종 차단한다.
@@ -481,8 +504,11 @@ export async function POST(req: NextRequest) {
     }
     // 정산이 processed(Jon 처리완료)로 새로 전환된 교사 업그레이드 건 → 교사 본인에게 활성화 완료 메일 자동 발송
     // (Jon이 확인 링크로 처리하면 account-confirm 플로우가 이미 발송하므로, 여기선 대시보드 수동 전환 케이스를 커버)
-    if (item && prev?.status !== "processed" && item.status === "processed" && item.type === "upgrade" && item.accountType === "teacher") {
+    if (item && confirmingProcessing && item.channel !== "partner" && item.type === "upgrade" && item.accountType === "teacher") {
       void sendAccountUpgradeCompletion({ emails: item.emails, schoolName: item.schoolName, schoolNameEn: item.schoolNameEn });
+    }
+    if (!item && confirmingProcessing) {
+      [item] = await db.select().from(accountRequests).where(eq(accountRequests.id, id));
     }
     return NextResponse.json({ request: item });
   }
@@ -493,6 +519,11 @@ export async function POST(req: NextRequest) {
         externalSource: accountRequests.externalSource,
         channel: accountRequests.channel,
         notes: accountRequests.notes,
+        marketRequestId: accountRequests.marketRequestId,
+        marketOrderId: accountRequests.marketOrderId,
+        orderNumber: accountRequests.orderNumber,
+        idempotencyKey: accountRequests.idempotencyKey,
+        draftOnly: accountRequests.draftOnly,
       })
       .from(accountRequests)
       .where(eq(accountRequests.id, id));
@@ -503,7 +534,7 @@ export async function POST(req: NextRequest) {
         error: "Market requests are retained for cancellation audit history.",
       }, { status: 409 });
     }
-    if (existing.channel === "company" && hasMarketLegacyOrderNote(existing.notes)) {
+    if (isMarketLegacyAuditRequest(existing)) {
       return NextResponse.json({
         code: "MARKET_LEGACY_REQUEST_DELETE_BLOCKED",
         error: "Legacy Market requests are retained for cancellation audit history.",

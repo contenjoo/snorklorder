@@ -17,6 +17,26 @@ export function defaultNeedsInvoice(type: string): boolean {
   return type !== "email_change" && type !== "type_change";
 }
 
+// 확인 버튼/안내 문구의 SSOT. Jon 이 받는 메일과 그가 눌러 들어오는 확인 페이지가
+// 같은 문구를 쓰도록 여기서만 정의한다. upgrade 문구는 기존 발송분과 동일하게 유지한다.
+const CONFIRM_ACTION_NOUNS: Record<string, { label: string; prompt: string }> = {
+  upgrade: { label: "Upgrade", prompt: "the upgrade" },
+  email_change: { label: "Email Change", prompt: "the email change" },
+  type_change: { label: "Type Change", prompt: "the account type change" },
+  extension: { label: "Extension", prompt: "the extension" },
+};
+
+/** 확인 버튼 라벨. 미지의 type 은 유형을 단정하지 않는 중립 문구로 떨어진다. */
+export function confirmActionLabel(type: string | null | undefined): string {
+  const noun = CONFIRM_ACTION_NOUNS[type ?? ""];
+  return noun ? `Mark ${noun.label} as Done` : "Mark as Done";
+}
+
+/** 버튼 위 안내 문구의 "Once ~ is done" 주어. */
+export function confirmActionPrompt(type: string | null | undefined): string {
+  return CONFIRM_ACTION_NOUNS[type ?? ""]?.prompt ?? "this";
+}
+
 // 처리 메일 수신자는 Jon 단독.
 export function hqGreeting(): string {
   return "Hi Jon,";

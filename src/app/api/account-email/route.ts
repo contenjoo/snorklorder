@@ -3,9 +3,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import { db } from "@/db";
 import { accountRequests } from "@/db/schema";
-import { and, eq, isNotNull, isNull } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { getTransporter, logEmail, escapeHtml, formatLogRecipients, BASE_URL, HQ_EMAIL, HQ_INVOICE_TO } from "@/lib/email";
-import { withHqGreeting, defaultNeedsInvoice, buildInvoiceEmail, generateAccountEmail } from "@/lib/account-email-template";
+import { defaultNeedsInvoice, buildInvoiceEmail } from "@/lib/account-email-template";
 import {
   hydrateAccountRequestSchoolNames,
   needsEnglishSchoolNameForHq,
@@ -19,8 +19,10 @@ import {
 import { invoiceViewUrl, loadOpenInvoiceItemsForEmail } from "@/lib/invoice-ledger";
 import { claimAccountRequestSideEffects } from "@/lib/market-void-db";
 import { getReceiverFulfillmentPausedResponse } from "@/lib/receiver-fulfillment-pause";
-import { hasMarketLegacyOrderNote } from "@/lib/market-legacy-audit";
 import { checkAuth } from "@/lib/auth";
+import { buildProcessingEmail } from "@/lib/account-processing";
+import { loadProcessingReminders, processingListUnavailableResponse } from "@/lib/processing-ledger";
+import { isMarketLegacyAuditRequest } from "@/lib/market-legacy-audit";
 
 function deliveryUnknownResponse(stage: "processing" | "invoice", status = 409) {
   return NextResponse.json({
@@ -87,10 +89,16 @@ export async function POST(req: NextRequest) {
     const from = process.env.GMAIL_USER || "";
 
     let confirmLink = "";
+    let pending: Awaited<ReturnType<typeof loadProcessingReminders>> = { reminders: [], manualReview: [] };
     let existing: {
       id: number;
       channel: string | null;
       externalSource: string | null;
+      marketRequestId: string | null;
+      marketOrderId: string | null;
+      orderNumber: string | null;
+      idempotencyKey: string | null;
+      draftOnly: boolean;
       confirmToken: string | null;
       status: string;
       needsInvoice: boolean;
@@ -117,6 +125,11 @@ export async function POST(req: NextRequest) {
           id: accountRequests.id,
           channel: accountRequests.channel,
           externalSource: accountRequests.externalSource,
+          marketRequestId: accountRequests.marketRequestId,
+          marketOrderId: accountRequests.marketOrderId,
+          orderNumber: accountRequests.orderNumber,
+          idempotencyKey: accountRequests.idempotencyKey,
+          draftOnly: accountRequests.draftOnly,
           confirmToken: accountRequests.confirmToken,
           status: accountRequests.status,
           needsInvoice: accountRequests.needsInvoice,
@@ -149,11 +162,7 @@ export async function POST(req: NextRequest) {
       if (existing.channel === 'partner') {
         return NextResponse.json({ error: 'Partner requests must be sent as one application batch' }, { status: 409 });
       }
-      if (
-        (existing.channel || "company") === "company"
-        && existing.externalSource !== "market"
-        && hasMarketLegacyOrderNote(existing.notes)
-      ) {
+      if (isMarketLegacyAuditRequest(existing)) {
         return legacyMarketAuditBlockedResponse();
       }
       [existing] = await hydrateAccountRequestSchoolNames([existing]);
@@ -199,9 +208,14 @@ export async function POST(req: NextRequest) {
         }, { status: 409 });
       }
 
+      if (mode === "send_all") {
+        try { pending = await loadProcessingReminders([existing]); }
+        catch { return processingListUnavailableResponse(); }
+      }
+
       // 토큰 생성이나 SMTP보다 먼저 order fence를 선점한다. prepare가 먼저 이겼다면
       // false이며, 이 요청에서는 어떤 외부 side effect도 시작하지 않는다.
-      if (!(await claimAccountRequestSideEffects([existing.id]))) {
+      if (!(await claimAccountRequestSideEffects([existing.id, ...pending.reminders.map((r) => r.id)]))) {
         return NextResponse.json({
           success: false,
           code: "MARKET_VOID_FENCED",
@@ -212,11 +226,19 @@ export async function POST(req: NextRequest) {
       let token = existing.confirmToken;
       if (mode === "send_all" && !token) {
         token = randomBytes(16).toString("hex");
-        await db
+        const [created] = await db
           .update(accountRequests)
           .set({ confirmToken: token, updatedAt: new Date() })
-          .where(eq(accountRequests.id, requestId));
+          .where(and(eq(accountRequests.id, requestId), isNull(accountRequests.confirmToken)))
+          .returning({ confirmToken: accountRequests.confirmToken });
+        if (!created) {
+          const [current] = await db.select({ confirmToken: accountRequests.confirmToken })
+            .from(accountRequests).where(eq(accountRequests.id, requestId));
+          token = current?.confirmToken ?? null;
+          if (!token) return processingListUnavailableResponse();
+        }
       }
+      existing.confirmToken = token;
       if (token) confirmLink = `${BASE_URL}/account-confirm/${token}`;
     }
 
@@ -245,21 +267,11 @@ export async function POST(req: NextRequest) {
         existing.processingEmailSendStartedAt = processingClaimedAt;
       }
 
-      // 실제 발송 본문은 DB 기준으로 재생성한다. 낡은 미리보기/클라이언트 값이 한국어 학교명을 보내지 못하게 한다.
-      const generated = existing ? generateAccountEmail(existing) : { subject: String(subject), body: String(body) };
+      // 미리보기와 같은 renderer. 목록 조회는 SMTP claim 전에 끝났으며 실패 시 발송하지 않는다.
+      const generated = buildProcessingEmail([existing!], pending.reminders, { baseUrl: BASE_URL });
       const finalSubject = generated.subject;
-      const finalBody = withHqGreeting(generated.body);
-      const bodyHtml = escapeHtml(finalBody).replace(/\n/g, "<br>");
-      const buttonBlock = confirmLink
-        ? `<div style="text-align:center;margin:24px 0;padding:20px;background:#f0f7ff;border-radius:12px;border:1px solid #dbeafe">
-             <p style="margin:0 0 12px;color:#1e3a5f;font-size:14px;font-weight:600">Once the upgrade is done:</p>
-             <a href="${confirmLink}"
-                style="display:inline-block;background:#2563eb;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:16px">
-               ✓ Mark Upgrade as Done
-             </a>
-             <p style="margin:12px 0 0;color:#888;font-size:11px">Or paste this in your browser:<br>${escapeHtml(confirmLink)}</p>
-           </div>`
-        : "";
+      const finalBody = generated.body;
+      const bodyHtml = escapeHtml(finalBody).replace(/(https?:\/\/[^\s<]+\/account-confirm\/[a-f0-9]+)/g, '<a href="$1">$1</a>').replace(/\n/g, "<br>");
       const logTo = formatLogRecipients(HQ_EMAIL);
 
       try {
@@ -267,11 +279,8 @@ export async function POST(req: NextRequest) {
           from,
           to: HQ_EMAIL,
           subject: finalSubject,
-          text: confirmLink ? `${finalBody}\n\n---\nOnce the upgrade is done, please click to confirm:\n${confirmLink}\n` : finalBody,
-          html: `<div style="max-width:560px;margin:0 auto;font-family:-apple-system,sans-serif;color:#1f2937;font-size:14px;line-height:1.6">
-                   ${buttonBlock}
-                   <div>${bodyHtml}</div>
-                 </div>`,
+          text: finalBody,
+          html: `<div style="max-width:640px;margin:0 auto;font-family:-apple-system,sans-serif;color:#1f2937;font-size:14px;line-height:1.6">${bodyHtml}</div>`,
         });
       } catch {
         try {
@@ -300,7 +309,7 @@ export async function POST(req: NextRequest) {
               processingEmailSendStartedAt: null,
               processingEmailSentAt: sentAt,
               invoiceEmailLastError: null,
-              ...(["draft", "sent"].includes(existing.status) ? { status: "sent" } : {}),
+              status: sql<string>`CASE WHEN ${accountRequests.status} = 'draft' THEN 'sent' ELSE ${accountRequests.status} END`,
               updatedAt: sentAt,
             })
             .where(and(

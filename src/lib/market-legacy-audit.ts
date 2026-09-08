@@ -12,6 +12,7 @@ export const MARKET_LEGACY_AUDIT_STATUS_KEYS = [
 export type MarketLegacyAuditStatusKey = (typeof MARKET_LEGACY_AUDIT_STATUS_KEYS)[number];
 
 const ORDER_NUMBER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/;
+export const MARKET_LEGACY_ORDER_NOTE_PATTERN_SOURCE = String.raw`/ 주문번호: [A-Za-z0-9][A-Za-z0-9._:/-]{0,199} /`;
 const LEGACY_ORDER_NOTE_PATTERN = /\/ 주문번호: ([A-Za-z0-9][A-Za-z0-9._:/-]{0,199}) \//;
 
 export type MarketLegacyAuditOrderNumberResult =
@@ -57,6 +58,35 @@ export function marketLegacyOrderNoteMarker(orderNumber: string): string {
 /** stale 구 writer의 Market order notes 표식을 자유문장 전체와 분리해 판정한다. */
 export function hasMarketLegacyOrderNote(value: unknown): value is string {
   return typeof value === "string" && LEGACY_ORDER_NOTE_PATTERN.test(value);
+}
+
+export interface MarketLegacyAuditCandidate {
+  channel?: unknown;
+  externalSource?: unknown;
+  marketRequestId?: unknown;
+  marketOrderId?: unknown;
+  orderNumber?: unknown;
+  idempotencyKey?: unknown;
+  draftOnly?: unknown;
+  notes?: unknown;
+}
+
+function hasStrictMarketIdentity(value: MarketLegacyAuditCandidate): boolean {
+  return value.externalSource === "market"
+    && [
+      value.marketRequestId,
+      value.marketOrderId,
+      value.orderNumber,
+      value.idempotencyKey,
+    ].every((part) => typeof part === "string" && part.trim().length > 0)
+    && value.draftOnly === true;
+}
+
+/** UI·API·집계가 같은 legacy 감사 행을 판정하도록 하는 순수 규칙. */
+export function isMarketLegacyAuditRequest(value: MarketLegacyAuditCandidate): boolean {
+  return (value.channel || "company") === "company"
+    && hasMarketLegacyOrderNote(value.notes)
+    && !hasStrictMarketIdentity(value);
 }
 
 function toCount(value: number | string | null | undefined): number {

@@ -2,6 +2,8 @@
 
 import { use, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { isProcessingConfirmed } from "@/lib/account-processing";
+import { confirmActionLabel } from "@/lib/account-email-template";
 
 interface AccountRequest {
   id: number;
@@ -62,7 +64,7 @@ export default function AccountConfirmPage({ params }: { params: Promise<{ token
         else {
           setReq(data.request);
           setSiblings(data.siblings || []);
-          setIncludeSiblings(new Set((data.siblings || []).map((s: SiblingRequest) => s.id)));
+          setIncludeSiblings(new Set());
         }
       })
       .catch(() => setError("Failed to load request"))
@@ -80,7 +82,7 @@ export default function AccountConfirmPage({ params }: { params: Promise<{ token
       const data = await res.json();
       if (data.success) {
         setDone(true);
-        if (req) setReq({ ...req, status: "processed" });
+        if (req) setReq({ ...req, confirmedAt: new Date().toISOString() });
       } else {
         setError(data.error || "Failed to confirm");
       }
@@ -95,7 +97,7 @@ export default function AccountConfirmPage({ params }: { params: Promise<{ token
   if (error) return <div className="p-8 text-center text-red-600">{error}</div>;
   if (!req) return null;
 
-  const alreadyConfirmed = req.status === "processed" || req.status === "invoiced" || req.status === "paid" || !!req.confirmedAt;
+  const alreadyConfirmed = isProcessingConfirmed(req);
   const emails = req.emails.split(/[,;\n]+/).map((e) => e.trim()).filter(Boolean);
   const displayName = req.schoolNameEn || req.schoolName;
 
@@ -106,7 +108,7 @@ export default function AccountConfirmPage({ params }: { params: Promise<{ token
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center">
             <span className="text-white text-xs font-bold">S</span>
           </div>
-          <h1 className="text-lg font-bold">Snorkl — Upgrade Confirmation</h1>
+          <h1 className="text-lg font-bold">Snorkl — Request Confirmation</h1>
         </div>
 
         <div className="space-y-1">
@@ -180,7 +182,7 @@ export default function AccountConfirmPage({ params }: { params: Promise<{ token
               <span className="text-amber-600">📦</span>
               <div className="text-sm font-semibold text-amber-900">{siblings.length}건의 다른 처리 대기 요청 ({displayName})</div>
             </div>
-            <p className="text-xs text-amber-800">동시에 처리하실 거면 체크 유지하세요. 함께 status=processed 됩니다.</p>
+            <p className="text-xs text-amber-800">Select only requests whose accounts have all been processed. Billing status is preserved.</p>
             <div className="space-y-1.5">
               {siblings.map((s) => (
                 <label key={s.id} className="flex items-start gap-2 p-2 rounded bg-white border border-amber-100 cursor-pointer hover:bg-amber-50/50">
@@ -224,7 +226,7 @@ export default function AccountConfirmPage({ params }: { params: Promise<{ token
             </div>
           ) : (
             <Button onClick={confirm} disabled={submitting} className="w-full h-11 bg-blue-600 hover:bg-blue-700">
-              {submitting ? "Submitting..." : "✓ Mark Upgrade as Done"}
+              {submitting ? "Submitting..." : `✓ ${confirmActionLabel(req.type)}`}
             </Button>
           )}
         </div>

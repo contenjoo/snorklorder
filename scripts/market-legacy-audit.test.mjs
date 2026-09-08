@@ -121,11 +121,11 @@ test("account-requests route는 stale API-key/admin writer를 409로 막고 publ
     route.indexOf('if (action === "update"'),
     route.indexOf('if (action === "delete"'),
   );
-  assert.match(updateBranch, /hasMarketLegacyOrderNote\(prev\.notes\)/);
-  assert.match(updateBranch, /hasMarketLegacyOrderNote\(updates\.notes\)/);
+  assert.match(updateBranch, /isMarketLegacyAuditRequest\(prev\)/);
+  assert.match(updateBranch, /isMarketLegacyAuditRequest\(\{ \.\.\.prev, channel: nextChannel, notes: nextNotes \}\)/);
   const deleteBranch = route.slice(route.indexOf('if (action === "delete"'));
   assert.match(deleteBranch, /MARKET_LEGACY_REQUEST_DELETE_BLOCKED/);
-  assert.match(deleteBranch, /hasMarketLegacyOrderNote\(existing\.notes\)/);
+  assert.match(deleteBranch, /isMarketLegacyAuditRequest\(existing\)/);
 });
 
 test("0017 DB trigger가 post-cutover non-strict marker INSERT/UPDATE와 기존 행 DELETE를 영구 차단한다", async () => {

@@ -33,7 +33,9 @@ import {
   type BatchEmailItem,
 } from "@/lib/account-email-template";
 import { getAccountEmailDeliveryState } from "@/lib/account-email-delivery";
-import { hasMarketLegacyOrderNote } from "@/lib/market-legacy-audit";
+import { fetchProcessingEmailPreview, ProcessingPreviewNotes, useProcessingEmailPreview } from "@/components/admin/processing-email-preview";
+import { processingReviewReason } from "@/lib/account-processing";
+import { isMarketLegacyAuditRequest } from "@/lib/market-legacy-audit";
 
 const LicenseCertificateDialog = dynamic(() => import("@/components/admin/license-certificate-dialog"), { ssr: false });
 
@@ -68,7 +70,11 @@ interface AccountRequest {
   invoiceEmailSentAt: string | null;
   invoiceEmailLastError: string | null;
   externalSource: string | null;
+  marketRequestId: string | null;
   marketOrderId: string | null;
+  orderNumber: string | null;
+  idempotencyKey: string | null;
+  draftOnly: boolean;
   partnerRequestId: string | null;
   partnerItemId: string | null;
   teacherName: string | null;
@@ -77,6 +83,7 @@ interface AccountRequest {
   partnerNotificationOperationId: string | null;
   partnerNotificationSentAt: string | null;
   marketVoidState: "active" | "non_voidable" | "prepared" | "voided";
+  confirmToken: string | null;
   confirmedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -145,9 +152,7 @@ function isMarketManaged(request: AccountRequest): boolean {
 }
 
 function isLegacyMarketAudit(request: AccountRequest): boolean {
-  return (request.channel || "company") === "company"
-    && !isMarketManaged(request)
-    && hasMarketLegacyOrderNote(request.notes);
+  return isMarketLegacyAuditRequest(request);
 }
 
 function isMarketVoidFenced(request: AccountRequest): boolean {
@@ -191,6 +196,11 @@ function AccountsPageContent() {
   const [sendMsg, setSendMsg] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [batchPreviewOpen, setBatchPreviewOpen] = useState(false);
+  const previewRequests = emailPreview ? [emailPreview] : partnerHqPreview ? partnerHqPreview.rows : batchPreviewOpen
+    ? Array.from(selectedIds).map((id) => requests.find((r) => r.id === id)).filter((r): r is AccountRequest => !!r) : [];
+  const previewKey = previewRequests.length > 0 && previewRequests.every((r) => getAccountEmailDeliveryState(r) === "ready")
+    ? JSON.stringify({ requestIds: previewRequests.map((r) => r.id), batch: !emailPreview }) : "";
+  const processingPreview = useProcessingEmailPreview(previewKey);
   // 인보이스 1장을 선택한 여러 건에 나눠 기록하는 모달
   const [invBulkOpen, setInvBulkOpen] = useState(false);
   const [invBulkNum, setInvBulkNum] = useState("");
@@ -672,7 +682,7 @@ function AccountsPageContent() {
   }
 
   // Gmail 열기
-  function openGmail(r: AccountRequest) {
+  async function openGmail(r: AccountRequest) {
     if (isLegacyMarketAudit(r)) {
       setSendMsg("⚠️ 구 Market 주문 수동 감사 필요: Gmail 작성창을 열 수 없습니다.");
       return;
@@ -690,10 +700,12 @@ function AccountsPageContent() {
       setSendMsg("Jon 처리 메일이 발송됐거나 결과 확인이 필요해 Gmail 재발송을 열지 않았습니다");
       return;
     }
-    const { subject, body } = generateAccountEmail(r);
-    // 처리 메일은 Jon 단독 — 인보이스 메일은 앱에서 Cailie 에게 따로 나간다.
-    const mailto = `mailto:${HQ_TO}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    window.open(mailto, "_blank");
+    try {
+      const preview = await fetchProcessingEmailPreview([r.id]);
+      if (!preview.copyAllowed) { setSendMsg("Market 대기 요청이 포함되어 앱에서 발송해 주세요."); return; }
+      const mailto = `mailto:${HQ_TO}?subject=${encodeURIComponent(preview.subject)}&body=${encodeURIComponent(preview.body)}`;
+      window.location.href = mailto;
+    } catch (error) { setSendMsg(error instanceof Error ? error.message : "미리보기 조회 실패"); }
   }
 
   function toggleSelect(id: number) {
@@ -725,6 +737,7 @@ function AccountsPageContent() {
   const invBulkTargets = Array.from(selectedIds)
     .map((id) => requests.find((r) => r.id === id))
     .filter((r): r is AccountRequest => Boolean(r))
+    .filter((r) => !isMarketManaged(r) && !isLegacyMarketAudit(r))
     .sort((a, b) => a.id - b.id);
 
   const invBulkCents = parseInvoiceAmountToCents(invBulkTotal);
@@ -865,26 +878,27 @@ function AccountsPageContent() {
     finally { setSending(false); }
   }
 
-  // 클립보드 복사
-  function copyEmail(r: AccountRequest) {
-    if (isLegacyMarketAudit(r)) {
-      setSendMsg("⚠️ 구 Market 주문 수동 감사 필요: 메일 복사를 허용하지 않습니다.");
-      return;
+  // 복사도 서버에서 최신 누적 목록을 조회한다. Market 포함 시 외부 발송 우회를 막는다.
+  async function copyEmail(r: AccountRequest) {
+    if (isLegacyMarketAudit(r) || isMarketManaged(r) || getAccountEmailDeliveryState(r) !== "ready") {
+      setSendMsg("이 요청은 메일 복사 대신 앱에서 발송 상태를 확인해 주세요."); return;
     }
-    if (isMarketManaged(r)) {
-      setSendMsg("⚠️ Market 주문은 취소 경합 보호를 위해 메일 복사를 허용하지 않습니다.");
-      return;
-    }
-    const { subject, body } = generateAccountEmail(r);
-    navigator.clipboard.writeText(`Subject: ${subject}\n\n${body}`);
-    setSendMsg("📋 복사됨");
-    setTimeout(() => setSendMsg(""), 2000);
+    await copyProcessingEmail([r.id]);
+  }
+
+  async function copyProcessingEmail(ids: number[], batch = false) {
+    try {
+      const preview = await fetchProcessingEmailPreview(ids, batch);
+      if (!preview.copyAllowed) { setSendMsg("Market 대기 요청이 포함되어 앱에서 발송해 주세요."); return; }
+      await navigator.clipboard.writeText(`Subject: ${preview.subject}\n\n${preview.body}`);
+      setSendMsg("📋 누적 요청 메일을 복사했어요. 신규 확인 링크는 앱 발송 시 생성됩니다.");
+    } catch (error) { setSendMsg(error instanceof Error ? error.message : "복사 실패"); }
   }
 
   // 인보이스 메일에는 이번 건뿐 아니라 아직 청구가 안 끝난 전체가 실린다.
   // 미리보기가 실제 발송과 갈라지지 않도록 화면에서도 같은 규칙으로 목록을 만든다.
   const openInvoiceItems: InvoiceEmailItem[] = requests
-    .filter(isOpenInvoiceRequest)
+    .filter((request) => !isLegacyMarketAudit(request) && isOpenInvoiceRequest(request))
     .sort((a, b) => a.id - b.id)
     .map((r) => ({
       requestId: r.id, schoolName: r.schoolName, schoolNameEn: r.schoolNameEn,
@@ -1492,6 +1506,7 @@ function AccountsPageContent() {
                 </div>
                 <div className="w-16 text-center text-[10px] leading-tight" title={`신청: ${r.createdAt || "—"}\n완료: ${r.confirmedAt || "—"}`}>
                   <div className="text-slate-600">{fmtMD(r.createdAt)}</div>
+                  {processingReviewReason(r) && <div className="text-amber-700" title={processingReviewReason(r) || ""}>확인 필요</div>}
                   <div className={r.confirmedAt ? "text-emerald-600" : "text-slate-300"}>{fmtMD(r.confirmedAt)}</div>
                 </div>
                 <div className="w-20">
@@ -1586,6 +1601,7 @@ function AccountsPageContent() {
                 </div>
                 <div className="text-[10px] text-slate-400 mt-0.5 ml-6 flex items-center gap-2" title={`신청: ${r.createdAt || "—"}\n완료: ${r.confirmedAt || "—"}`}>
                   <span>📅 {fmtMD(r.createdAt)}</span>
+                  {processingReviewReason(r) && <span className="text-amber-700">{processingReviewReason(r)}</span>}
                   {r.confirmedAt && <span className="text-emerald-600">✓ {fmtMD(r.confirmedAt)}</span>}
                 </div>
                 <div className="flex items-center gap-1.5 mt-1.5 ml-6">
@@ -1639,12 +1655,16 @@ function AccountsPageContent() {
 
       {partnerHqPreview && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => !sending && setPartnerHqPreview(null)}>
-          <div className="w-full max-w-lg rounded-xl bg-white shadow-xl" onClick={(event) => event.stopPropagation()}>
+          <div className="w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-xl bg-white shadow-xl" onClick={(event) => event.stopPropagation()}>
             <div className="border-b bg-cyan-50 p-4 rounded-t-xl">
               <h3 className="font-bold text-cyan-950">협력사 신청 본사 발송 미리보기</h3>
               <p className="mt-1 text-xs text-cyan-800">Jon 처리 요청과 Cailie 인보이스 요청을 기존 서버 발송 흐름으로 보냅니다.</p>
             </div>
             <div className="p-4 space-y-3">
+              <ProcessingPreviewNotes data={processingPreview.data} />
+              <div className="text-xs"><b>Subject:</b> {processingPreview.data?.subject || "목록 확인 중"}</div>
+              {processingPreview.error && <Button variant="outline" size="sm" onClick={processingPreview.retry}>다시 불러오기</Button>}
+              <pre className="text-xs whitespace-pre-wrap rounded bg-slate-50 p-3">{processingPreview.data?.body || processingPreview.error || "완료 확인 대기 목록을 불러오고 있어요."}</pre>
               <div className="text-xs text-slate-500"><b>신청 ID:</b> {partnerHqPreview.requestId}</div>
               <div className="text-sm"><b>학교:</b> {partnerHqPreview.rows[0]?.schoolNameEn || partnerHqPreview.rows[0]?.schoolName}</div>
               <ul className="divide-y rounded-lg border">
@@ -1657,7 +1677,7 @@ function AccountsPageContent() {
               </ul>
             </div>
             <div className="flex items-center gap-2 border-t bg-slate-50 p-4 rounded-b-xl">
-              <Button size="sm" disabled={sending} onClick={sendPartnerGroup} className="bg-cyan-700 hover:bg-cyan-800 text-xs">
+              <Button size="sm" disabled={sending || !processingPreview.data} onClick={sendPartnerGroup} className="bg-cyan-700 hover:bg-cyan-800 text-xs">
                 {sending ? "발송 중…" : "확인 후 본사 발송"}
               </Button>
               <Button size="sm" variant="outline" disabled={sending} onClick={() => setPartnerHqPreview(null)} className="text-xs">취소</Button>
@@ -1698,8 +1718,10 @@ function AccountsPageContent() {
 
       {/* Email Preview Modal */}
       {emailPreview && !isMarketManaged(emailPreview) && !isLegacyMarketAudit(emailPreview) && (() => {
-        const { subject, body } = generateAccountEmail(emailPreview);
         const deliveryState = getAccountEmailDeliveryState(emailPreview);
+        const { subject, body } = deliveryState === "ready"
+          ? processingPreview.data || { subject: "목록 확인 중", body: processingPreview.error || "완료 확인 대기 목록을 불러오고 있어요." }
+          : generateAccountEmail(emailPreview);
         const invoiceRetryOnly = deliveryState === "invoice_retry";
         const deliveryUnknown = deliveryState === "processing_unknown" || deliveryState === "invoice_unknown";
         const deliveryComplete = deliveryState === "complete";
@@ -1718,6 +1740,8 @@ function AccountsPageContent() {
                 </div>
               </div>
               <div className="p-4">
+                <ProcessingPreviewNotes data={processingPreview.data} />
+                {processingPreview.error && <Button variant="outline" size="sm" onClick={processingPreview.retry}>다시 불러오기</Button>}
                 <pre className="text-sm text-slate-800 whitespace-pre-wrap font-sans leading-relaxed">{body}</pre>
               </div>
               {emailPreview.needsInvoice && (() => {
@@ -1767,7 +1791,7 @@ function AccountsPageContent() {
                 <Button
                   size="sm"
                   onClick={() => invoiceRetryOnly ? retryInvoiceOnly(emailPreview) : sendToJon(emailPreview)}
-                  disabled={sending || deliveryComplete || legacyDeliveryComplete || deliveryUnknown}
+                  disabled={sending || deliveryComplete || legacyDeliveryComplete || deliveryUnknown || (!invoiceRetryOnly && !processingPreview.data)}
                   className={`${invoiceRetryOnly ? "bg-amber-600 hover:bg-amber-700" : "bg-blue-600 hover:bg-blue-700"} text-xs`}
                 >
                   {sending
@@ -1835,7 +1859,9 @@ function AccountsPageContent() {
             confirmLine: "(Confirm 링크는 발송 시 자동 생성됩니다)",
           };
         });
-        const { subject, body: previewBody } = buildBatchEmail(items, totalEmails);
+        const { subject, body: previewBody } = !hasPreviouslySent
+          ? processingPreview.data || { subject: "목록 확인 중", body: processingPreview.error || "완료 확인 대기 목록을 불러오고 있어요." }
+          : buildBatchEmail(items, totalEmails);
         const invoiceRequests = selectedRequests.filter((request) => (
           invoiceRetryOnly
             ? needsInvoiceRetry(request)
@@ -1882,6 +1908,8 @@ function AccountsPageContent() {
               </div>
               {!invoiceRetryOnly && (
                 <div className="p-4">
+                  <ProcessingPreviewNotes data={processingPreview.data} />
+                  {processingPreview.error && <Button variant="outline" size="sm" onClick={processingPreview.retry}>다시 불러오기</Button>}
                   <pre className="text-xs text-slate-800 whitespace-pre-wrap font-mono leading-relaxed bg-slate-50 rounded-lg p-3 max-h-[50vh] overflow-y-auto">{previewBody}</pre>
                 </div>
               )}
@@ -1919,7 +1947,7 @@ function AccountsPageContent() {
                 <Button
                   size="sm"
                   onClick={sendBatch}
-                  disabled={sending || mixedDeliveryState || deliveryUnknown || legacyDeliveryComplete}
+                  disabled={sending || mixedDeliveryState || deliveryUnknown || legacyDeliveryComplete || (!invoiceRetryOnly && !processingPreview.data)}
                   className={`${invoiceRetryOnly ? "bg-amber-600 hover:bg-amber-700" : "bg-blue-600 hover:bg-blue-700"} text-xs`}
                 >
                   {sending
@@ -1934,6 +1962,7 @@ function AccountsPageContent() {
                         ? `↻ 인보이스 ${ids.length}건만 재전송`
                         : `📧 ${ids.length}건 발송`}
                 </Button>
+                {!hasPreviouslySent && <Button size="sm" variant="outline" disabled={!processingPreview.data?.copyAllowed} onClick={() => copyProcessingEmail(ids, true)}>복사</Button>}
                 <Button size="sm" variant="outline" onClick={() => setBatchPreviewOpen(false)} className="text-xs">
                   취소
                 </Button>

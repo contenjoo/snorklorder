@@ -2,10 +2,19 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { accountRequests, teachers } from "@/db/schema";
-import { and, eq, inArray, ne, notInArray } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, notInArray } from "drizzle-orm";
 import { sendAccountConfirmNotification, sendTeacherUpgradedEmail } from "@/lib/email";
 import { claimAccountRequestSideEffects } from "@/lib/market-void-db";
 import { getReceiverFulfillmentPausedResponse } from "@/lib/receiver-fulfillment-pause";
+import { processingConfirmationValues, pendingProcessingConfirmationCondition } from "@/lib/processing-confirmation-db";
+import { isMarketLegacyAuditRequest } from "@/lib/market-legacy-audit";
+
+function legacyMarketAuditBlockedResponse() {
+  return NextResponse.json({
+    code: "MARKET_LEGACY_MANUAL_AUDIT_REQUIRED",
+    error: "This legacy Market order is audit-only and cannot be fulfilled automatically.",
+  }, { status: 409 });
+}
 
 // GET: 토큰으로 요청 상세 조회 (Jon이 확인 페이지 열었을 때)
 export async function GET(
@@ -27,10 +36,14 @@ export async function GET(
   if (r.channel === 'partner' && (!r.processingEmailSentAt || r.status === 'draft')) {
     return NextResponse.json({ error: "Request has not been sent to HQ" }, { status: 409 });
   }
+  if (isMarketLegacyAuditRequest(r)) {
+    return NextResponse.json({ error: "Invalid or expired link" }, { status: 404 });
+  }
   if (["prepared", "voided"].includes(r.marketVoidState)) {
     return NextResponse.json({ error: "Invalid or expired link" }, { status: 404 });
   }
-  // 같은 학교에 실제로 발송된(sent) 다른 요청들만 노출 — Jon이 받아보지 못한 draft까지 확인 페이지에 뜨는 것 방지
+
+  // 같은 학교의 발송 이후 미확인 요청만 노출. 인보이스·결제 상태는 완료 확인과 별개다.
   const siblings = await db
     .select({
       id: accountRequests.id,
@@ -40,6 +53,13 @@ export async function GET(
       accountType: accountRequests.accountType,
       quantity: accountRequests.quantity,
       status: accountRequests.status,
+      channel: accountRequests.channel,
+      externalSource: accountRequests.externalSource,
+      marketRequestId: accountRequests.marketRequestId,
+      marketOrderId: accountRequests.marketOrderId,
+      orderNumber: accountRequests.orderNumber,
+      idempotencyKey: accountRequests.idempotencyKey,
+      draftOnly: accountRequests.draftOnly,
       notes: accountRequests.notes,
       createdAt: accountRequests.createdAt,
       teacherName: accountRequests.teacherName,
@@ -54,12 +74,16 @@ export async function GET(
           )
         : eq(accountRequests.schoolName, r.schoolName),
       ne(accountRequests.id, r.id),
-      eq(accountRequests.status, "sent"),
+      inArray(accountRequests.status, ["sent", "invoiced", "paid"]),
+      isNull(accountRequests.confirmedAt),
       notInArray(accountRequests.marketVoidState, ["prepared", "voided"]),
       eq(accountRequests.partnerLifecycleState, 'active'),
     ));
 
-  return NextResponse.json({ request: r, siblings });
+  return NextResponse.json({
+    request: r,
+    siblings: siblings.filter((sibling) => !isMarketLegacyAuditRequest(sibling)),
+  });
 }
 
 // POST: Jon이 "Upgrade Done" 클릭 → status=processed (alsoConfirmIds 있으면 같은 학교 형제 요청도 함께)
@@ -87,25 +111,51 @@ export async function POST(
   if (r.channel === 'partner' && (!r.processingEmailSentAt || r.status === 'draft')) {
     return NextResponse.json({ error: "Request has not been sent to HQ" }, { status: 409 });
   }
+  if (isMarketLegacyAuditRequest(r)) {
+    return legacyMarketAuditBlockedResponse();
+  }
 
-  const allIds = [r.id, ...alsoConfirmIds];
   // 형제 요청도 같은 학교에 한해서만 처리 (보안: 임의 id 처리 방지)
   const validSiblings = alsoConfirmIds.length > 0
     ? await db
-        .select({ id: accountRequests.id, emails: accountRequests.emails, schoolName: accountRequests.schoolName, schoolNameEn: accountRequests.schoolNameEn, type: accountRequests.type, applicantType: accountRequests.applicantType, status: accountRequests.status, channel: accountRequests.channel, partnerRequestId: accountRequests.partnerRequestId, confirmedAt: accountRequests.confirmedAt, partnerLifecycleState: accountRequests.partnerLifecycleState, processingEmailSentAt: accountRequests.processingEmailSentAt })
+        .select({
+          id: accountRequests.id,
+          emails: accountRequests.emails,
+          schoolName: accountRequests.schoolName,
+          schoolNameEn: accountRequests.schoolNameEn,
+          type: accountRequests.type,
+          applicantType: accountRequests.applicantType,
+          status: accountRequests.status,
+          channel: accountRequests.channel,
+          externalSource: accountRequests.externalSource,
+          marketRequestId: accountRequests.marketRequestId,
+          marketOrderId: accountRequests.marketOrderId,
+          orderNumber: accountRequests.orderNumber,
+          idempotencyKey: accountRequests.idempotencyKey,
+          draftOnly: accountRequests.draftOnly,
+          notes: accountRequests.notes,
+          marketVoidState: accountRequests.marketVoidState,
+          partnerRequestId: accountRequests.partnerRequestId,
+          partnerLifecycleState: accountRequests.partnerLifecycleState,
+          processingEmailSentAt: accountRequests.processingEmailSentAt,
+        })
         .from(accountRequests)
-        .where(inArray(accountRequests.id, alsoConfirmIds))
+        .where(and(
+          inArray(accountRequests.id, alsoConfirmIds),
+          r.channel === 'partner' && r.partnerRequestId
+            ? and(eq(accountRequests.partnerRequestId, r.partnerRequestId), eq(accountRequests.channel, 'partner'))
+            : eq(accountRequests.schoolName, r.schoolName),
+          eq(accountRequests.partnerLifecycleState, 'active'),
+          inArray(accountRequests.status, ["sent", "invoiced", "paid"]),
+          isNull(accountRequests.confirmedAt),
+          notInArray(accountRequests.marketVoidState, ["prepared", "voided"]),
+        ))
     : [];
-  const sameSchoolSiblings = validSiblings.filter((s) => r.channel === 'partner'
-    ? Boolean(
-        r.partnerRequestId
-        && s.channel === 'partner'
-        && s.partnerRequestId === r.partnerRequestId
-        && s.partnerLifecycleState === 'active'
-        && s.processingEmailSentAt
-      )
-    : s.schoolName === r.schoolName).filter((s) => ['sent', 'processed', 'invoiced', 'paid'].includes(s.status));
-  void allIds;
+  if (validSiblings.some(isMarketLegacyAuditRequest)) {
+    return legacyMarketAuditBlockedResponse();
+  }
+  const sameSchoolSiblings = validSiblings.filter((s) => r.channel !== 'partner'
+    || Boolean(r.partnerRequestId && s.channel === 'partner' && s.partnerRequestId === r.partnerRequestId && s.processingEmailSentAt));
 
   const sideEffectIds = [...new Set([r.id, ...sameSchoolSiblings.map((s) => s.id)])];
   if (!(await claimAccountRequestSideEffects(sideEffectIds))) {
@@ -115,48 +165,33 @@ export async function POST(
     }, { status: 409 });
   }
 
-  // 이미 processed/invoiced/paid 인 요청은 재클릭해도 상태·확인시각을 덮어쓰지 않음 (정산 단계 후퇴 방지)
-  // — Jon 입장에선 "이미 처리됨"도 정상 완료이므로 아래에서 success 응답은 그대로 반환
+  // 조회 뒤 Stripe·관리자 writer가 invoiced/paid로 전이할 수 있으므로 id만으로
+  // 덮지 않는다. 쓰기 자체에 허용 상태와 void fence를 걸고, 실제 CAS 성공 행만
+  // 후속 교사 상태·메일의 대상으로 삼는다.
   const confirmationAt = new Date();
-  const confirmationCandidateIds = [
-    ...(!r.confirmedAt ? [r.id] : []),
-    ...sameSchoolSiblings.filter((s) => !s.confirmedAt).map((s) => s.id),
-  ];
-  if (confirmationCandidateIds.length > 0) {
-    await db.update(accountRequests)
-      .set({ confirmedAt: confirmationAt, updatedAt: confirmationAt })
-      .where(and(
-        inArray(accountRequests.id, confirmationCandidateIds),
-        eq(accountRequests.partnerLifecycleState, 'active'),
-      ));
-  }
-  const isMainUpdatable = !r.confirmedAt && ["draft", "sent"].includes(r.status);
-  const updatableSiblingIds = sameSchoolSiblings
-    .filter((s) => ["draft", "sent"].includes(s.status))
-    .map((s) => s.id);
-  const finalIds = [...(isMainUpdatable ? [r.id] : []), ...updatableSiblingIds];
-
-  if (finalIds.length > 0) {
-    await db
+  const transitioned = await db
       .update(accountRequests)
-      .set({ status: "processed", updatedAt: confirmationAt })
-      .where(inArray(accountRequests.id, finalIds));
-  }
+      .set(processingConfirmationValues(confirmationAt))
+      .where(and(
+        inArray(accountRequests.id, sideEffectIds),
+        pendingProcessingConfirmationCondition(),
+        notInArray(accountRequests.marketVoidState, ["prepared", "voided"]),
+      ))
+      .returning({ id: accountRequests.id });
+  const transitionedIds = new Set(transitioned.map((item) => item.id));
+  const transitionedRequests = [r, ...sameSchoolSiblings]
+    .filter((item) => transitionedIds.has(item.id));
 
   // 교사 환영 메일은 응답 후 백그라운드로 발송 (형제 요청 포함)
-  const siblingEmailStrings = sameSchoolSiblings
-    .map((s) => s.emails)
-    .filter(Boolean);
-  const combinedEmailString = [r.emails, ...siblingEmailStrings].join(",");
+  const combinedEmailString = transitionedRequests.map((item) => item.emails).join(",");
   const emails = combinedEmailString
     .split(/[,;\n]+/)
     .map((e) => e.trim().toLowerCase())
     .filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
 
-  // 이미 처리완료(processed/invoiced/paid)였던 건을 다시 클릭하면 완료 메일 재발송 방지 (r.status는 이 확인 직전 상태)
-  // 협력사 채널은 교사에게 직접 완료 메일을 보내지 않는다. 승인 사실은 confirmedAt으로
-  // 보존하고, 협력사 통보는 관리자의 별도 확인 작업으로 Market에 위임한다.
-  if (confirmationCandidateIds.length > 0 && emails.length > 0) {
+  // 이미 완료 확인됐거나 다른 완료 writer가 먼저 선점한
+  // 행은 transitionedRequests에 없으므로 완료 메일도 재발송하지 않는다.
+  if (emails.length > 0 && transitionedRequests.length > 0) {
     void (async () => {
       try {
         const { schools: schoolsTable } = await import("@/db/schema");
@@ -210,5 +245,5 @@ export async function POST(
     })();
   }
 
-  return NextResponse.json({ success: true });
+  return NextResponse.json({ success: true, processedIds: [...transitionedIds] });
 }

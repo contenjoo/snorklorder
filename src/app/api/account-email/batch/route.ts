@@ -5,7 +5,7 @@ import { db } from "@/db";
 import { accountRequests } from "@/db/schema";
 import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { getTransporter, logEmail, formatLogRecipients, BASE_URL, HQ_EMAIL, HQ_INVOICE_TO } from "@/lib/email";
-import { buildBatchEmail, buildInvoiceEmail, defaultNeedsInvoice, generateAccountEmail, type BatchEmailItem, type InvoiceEmailItem } from "@/lib/account-email-template";
+import { buildInvoiceEmail, defaultNeedsInvoice, generateAccountEmail, type BatchEmailItem, type InvoiceEmailItem } from "@/lib/account-email-template";
 import {
   hydrateAccountRequestSchoolNames,
   needsEnglishSchoolNameForHq,
@@ -19,8 +19,10 @@ import {
 import { invoiceViewUrl, loadOpenInvoiceItemsForEmail } from "@/lib/invoice-ledger";
 import { claimAccountRequestSideEffects } from "@/lib/market-void-db";
 import { getReceiverFulfillmentPausedResponse } from "@/lib/receiver-fulfillment-pause";
-import { hasMarketLegacyOrderNote } from "@/lib/market-legacy-audit";
 import { checkAuth } from "@/lib/auth";
+import { buildProcessingEmail } from "@/lib/account-processing";
+import { loadProcessingReminders, processingListUnavailableResponse } from "@/lib/processing-ledger";
+import { isMarketLegacyAuditRequest } from "@/lib/market-legacy-audit";
 
 interface Section {
   subject: string;
@@ -109,6 +111,11 @@ export async function POST(req: NextRequest) {
         channel: accountRequests.channel,
         partnerRequestId: accountRequests.partnerRequestId,
         externalSource: accountRequests.externalSource,
+        marketRequestId: accountRequests.marketRequestId,
+        marketOrderId: accountRequests.marketOrderId,
+        orderNumber: accountRequests.orderNumber,
+        idempotencyKey: accountRequests.idempotencyKey,
+        draftOnly: accountRequests.draftOnly,
         confirmToken: accountRequests.confirmToken,
         emails: accountRequests.emails,
         status: accountRequests.status,
@@ -138,11 +145,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "requestIds must be unique existing account requests" }, { status: 400 });
     }
 
-    const legacyMarketAuditRows = rows.filter((row) => (
-      (row.channel || "company") === "company"
-      && row.externalSource !== "market"
-      && hasMarketLegacyOrderNote(row.notes)
-    ));
+    const legacyMarketAuditRows = rows.filter(isMarketLegacyAuditRequest);
     if (legacyMarketAuditRows.length > 0) {
       return legacyMarketAuditBlockedResponse(legacyMarketAuditRows.map((row) => row.id));
     }
@@ -221,9 +224,15 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    let pending: Awaited<ReturnType<typeof loadProcessingReminders>> = { reminders: [], manualReview: [] };
+    if (mode === "send_all") {
+      try { pending = await loadProcessingReminders(rows); }
+      catch { return processingListUnavailableResponse(); }
+    }
+
     // 여러 주문의 fence를 DB 함수 한 번에서 all-or-none 선점한다. 한 건이라도 취소
     // prepare/commit 상태면 token 생성과 SMTP를 포함한 묶음 전체를 시작하지 않는다.
-    if (!(await claimAccountRequestSideEffects(uniqueRequestIds))) {
+    if (!(await claimAccountRequestSideEffects([...uniqueRequestIds, ...pending.reminders.map((r) => r.id)]))) {
       return NextResponse.json({
         success: false,
         code: "MARKET_VOID_FENCED",
@@ -239,10 +248,17 @@ export async function POST(req: NextRequest) {
       let token = row.confirmToken;
       if (!token) {
         token = randomBytes(16).toString("hex");
-        await db
+        const [created] = await db
           .update(accountRequests)
           .set({ confirmToken: token, updatedAt: new Date() })
-          .where(eq(accountRequests.id, id));
+          .where(and(eq(accountRequests.id, id), isNull(accountRequests.confirmToken)))
+          .returning({ confirmToken: accountRequests.confirmToken });
+        if (!created) {
+          const [current] = await db.select({ confirmToken: accountRequests.confirmToken })
+            .from(accountRequests).where(eq(accountRequests.id, id));
+          token = current?.confirmToken ?? null;
+          if (!token) return processingListUnavailableResponse();
+        }
       }
       tokenMap.set(id, token);
     }
@@ -304,7 +320,10 @@ export async function POST(req: NextRequest) {
       }
       for (const row of rows) row.processingEmailSendStartedAt = processingClaimedAt;
 
-      const { subject, body } = buildBatchEmail(items, totalEmails);
+      const { subject, body } = buildProcessingEmail(
+        requestIds.map((id) => ({ ...rows.find((r) => r.id === id)!, confirmToken: tokenMap.get(id) })),
+        pending.reminders, { baseUrl: BASE_URL, batch: true },
+      );
       const logTo = formatLogRecipients(HQ_EMAIL);
 
       try {
@@ -354,7 +373,7 @@ export async function POST(req: NextRequest) {
         await db
           .update(accountRequests)
           .set({ status: "sent", updatedAt: processingSentAt })
-          .where(inArray(accountRequests.id, updatableIds));
+          .where(and(inArray(accountRequests.id, updatableIds), eq(accountRequests.status, "draft"), isNull(accountRequests.confirmedAt)));
       }
       for (const row of rows) {
         row.processingEmailSendStartedAt = null;

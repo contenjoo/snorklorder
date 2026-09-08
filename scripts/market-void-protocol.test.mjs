@@ -176,7 +176,7 @@ test("구 Market marker 행은 UI와 단건·배치 API에서 수동 감사 전�
 
   assert.match(
     page,
-    /function isLegacyMarketAudit[\s\S]{0,240}channel \|\| "company"[\s\S]{0,160}!isMarketManaged\(request\)[\s\S]{0,120}hasMarketLegacyOrderNote\(request\.notes\)/,
+    /function isLegacyMarketAudit[\s\S]{0,160}return isMarketLegacyAuditRequest\(request\)/,
   );
   assert.ok((page.match(/if \(isLegacyMarketAudit\(/g) || []).length >= 5);
   assert.ok((page.match(/isLegacyMarketAudit\(request\)/g) || []).length >= 5);
@@ -190,11 +190,11 @@ test("구 Market marker 행은 UI와 단건·배치 API에서 수동 감사 전�
   assert.match(page, /const operationalRequests = requests\.filter[\s\S]{0,160}!isLegacyMarketAudit\(request\)/);
 
   assert.match(single, /code: "MARKET_LEGACY_MANUAL_AUDIT_REQUIRED"/);
-  assert.ok(single.indexOf("hasMarketLegacyOrderNote(existing.notes)") < single.indexOf("await claimAccountRequestSideEffects"));
-  assert.ok(single.indexOf("hasMarketLegacyOrderNote(existing.notes)") < single.indexOf("transporter.sendMail"));
+  assert.ok(single.indexOf("isMarketLegacyAuditRequest(existing)") < single.indexOf("await claimAccountRequestSideEffects"));
+  assert.ok(single.indexOf("isMarketLegacyAuditRequest(existing)") < single.indexOf("transporter.sendMail"));
   assert.match(batch, /code: "MARKET_LEGACY_MANUAL_AUDIT_REQUIRED"/);
-  assert.ok(batch.indexOf("hasMarketLegacyOrderNote(row.notes)") < batch.indexOf("await claimAccountRequestSideEffects"));
-  assert.ok(batch.indexOf("hasMarketLegacyOrderNote(row.notes)") < batch.indexOf("transporter.sendMail"));
+  assert.ok(batch.indexOf("rows.filter(isMarketLegacyAuditRequest)") < batch.indexOf("await claimAccountRequestSideEffects"));
+  assert.ok(batch.indexOf("rows.filter(isMarketLegacyAuditRequest)") < batch.indexOf("transporter.sendMail"));
 });
 
 test("prepared/voided 감사 행은 후속 후보·집계·교사 인원에서 제외한다", async () => {
