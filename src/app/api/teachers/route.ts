@@ -1,3 +1,4 @@
+import { checkAuth } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
@@ -5,6 +6,7 @@ import { teachers, schools } from "@/db/schema";
 import { eq, desc, inArray, and, sql } from "drizzle-orm";
 
 export async function GET(req: NextRequest) {
+  if (!(await checkAuth())) return NextResponse.json({error:"Unauthorized"},{status:401});
   const schoolId = req.nextUrl.searchParams.get("schoolId");
   const status = req.nextUrl.searchParams.get("status");
   // `search` powers the admin command palette (name/email partial match, top results only).
@@ -46,7 +48,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const body = await req.json();
+  if (!(await checkAuth())) return NextResponse.json({error:"Unauthorized"},{status:401});
+  const body = await req.json().catch(()=>null);
+  if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({error:"Invalid JSON"},{status:400});
   const { ids, status } = body;
 
   if (!ids?.length || !status) {
@@ -67,6 +71,7 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  if (!(await checkAuth())) return NextResponse.json({error:"Unauthorized"},{status:401});
   const id = req.nextUrl.searchParams.get("id");
 
   if (!id) {

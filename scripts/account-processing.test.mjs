@@ -13,7 +13,7 @@ const row = (id, overrides = {}) => ({
   id, type: "upgrade", accountType: "teacher", applicantType: "school", schoolName: `School ${id}`,
   schoolNameEn: `School ${id}`, emails: `teacher${id}@example.test`, quantity: 1,
   channel: "school_store", partnerLifecycleState: "active", needsInvoice: false, status: "sent", confirmedAt: null,
-  confirmToken: `a${id}`, processingEmailSentAt: new Date(`2026-09-${String(id).padStart(2, "0")}T00:00:00Z`),
+  confirmToken: `a${id}`, tokenExpiresAt:new Date(Date.now()+86400000), processingEmailSentAt: new Date(`2026-09-${String(id).padStart(2, "0")}T00:00:00Z`),
   processingEmailSendStartedAt: null, invoiceEmailSendStartedAt: null, invoiceEmailSentAt: null,
   marketVoidState: "active", externalSource: null, ...overrides,
 });
@@ -41,6 +41,7 @@ function harness(initial, options = {}) {
     or: (...p) => predicate((r) => p.filter(Boolean).some((f) => f(r))),
     desc: (a) => a,
     sql: (strings) => {
+      if (strings.join("").includes("root_request")) return () => true;
       assert.match(strings.join(""), /CASE WHEN/);
       return strings.join("").includes("THEN 'sent'") ? { finalizeSend: true } : { preserveBilling: true };
     },

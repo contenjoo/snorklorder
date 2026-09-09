@@ -19,15 +19,7 @@ interface SessionPayload {
 }
 
 function getSessionSecret(): string | null {
-  for (const value of [
-    process.env.ADMIN_SESSION_SECRET,
-    process.env.SCHOOL_SESSION_SECRET,
-    process.env.ADMIN_PASSWORD,
-  ]) {
-    const secret = value?.trim();
-    if (secret) return secret;
-  }
-  return null;
+  return process.env.ADMIN_SESSION_SECRET?.trim() || null;
 }
 
 function bytesToBase64Url(bytes: Uint8Array): string {

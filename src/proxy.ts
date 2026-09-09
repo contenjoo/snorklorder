@@ -7,18 +7,19 @@ import {
 } from "@/lib/signed-session";
 
 function isPublicApiRequest(request: NextRequest, pathname: string) {
-  if (pathname.startsWith("/api/auth")) return true;
-  if (pathname.startsWith("/api/register")) return true;
-  // 학교 관리자 영역: 로그인은 공개, summary/teachers 는 라우트 내부에서 학교 세션(snorkl-school-auth)으로 인증
-  if (pathname.startsWith("/api/school/")) return true;
-  if (pathname.startsWith("/api/schools/lookup")) return true;
-  if (pathname.startsWith("/api/schools/search")) return true;
-  if (pathname.startsWith("/api/confirm/")) return true;
-  if (pathname.startsWith("/api/account-confirm/")) return true;
-  if (pathname.startsWith("/api/domain-confirm/")) return true;
-  if (pathname.startsWith("/api/partner/auth")) return true;
-  if (pathname.startsWith("/api/cron/")) return true;
-  if (pathname.startsWith("/api/translate")) return true;
+  const method = request.method;
+  if (pathname === "/api/sync-group-purchase" && method === "POST") return true;
+  if (pathname === "/api/auth" && method === "POST") return true;
+  if (["/api/register", "/api/register/batch", "/api/register/resend", "/api/register/verify", "/api/translate"].includes(pathname) && method === "POST") return true;
+  if (pathname === "/api/school/login" && method === "POST") return true;
+  if (/^\/api\/school\/login\/verify\/[^/]+$/.test(pathname) && ["GET","POST"].includes(method)) return true;
+  if (pathname === "/api/school/summary" && method === "GET") return true;
+  if (pathname === "/api/school/teachers" && ["GET","POST"].includes(method)) return true;
+  if (/^\/api\/school\/teachers\/\d+$/.test(pathname) && ["PATCH","DELETE"].includes(method)) return true;
+  if (["/api/schools/lookup","/api/schools/search"].includes(pathname) && method === "GET") return true;
+  if (/^\/api\/(?:confirm|account-confirm|domain-confirm)\/[^/]+$/.test(pathname) && ["GET","POST"].includes(method)) return true;
+  if (pathname === "/api/partner/auth" && ["GET","POST"].includes(method)) return true;
+  if (["/api/cron/school-drift","/api/cron/daily-digest","/api/cron/sync-billing","/api/cron/verification-maintenance"].includes(pathname) && ["GET","POST"].includes(method)) return true;
 
   if (pathname === "/api/school-requests" && request.method === "POST") {
     return true;
@@ -83,7 +84,7 @@ export async function proxy(request: NextRequest) {
   }
 
   // Protect /api/partner routes (except auth)
-  if (pathname.startsWith("/api/partner") && !pathname.startsWith("/api/partner/auth")) {
+  if (pathname.startsWith("/api/partner") && pathname !== "/api/partner/auth") {
     const partnerAuth = request.cookies.get(PARTNER_SESSION_COOKIE_NAME);
     const adminAuth = request.cookies.get(ADMIN_SESSION_COOKIE_NAME);
     const [partnerRole, adminAuthenticated] = await Promise.all([

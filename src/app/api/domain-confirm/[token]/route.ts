@@ -1,8 +1,9 @@
+import { confirmationExpired } from "@/lib/confirmation-token";
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { domainRequests } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and, isNull, gt } from "drizzle-orm";
 import { sendDomainConfirmedNotification } from "@/lib/email";
 
 export async function GET(
@@ -14,8 +15,8 @@ export async function GET(
     .select()
     .from(domainRequests)
     .where(eq(domainRequests.confirmToken, token));
-  if (!r) return NextResponse.json({ error: "Invalid or expired link" }, { status: 404 });
-  return NextResponse.json({ request: r });
+  if (!r || confirmationExpired(r)) return NextResponse.json({ error: "Invalid or expired link" }, { status: 404 });
+  return NextResponse.json({ request: { id:r.id, schoolName:r.schoolName, schoolNameEn:r.schoolNameEn, domain:r.domain, team:r.team, status:r.status, confirmedAt:r.confirmedAt } });
 }
 
 export async function POST(
@@ -27,13 +28,15 @@ export async function POST(
     .select()
     .from(domainRequests)
     .where(eq(domainRequests.confirmToken, token));
-  if (!r) return NextResponse.json({ error: "Invalid or expired link" }, { status: 404 });
+  if (!r || confirmationExpired(r)) return NextResponse.json({ error: "Invalid or expired link" }, { status: 404 });
 
   const confirmedAt = new Date();
-  await db
+  const changed = await db
     .update(domainRequests)
     .set({ status: "done", confirmedAt })
-    .where(eq(domainRequests.id, r.id));
+    .where(and(eq(domainRequests.id, r.id), eq(domainRequests.confirmToken, token), gt(domainRequests.tokenExpiresAt,new Date()), isNull(domainRequests.confirmedAt)))
+    .returning({id:domainRequests.id});
+  if (!changed.length) return NextResponse.json({success:true});
 
   void (async () => {
     try {

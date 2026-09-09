@@ -8,7 +8,7 @@ import { checkRateLimit, createRateLimitResponse, isValidEmail, normalizeText } 
 
 // POST: 교사가 학교 등록 요청 (public)
 export async function POST(req: NextRequest) {
-  const rateLimit = checkRateLimit({
+  const rateLimit = await checkRateLimit({
     request: req,
     key: "public-school-request",
     limit: 5,
@@ -19,9 +19,11 @@ export async function POST(req: NextRequest) {
     return createRateLimitResponse("Too many school requests. Please try again later.", rateLimit.retryAfter);
   }
 
-  const { name, nameEn, region, domain, contactName, contactEmail } = await req.json();
+  const body=await req.json().catch(()=>null);
+  if(!body)return NextResponse.json({error:"Invalid JSON"},{status:400});
+  const { name, nameEn, region, domain, contactName, contactEmail } = body;
 
-  if (!name || !contactName || !contactEmail) {
+  if (typeof name!=="string" || typeof contactName!=="string" || typeof contactEmail!=="string" || !name || !contactName || !contactEmail) {
     return NextResponse.json({ error: "학교명, 담당자 이름, 이메일은 필수입니다." }, { status: 400 });
   }
 

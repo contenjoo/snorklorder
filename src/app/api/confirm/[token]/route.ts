@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { upgradeBatches, teachers, schools } from "@/db/schema";
-import { eq, inArray, and, notInArray, ne } from "drizzle-orm";
+import { eq, inArray, and, notInArray, sql } from "drizzle-orm";
 import { sendConfirmNotification, sendTeacherUpgradedEmail } from "@/lib/email";
 
 // GET: 배치 정보 + 교사 목록 조회
@@ -16,7 +16,7 @@ export async function GET(
     .from(upgradeBatches)
     .where(eq(upgradeBatches.token, token));
 
-  if (!batch) {
+  if (!batch || !batch.tokenExpiresAt || batch.tokenExpiresAt.getTime() <= Date.now()) {
     return NextResponse.json({ error: "Invalid token" }, { status: 404 });
   }
 
@@ -96,65 +96,33 @@ export async function POST(
   { params }: { params: Promise<{ token: string }> }
 ) {
   const { token } = await params;
-  const body = await req.json();
-  const { confirmedTeacherIds } = body as { confirmedTeacherIds: number[] };
+  const body = await req.json().catch(() => null);
+  const confirmedTeacherIds: unknown = body?.confirmedTeacherIds;
 
   const [batch] = await db
     .select()
     .from(upgradeBatches)
     .where(eq(upgradeBatches.token, token));
 
-  if (!batch) {
+  if (!batch || !batch.tokenExpiresAt || batch.tokenExpiresAt.getTime() <= Date.now()) {
     return NextResponse.json({ error: "Invalid token" }, { status: 404 });
   }
 
-  if (!Array.isArray(confirmedTeacherIds)) {
-    return NextResponse.json({ error: "confirmedTeacherIds must be an array" }, { status: 400 });
+  if (!Array.isArray(confirmedTeacherIds) || confirmedTeacherIds.length > 1000 ||
+      confirmedTeacherIds.some((id) => !Number.isSafeInteger(id) || id <= 0 || id > 2147483647)) {
+    return NextResponse.json({ error: "Invalid teacher IDs" }, { status: 400 });
   }
-
-  const batchTeacherIds: number[] = JSON.parse(batch.teacherIds);
-  const normalizedConfirmedIds = [...new Set(
-    confirmedTeacherIds.filter((id): id is number => Number.isInteger(id))
-  )];
-
-  // 신규 교사도 배치에 추가 (같은 학교의 pending/sent 교사)
-  const newIds = normalizedConfirmedIds.filter((id) => !batchTeacherIds.includes(id));
-  const updatedBatchIds = [...new Set([...batchTeacherIds, ...newIds])];
-
-  // 배치 업데이트 (신규 교사 포함)
-  await db
-    .update(upgradeBatches)
-    .set({
-      teacherIds: JSON.stringify(updatedBatchIds),
-      confirmedIds: JSON.stringify(normalizedConfirmedIds),
-      status: "confirmed",
-      confirmedAt: new Date(),
-    })
-    .where(eq(upgradeBatches.id, batch.id));
-
+  let normalizedConfirmedIds: number[];
+  try {
+    const ids = [...new Set(confirmedTeacherIds as number[])];
+    const result = await db.execute(sql`SELECT teacher_id FROM confirm_teacher_batch(${token}, ${JSON.stringify(ids).replace('[','{').replace(']','}')}::integer[])`);
+    normalizedConfirmedIds = result.rows.map((row) => Number(row.teacher_id));
+  } catch (error) {
+    console.error("[confirm] rejected", error);
+    return NextResponse.json({ error: "Invalid, expired, or out-of-scope confirmation" }, { status: 409 });
+  }
   const confirmedAt = new Date();
   if (normalizedConfirmedIds.length > 0) {
-    await db
-      .update(teachers)
-      .set({ status: "upgraded" })
-      .where(inArray(teachers.id, normalizedConfirmedIds));
-
-    // verification_status 동기화: Jon 확인 = 승인 완료. 단, 이미 approved인 교사는
-    // approvedAt/approvedBy(누가 언제 승인했는지)를 hq_confirm으로 덮어쓰지 않는다.
-    await db
-      .update(teachers)
-      .set({
-        verificationStatus: "approved",
-        approvedAt: confirmedAt,
-        approvedBy: "hq_confirm",
-      })
-      .where(
-        and(
-          inArray(teachers.id, normalizedConfirmedIds),
-          ne(teachers.verificationStatus, "approved")
-        )
-      );
-
     // Notifications run after the response — Jon shouldn't wait on Gmail I/O
     void (async () => {
       try {

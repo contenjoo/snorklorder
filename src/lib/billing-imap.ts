@@ -1,3 +1,4 @@
+import { authenticateBillingMail } from "./billing-mail-auth";
 // Gmail IMAP 으로 본사 청구 메일을 읽는다 — OAuth 없이 SMTP 발송에 이미 쓰는 앱 비밀번호 재사용.
 //
 // Gmail OAuth 클라이언트는 시크릿 슬롯이 만석이라(edumarket 이 점유) 새 refresh token 을 만들 수 없다.
@@ -78,6 +79,7 @@ export async function fetchBillingMails(options: FetchBillingMailsOptions = {}):
       const fetched = await client.fetchOne(String(uid), { source: true }, { uid: true });
       if (!fetched || !fetched.source) continue;
       const mail = await simpleParser(fetched.source);
+      if (!authenticateBillingMail(mail, "invoice")) { warnings.push("발신 인증을 확인하지 못한 인보이스 메일 제외"); continue; }
       for (const att of mail.attachments || []) {
         const filename = att.filename || "";
         if (att.contentType !== "application/pdf" || !/invoice/i.test(filename)) continue;
@@ -98,6 +100,7 @@ export async function fetchBillingMails(options: FetchBillingMailsOptions = {}):
       const fetched = await client.fetchOne(String(uid), { source: true }, { uid: true });
       if (!fetched || !fetched.source) continue;
       const mail = await simpleParser(fetched.source);
+      if (!authenticateBillingMail(mail, "payment")) { warnings.push("발신 인증을 확인하지 못한 결제 메일 제외"); continue; }
       const subject = mail.subject || "";
       const body = mail.text || (typeof mail.html === "string" ? mail.html : "");
       const payment = parseQuickBooksPaymentText(body, subject);

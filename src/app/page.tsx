@@ -9,11 +9,13 @@ import { isGroupPurchaseTeam } from "@/lib/teams";
 type Step = "choose" | "schoolFind" | "schoolForm" | "batchForm" | "success" | "batchSuccess" | "request" | "requestSent" | "purchaseForm";
 type FindMode = "search" | "code";
 
-interface SchoolResult { id: number; name: string; nameEn: string | null; code: string; team?: string | null; }
+interface SchoolResult { id: number; name: string; nameEn: string | null;  team?: string | null; }
 
 export default function TeacherRegistration() {
   const [step, setStep] = useState<Step>("choose");
   const [findMode, setFindMode] = useState<FindMode>("search");
+  const [schoolId, setSchoolId] = useState<number | null>(null);
+  const [mailStatus, setMailStatus] = useState("");
   const [schoolCode, setSchoolCode] = useState("");
   const [schoolName, setSchoolName] = useState("");
   const [schoolNameEn, setSchoolNameEn] = useState("");
@@ -32,13 +34,13 @@ export default function TeacherRegistration() {
   const [reqContactName, setReqContactName] = useState("");
   const [reqContactEmail, setReqContactEmail] = useState("");
   const [batchEmails, setBatchEmails] = useState("");
-  const [batchResult, setBatchResult] = useState<{ registered: number; duplicates: number } | null>(null);
+  const [batchResult, setBatchResult] = useState<{ registered: number; duplicates: number; results?: {email:string;mailStatus:string}[] } | null>(null);
   const [purchaseSchoolName, setPurchaseSchoolName] = useState("");
   const [purchaseTeachers, setPurchaseTeachers] = useState<{ name: string; email: string; subject: string }[]>([{ name: "", email: "", subject: "" }]);
   const [purchaseMode, setPurchaseMode] = useState<"individual" | "bulk">("individual");
   const [purchaseBulkEmails, setPurchaseBulkEmails] = useState("");
   const [matchedSchool, setMatchedSchool] = useState<SchoolResult | null>(null);
-  const [approvalStatus, setApprovalStatus] = useState<"approved" | "email_verified" | null>(null);
+  const [approvalStatus, setApprovalStatus] = useState<"approved" | "email_verified" | "unverified" | null>(null);
 
   useEffect(() => {
     if (step !== "purchaseForm") { setMatchedSchool(null); return; }
@@ -72,7 +74,7 @@ export default function TeacherRegistration() {
   }, [searchQuery]);
 
   function selectSchool(s: SchoolResult) {
-    setSchoolCode(s.code); setSchoolName(s.name); setSchoolNameEn(s.nameEn || "");
+    setSchoolId(s.id); setSchoolCode(""); setSchoolName(s.name); setSchoolNameEn(s.nameEn || "");
     setSearchQuery(""); setSearchResults([]); setError(""); setStep("schoolForm");
   }
 
@@ -84,7 +86,7 @@ export default function TeacherRegistration() {
       if (!res.ok) { setError("학교 코드를 찾을 수 없습니다."); return; }
       const data = await res.json();
       if (data.team === "취소") { setError("취소된 학교입니다. 학교 단체구매 신청이 종료되었어요."); return; }
-      setSchoolName(data.name); setStep("schoolForm");
+      setSchoolId(data.id); setSchoolName(data.name); setStep("schoolForm");
     } catch { setError("연결 오류입니다."); } finally { setLoading(false); }
   }
 
@@ -94,11 +96,11 @@ export default function TeacherRegistration() {
     try {
       const res = await fetch("/api/register", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ schoolCode: schoolCode.trim(), name: name.trim(), email: email.trim(), subject: subject.trim() || null }),
+        body: JSON.stringify({ schoolId, schoolCode: schoolCode.trim(), name: name.trim(), email: email.trim(), subject: subject.trim() || null }),
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error?.includes("already registered") ? "이미 등록된 이메일입니다." : (data.error || "등록 실패")); return; }
-      setApprovalStatus(data.status === "approved" ? "approved" : "email_verified");
+      setApprovalStatus("unverified"); setMailStatus(data.mailStatus);
       setStep("success");
     } catch { setError("연결 오류입니다."); } finally { setLoading(false); }
   }
@@ -110,11 +112,11 @@ export default function TeacherRegistration() {
     try {
       const res = await fetch("/api/register/batch", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ schoolCode: schoolCode.trim(), emails }),
+        body: JSON.stringify({ schoolId, schoolCode: schoolCode.trim(), emails }),
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || "등록 실패"); return; }
-      setBatchResult({ registered: data.registered, duplicates: data.duplicates });
+      setBatchResult({ registered: data.registered, duplicates: data.duplicates, results: data.results });
       setStep("batchSuccess");
     } catch { setError("연결 오류입니다."); } finally { setLoading(false); }
   }
@@ -134,7 +136,7 @@ export default function TeacherRegistration() {
   }
 
   function reset() {
-    setStep("choose"); setSchoolCode(""); setSchoolName(""); setSchoolNameEn("");
+    setSchoolId(null); setApprovalStatus(null); setMailStatus(""); setStep("choose"); setSchoolCode(""); setSchoolName(""); setSchoolNameEn("");
     setSearchQuery(""); setSearchResults([]); setName(""); setEmail("");
     setSubject(""); setError(""); setBatchEmails(""); setBatchResult(null);
     setReqName(""); setReqNameEn(""); setReqRegion(""); setReqDomain(""); setReqContactName(""); setReqContactEmail("");
@@ -494,7 +496,7 @@ export default function TeacherRegistration() {
                 </svg>
               </div>
               <div>
-                <h3 className="text-2xl font-bold text-gray-900">일괄 등록 완료!</h3>
+                <h3 className="text-2xl font-bold text-gray-900">일괄 접수 완료</h3>
                 <div className="mt-4 space-y-2">
                   <div className="inline-flex items-center gap-2 bg-green-50 rounded-lg px-4 py-2">
                     <span className="text-green-600 font-bold text-lg">{batchResult.registered}명</span>
@@ -507,9 +509,10 @@ export default function TeacherRegistration() {
                   )}
                 </div>
                 <p className="text-base text-gray-500 mt-3">
-                  등록이 접수되었습니다.
-                  <br />학교 도메인 이메일은 <span className="font-semibold text-gray-700">자동 승인</span>, 그 외는 <span className="font-semibold text-gray-700">학교 관리자 승인</span> 후 업그레이드됩니다.
+                  각 이메일로 보낸 확인 링크를 눌러 주세요. 이메일 확인 후 학교 도메인 이메일은 <span className="font-semibold text-gray-700">자동 승인</span>, 그 외는 <span className="font-semibold text-gray-700">학교 관리자 승인</span> 후 업그레이드됩니다.
                 </p>
+                {batchResult?.results?.map(item=><p key={item.email} className="text-sm">{item.email}: {item.mailStatus==='sent'?'확인 메일 발송':item.mailStatus==='already_registered'?'이미 등록됨':'발송 실패 또는 재발송 대기'}</p>)}
+                <Button disabled={loading} onClick={submitBatch}>미확인 이메일 다시 보내기</Button>
               </div>
               <Button variant="outline" onClick={reset} className="border-2 border-gray-200 text-gray-700 font-semibold h-11 rounded-xl hover:bg-gray-50">
                 처음으로
@@ -527,9 +530,11 @@ export default function TeacherRegistration() {
               </div>
               <div>
                 <h3 className="text-2xl font-bold text-gray-900">
-                  {approvalStatus === "email_verified" ? "인증 완료!" : "등록 완료!"}
+                  {approvalStatus === "unverified" ? "이메일 확인이 필요합니다" : "등록 접수 완료"}
                 </h3>
-                {approvalStatus === "email_verified" ? (
+                {approvalStatus === "unverified" ? (
+                  <div className="mt-3 space-y-3"><p>{mailStatus === "sent" ? "입력한 이메일로 확인 링크를 보냈습니다. 30분 안에 확인해 주세요." : mailStatus === "already_registered" ? "이미 등록된 이메일입니다." : "접수는 완료됐지만 확인 메일을 보내지 못했거나 재발송 대기 중입니다."}</p><Button disabled={loading} onClick={submitSchoolTeacher}>확인 메일 다시 받기</Button></div>
+                ) : approvalStatus === "email_verified" ? (
                   <p className="text-base text-gray-500 mt-2">
                     이메일 인증이 완료되었습니다.
                     <br /><span className="font-semibold text-gray-700">학교 관리자 승인</span> 후 업그레이드가 진행됩니다.
@@ -645,7 +650,7 @@ export default function TeacherRegistration() {
                   <button
                     type="button"
                     onClick={() => {
-                      setSchoolCode(matchedSchool.code);
+                      setSchoolId(matchedSchool.id); setSchoolCode("");
                       setSchoolName(matchedSchool.name);
                       setSchoolNameEn(matchedSchool.nameEn || "");
                       setError("");

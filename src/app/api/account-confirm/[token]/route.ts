@@ -1,8 +1,13 @@
+function publicRequest(r: Record<string, unknown>) {
+ const keys=["id","applicantType","type","schoolName","schoolNameEn","emails","accountType","quantity","oldEmail","fromType","extensionDate","status","confirmedAt","createdAt","channel","teacherName","subject"];
+ return Object.fromEntries(keys.filter(key=>key in r).map(key=>[key,r[key]]));
+}
+import { confirmationExpired } from "@/lib/confirmation-token";
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { accountRequests, teachers } from "@/db/schema";
-import { and, eq, inArray, isNull, ne, notInArray } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, notInArray, sql } from "drizzle-orm";
 import { sendAccountConfirmNotification, sendTeacherUpgradedEmail } from "@/lib/email";
 import { claimAccountRequestSideEffects } from "@/lib/market-void-db";
 import { getReceiverFulfillmentPausedResponse } from "@/lib/receiver-fulfillment-pause";
@@ -27,7 +32,7 @@ export async function GET(
     .from(accountRequests)
     .where(eq(accountRequests.confirmToken, token));
 
-  if (!r) {
+  if (!r || confirmationExpired(r)) {
     return NextResponse.json({ error: "Invalid or expired link" }, { status: 404 });
   }
   if (r.channel === 'partner' && r.partnerLifecycleState !== 'active') {
@@ -81,8 +86,8 @@ export async function GET(
     ));
 
   return NextResponse.json({
-    request: r,
-    siblings: siblings.filter((sibling) => !isMarketLegacyAuditRequest(sibling)),
+    request: publicRequest(r),
+    siblings: siblings.filter((sibling) => !isMarketLegacyAuditRequest(sibling)).map(publicRequest),
   });
 }
 
@@ -95,14 +100,15 @@ export async function POST(
   if (pausedResponse) return pausedResponse;
 
   const { token } = await params;
-  const body = await req.json().catch(() => ({}));
+  const body = await req.json().catch(() => null);
+  if (!body || (body.alsoConfirmIds !== undefined && (!Array.isArray(body.alsoConfirmIds) || body.alsoConfirmIds.some((n:unknown)=>!Number.isSafeInteger(n)||Number(n)<=0)))) return NextResponse.json({error:"Invalid confirmation IDs"},{status:400});
   const alsoConfirmIds: number[] = Array.isArray(body?.alsoConfirmIds) ? body.alsoConfirmIds.filter((n: unknown) => Number.isInteger(n)) : [];
   const [r] = await db
     .select()
     .from(accountRequests)
     .where(eq(accountRequests.confirmToken, token));
 
-  if (!r) {
+  if (!r || confirmationExpired(r)) {
     return NextResponse.json({ error: "Invalid or expired link" }, { status: 404 });
   }
   if (r.channel === 'partner' && r.partnerLifecycleState !== 'active') {
@@ -175,6 +181,7 @@ export async function POST(
       .where(and(
         inArray(accountRequests.id, sideEffectIds),
         pendingProcessingConfirmationCondition(),
+        sql`EXISTS (SELECT 1 FROM account_requests root_request WHERE root_request.id=${r.id} AND root_request.confirm_token=${token} AND root_request.token_expires_at>(now() AT TIME ZONE 'UTC'))`,
         notInArray(accountRequests.marketVoidState, ["prepared", "voided"]),
       ))
       .returning({ id: accountRequests.id });

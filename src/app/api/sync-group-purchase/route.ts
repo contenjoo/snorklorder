@@ -1,3 +1,4 @@
+import { secretEquals } from "@/lib/api-key";
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
@@ -19,7 +20,7 @@ const TEAM_REGEX = /^(?:서울|경기|인천|부산|대구|광주|대전|울산|
 export async function POST(req: NextRequest) {
   const apiKey = req.headers.get("x-api-key");
   const validApiKey = process.env.INTEGRATION_API_KEY;
-  if (!validApiKey || apiKey !== validApiKey) {
+  if (!secretEquals(apiKey, validApiKey)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -86,6 +87,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, schoolId: school.id, teacherId: existing.id, created: false, existingStatus: existing.status });
   } catch (err) {
     console.error("[/api/sync-group-purchase] failed:", err);
-    return NextResponse.json({ success: false, error: String(err) }, { status: 500 });
+    return NextResponse.json({ success: false, error: "Unable to sync request" }, { status: 500 });
   }
 }

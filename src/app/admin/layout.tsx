@@ -7,6 +7,7 @@ import { SearchIcon } from "lucide-react";
 import { CommandPalette } from "@/components/admin/command-palette";
 
 const navItems = [
+  { href: "/admin/confirmation-links", label: "확인 링크", icon: "inbox" },
   { href: "/admin", label: "대시보드", icon: "grid" },
   { href: "/admin/schools", label: "학교", icon: "school" },
   { href: "/admin/teachers", label: "교사", icon: "users" },

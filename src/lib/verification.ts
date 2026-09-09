@@ -37,9 +37,11 @@ export async function resolveApproval(
     .from(schools)
     .where(eq(schools.id, schoolId));
   const [teacher] = await db
-    .select({ email: teachers.email })
+    .select({ email: teachers.email, emailVerifiedAt: teachers.emailVerifiedAt })
     .from(teachers)
     .where(eq(teachers.id, teacherId));
+
+  if (!teacher?.emailVerifiedAt) throw new Error("Email ownership must be verified before approval");
 
   if (school && teacher && emailDomainMatches(teacher.email, school)) {
     await db

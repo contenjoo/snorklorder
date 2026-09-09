@@ -17,7 +17,6 @@ interface AccountRequest {
   oldEmail: string | null;
   fromType: string | null;
   extensionDate: string | null;
-  notes: string | null;
   status: string;
   confirmedAt: string | null;
   channel: string;
@@ -40,7 +39,6 @@ interface SiblingRequest {
   accountType: string | null;
   quantity: number | null;
   status: string;
-  notes: string | null;
   createdAt: string;
   teacherName: string | null;
   subject: string | null;
@@ -169,12 +167,7 @@ export default function AccountConfirmPage({ params }: { params: Promise<{ token
           </div>
         )}
 
-        {req.notes && (
-          <div>
-            <div className="text-[10px] text-gray-400 uppercase tracking-wider font-medium mb-1">Notes</div>
-            <div className="text-sm text-gray-700 whitespace-pre-wrap">{req.notes}</div>
-          </div>
-        )}
+
 
         {siblings.length > 0 && !done && !alreadyConfirmed && (
           <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 space-y-2">

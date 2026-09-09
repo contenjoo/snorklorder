@@ -1,3 +1,4 @@
+import { checkAuth } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
@@ -15,6 +16,7 @@ function getCacheHeaders() {
 }
 
 export async function GET(req: NextRequest) {
+  if (!(await checkAuth())) return NextResponse.json({error:"Unauthorized"},{status:401});
   const include = req.nextUrl.searchParams.get("include");
   const cacheKey = `schools-${include || "basic"}`;
 
@@ -90,7 +92,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const body = await req.json();
+  if (!(await checkAuth())) return NextResponse.json({error:"Unauthorized"},{status:401});
+  const body = await req.json().catch(()=>null);
+  if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({error:"Invalid JSON"},{status:400});
   const { name, nameEn, code, domain, region, team } = body;
 
   if (!name || !code) {
@@ -116,7 +120,9 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const body = await req.json();
+  if (!(await checkAuth())) return NextResponse.json({error:"Unauthorized"},{status:401});
+  const body = await req.json().catch(()=>null);
+  if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({error:"Invalid JSON"},{status:400});
   const { id, name, nameEn, code, domain, region, team } = body;
 
   if (!id) {
@@ -154,6 +160,7 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  if (!(await checkAuth())) return NextResponse.json({error:"Unauthorized"},{status:401});
   const { searchParams } = new URL(req.url);
   const id = searchParams.get("id");
 

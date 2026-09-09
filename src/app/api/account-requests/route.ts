@@ -170,7 +170,8 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const body = await req.json();
+  const body = await req.json().catch(()=>null);
+  if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({error:"Invalid JSON"},{status:400});
   const { action, id, ...data } = body;
 
   if (action === "create") {
@@ -188,7 +189,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (!isAuthenticated) {
-      const rateLimit = checkRateLimit({
+      const rateLimit = await checkRateLimit({
         request: req,
         key: "public-account-request",
         limit: 5,
@@ -200,7 +201,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    if (!data.schoolName || !data.emails) {
+    if (typeof data.schoolName !== "string" || typeof data.emails !== "string" || !data.schoolName || !data.emails) {
       return NextResponse.json({ error: "schoolName and emails are required" }, { status: 400 });
     }
 

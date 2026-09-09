@@ -9,7 +9,6 @@ interface DomainRequest {
   schoolNameEn: string | null;
   domain: string;
   team: string | null;
-  note: string | null;
   status: string;
   confirmedAt: string | null;
 }
@@ -82,12 +81,7 @@ export default function DomainConfirmPage({ params }: { params: Promise<{ token:
           {req.team && <div className="text-xs text-gray-500 mt-1">Team: {req.team}</div>}
         </div>
 
-        {req.note && (
-          <div>
-            <div className="text-[10px] text-gray-400 uppercase tracking-wider font-medium mb-1">Note</div>
-            <div className="text-sm text-gray-700 whitespace-pre-wrap">{req.note}</div>
-          </div>
-        )}
+
 
         <div className="pt-2 border-t">
           {done || alreadyDone ? (

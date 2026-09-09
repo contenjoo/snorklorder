@@ -1,3 +1,4 @@
+import { checkAuth } from "@/lib/auth";
 // 관리자 인사이트 집계 — /admin/insights 전용.
 // 학교급은 DB 컬럼이 없어 이름/영문명에서 유도하므로(schoolLevel) 집계도 여기서 JS 로 수행한다.
 export const dynamic = "force-dynamic";
@@ -9,6 +10,7 @@ import { schoolLevel, type SchoolLevel } from "@/lib/school-level";
 import { subjectFamily } from "@/lib/subject";
 
 export async function GET() {
+  if (!(await checkAuth())) return NextResponse.json({error:"Unauthorized"},{status:401});
   const [rows, monthlyTeachers, monthlyRequests] = await Promise.all([
     db.select({
       schoolId: schools.id, schoolName: schools.name, schoolNameEn: schools.nameEn,

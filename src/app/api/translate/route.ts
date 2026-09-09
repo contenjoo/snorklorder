@@ -18,7 +18,7 @@ async function googleTranslate(text: string): Promise<string | null> {
 }
 
 export async function POST(req: NextRequest) {
-  const rateLimit = checkRateLimit({
+  const rateLimit = await checkRateLimit({
     request: req,
     key: 'translate',
     limit: 30,

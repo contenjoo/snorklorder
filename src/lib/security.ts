@@ -1,88 +1,47 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createHash } from "node:crypto";
+import { db } from "@/db";
+import { sql } from "drizzle-orm";
 
 interface RateLimitOptions {
-  request: Request | NextRequest;
-  key: string;
-  limit: number;
-  windowMs: number;
+ request: Request | NextRequest; key: string; limit: number; windowMs: number;
+ subject?: string;
 }
-
-interface RateLimitResult {
-  ok: boolean;
-  retryAfter: number;
+export function clientIp(request: Request) {
+ // Vercel overwrites this header at its trusted ingress. Never trust a caller's generic forwarded-for.
+ if (process.env.VERCEL === "1") return request.headers.get("x-vercel-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+ return "local";
 }
-
-type Bucket = {
-  count: number;
-  resetAt: number;
-};
-
-const buckets = new Map<string, Bucket>();
-const MAX_BUCKETS = 5000;
-
-function getClientFingerprint(request: Request | NextRequest) {
-  const forwardedFor = request.headers.get("x-forwarded-for");
-  const ip = forwardedFor?.split(",")[0]?.trim()
-    || request.headers.get("x-real-ip")
-    || "unknown";
-  const userAgent = request.headers.get("user-agent") || "unknown";
-  return `${ip}:${userAgent.slice(0, 120)}`;
+export async function checkRateLimit(options: RateLimitOptions): Promise<{ok:boolean; retryAfter:number}> {
+ const identity = options.subject ?? clientIp(options.request);
+ const key = createHash("sha256").update(`${options.key}:${identity}`).digest("hex");
+ try {
+  const result = await db.execute(sql`
+   INSERT INTO security_rate_limits(key,count,reset_at)
+   VALUES(${key},1,now()+${options.windowMs}*interval '1 millisecond')
+   ON CONFLICT(key) DO UPDATE SET
+    count=CASE WHEN security_rate_limits.reset_at<=now() THEN 1 ELSE security_rate_limits.count+1 END,
+    reset_at=CASE WHEN security_rate_limits.reset_at<=now() THEN excluded.reset_at ELSE security_rate_limits.reset_at END
+   RETURNING count, greatest(1,ceil(extract(epoch FROM reset_at-now()))) AS retry_after`);
+  const row = result.rows[0];
+  return {ok:Number(row.count)<=options.limit,retryAfter:Number(row.retry_after)};
+ } catch (error) {
+  console.error("[rate-limit] unavailable", error);
+  return {ok:false,retryAfter:-1};
+ }
 }
-
-function cleanupBuckets(now: number) {
-  for (const [key, bucket] of Array.from(buckets.entries())) {
-    if (bucket.resetAt <= now) {
-      buckets.delete(key);
-    }
-  }
-
-  if (buckets.size <= MAX_BUCKETS) return;
-
-  const entries = Array.from(buckets.entries()).sort((a, b) => a[1].resetAt - b[1].resetAt);
-  for (const [key] of entries.slice(0, buckets.size - MAX_BUCKETS)) {
-    buckets.delete(key);
-  }
+export function createRateLimitResponse(message="Too many requests. Please try again later.", retryAfter=60) {
+ return NextResponse.json({error:retryAfter<0?"Service temporarily unavailable":message}, {
+  status:retryAfter<0?503:429,headers:{"Retry-After":String(retryAfter<0?60:retryAfter)},
+ });
 }
-
-export function checkRateLimit(options: RateLimitOptions): RateLimitResult {
-  const now = Date.now();
-  cleanupBuckets(now);
-
-  const bucketKey = `${options.key}:${getClientFingerprint(options.request)}`;
-  const current = buckets.get(bucketKey);
-
-  if (!current || current.resetAt <= now) {
-    buckets.set(bucketKey, {
-      count: 1,
-      resetAt: now + options.windowMs,
-    });
-    return { ok: true, retryAfter: 0 };
-  }
-
-  if (current.count >= options.limit) {
-    return {
-      ok: false,
-      retryAfter: Math.max(1, Math.ceil((current.resetAt - now) / 1000)),
-    };
-  }
-
-  current.count += 1;
-  buckets.set(bucketKey, current);
-  return { ok: true, retryAfter: 0 };
+export async function checkEmailSendLimit(request: Request, email: string) {
+ for (const rule of [{key:"email-minute",limit:1,windowMs:60000},{key:"email-hour",limit:5,windowMs:3600000}]) {
+  const result=await checkRateLimit({request,subject:email.trim().toLowerCase(),...rule});
+  if(!result.ok) return createRateLimitResponse("Please wait before requesting another email.",result.retryAfter);
+ }
+ return null;
 }
-
-export function createRateLimitResponse(message = "Too many requests. Please try again later.", retryAfter = 60) {
-  return NextResponse.json(
-    { error: message },
-    {
-      status: 429,
-      headers: {
-        "Retry-After": String(retryAfter),
-      },
-    }
-  );
-}
-
 export function isValidEmail(email: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }

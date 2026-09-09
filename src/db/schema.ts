@@ -60,6 +60,7 @@ export const schoolRequests = pgTable("school_requests", {
 ]);
 
 export const accountRequests = pgTable("account_requests", {
+  tokenExpiresAt: timestamp("token_expires_at").default(sql`(now() AT TIME ZONE 'UTC') + interval '30 days'`),
   id: serial("id").primaryKey(),
   channel: text("channel").notNull().default("company"), // company | school_store
   applicantType: text("applicant_type").notNull().default("school"), // school | individual
@@ -207,6 +208,7 @@ export const marketOrderVoidOperations = pgTable("market_order_void_operations",
 ]);
 
 export const upgradeBatches = pgTable("upgrade_batches", {
+  tokenExpiresAt: timestamp("token_expires_at").default(sql`(now() AT TIME ZONE 'UTC') + interval '30 days'`),
   id: serial("id").primaryKey(),
   token: text("token").notNull().unique(),
   teacherIds: text("teacher_ids").notNull(), // JSON array of teacher IDs
@@ -217,6 +219,7 @@ export const upgradeBatches = pgTable("upgrade_batches", {
 });
 
 export const domainRequests = pgTable("domain_requests", {
+  tokenExpiresAt: timestamp("token_expires_at").default(sql`(now() AT TIME ZONE 'UTC') + interval '30 days'`),
   id: serial("id").primaryKey(),
   schoolName: text("school_name").notNull(),
   schoolNameEn: text("school_name_en"),
@@ -299,6 +302,7 @@ export const emailVerificationTokens = pgTable("email_verification_tokens", {
 
 // 학교 관리자 매직링크 로그인 토큰
 export const schoolLoginTokens = pgTable("school_login_tokens", {
+  browserHash: text("browser_hash"),
   id: serial("id").primaryKey(),
   email: text("email").notNull(),
   schoolId: integer("school_id")

@@ -1,3 +1,4 @@
+import { checkAuth } from "@/lib/auth";
 // 커맨드 팔레트 전용 통합 검색 데이터셋.
 // 규모가 작아(학교 ~163 · 교사 ~1.5k · 정산 ~160) 전체를 한 번에 내려주고
 // 매칭·랭킹은 클라이언트에서 즉시 수행한다 (타이핑 지연 없는 검색).
@@ -9,6 +10,7 @@ import { schools, teachers, accountRequests, domainRequests, schoolRequests } fr
 import { desc, eq, notInArray } from "drizzle-orm";
 
 export async function GET() {
+  if (!(await checkAuth())) return NextResponse.json({error:"Unauthorized"},{status:401});
   const [schoolRows, teacherRows, accountRows, domainRows, requestRows] = await Promise.all([
     db.select({
       id: schools.id, name: schools.name, nameEn: schools.nameEn,

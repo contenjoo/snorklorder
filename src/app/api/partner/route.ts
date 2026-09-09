@@ -1,3 +1,5 @@
+import { checkAuth } from "@/lib/auth";
+import { cookies } from "next/headers";
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
@@ -8,6 +10,7 @@ import { PARTNER_SESSION_COOKIE_NAME, verifyPartnerSessionToken } from "@/lib/si
 
 // GET: partner dashboard data
 export async function GET() {
+  if (!(await checkAuth()) && !(await verifyPartnerSessionToken((await cookies()).get(PARTNER_SESSION_COOKIE_NAME)?.value))) return NextResponse.json({error:"Unauthorized"},{status:401});
   const [schoolRows, teacherRows, acctRows, domRows] = await Promise.all([
     db
       .select({
@@ -102,7 +105,8 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Only Jon or Cailie can mark upgrades" }, { status: 403 });
   }
 
-  const body = await req.json();
+  const body = await req.json().catch(()=>null);
+  if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({error:"Invalid JSON"},{status:400});
   const { ids } = body;
 
   if (!ids?.length) {

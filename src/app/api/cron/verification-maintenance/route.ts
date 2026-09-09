@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { teachers, schools, schoolAdmins } from "@/db/schema";
 import { eq, and, isNull, lt, inArray, ne } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { REMINDER_DAYS, ESCALATE_DAYS } from "@/lib/verification";
 import { sendVerificationReminderEmail } from "@/lib/verification-email";
 import { authorizeCron } from "@/lib/cron-auth";
@@ -19,6 +20,7 @@ type PendingTeacher = {
 };
 
 async function run() {
+  await db.execute(sql`DELETE FROM security_rate_limits WHERE reset_at < now()-interval '1 day'`);
   const now = new Date();
   const daysAgo = (n: number) => new Date(now.getTime() - n * 86400000);
 

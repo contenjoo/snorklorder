@@ -1,0 +1,44 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import pg from 'pg';
+const url=process.env.SECURITY_TEST_DATABASE_URL;
+const enabled=url&&new URL(url).hostname==='127.0.0.1'&&new URL(url).port==='55439';
+test('isolated PostgreSQL: scope, expiry, concurrency, proof and migration replay',{skip:!enabled},async()=>{
+ const pool=new pg.Pool({connectionString:url});
+ const schema=`security_test_${Date.now()}`;
+ await pool.query(`CREATE SCHEMA ${schema}`); await pool.end();
+ const db=new pg.Pool({connectionString:url,options:`-c search_path=${schema} -c timezone=UTC`,max:8});
+ try{
+ await db.query(`CREATE TABLE schools(id serial primary key,name text,domain text,allowed_domains text);
+ CREATE TABLE teachers(id serial primary key,school_id integer,name text,email text,status text,verification_status text,email_verified_at timestamp,approved_at timestamp,approved_by text,escalated_at timestamp);
+ CREATE TABLE school_admins(id serial primary key,school_id integer);
+ CREATE TABLE upgrade_batches(id serial primary key,token text,teacher_ids text,confirmed_ids text,status text,confirmed_at timestamp);
+ CREATE TABLE account_requests(id serial primary key,confirm_token text);
+ CREATE TABLE domain_requests(id serial primary key,confirm_token text);
+ CREATE TABLE email_verification_tokens(id serial primary key,teacher_id integer,token text,used_at timestamp,expires_at timestamp);
+ CREATE TABLE school_login_tokens(id serial primary key);
+ INSERT INTO upgrade_batches(token,teacher_ids,status) VALUES('legacy','[]','pending');`);
+ const migration=readFileSync(new URL('../drizzle/0019_security_boundaries.sql',import.meta.url),'utf8');
+ await db.query(migration);
+ const before=(await db.query('SELECT token_expires_at FROM upgrade_batches WHERE id=1')).rows[0].token_expires_at;
+ await db.query(migration);
+ assert.equal(+(await db.query('SELECT token_expires_at FROM upgrade_batches WHERE id=1')).rows[0].token_expires_at,+before);
+ await db.query(`INSERT INTO schools VALUES(1,'A','school.test',NULL),(2,'B','other.test',NULL);
+ INSERT INTO teachers(id,school_id,email,status,verification_status) VALUES(1,1,'one@school.test','sent','approved'),(2,1,'two@school.test','pending','unverified'),(3,2,'three@other.test','sent','approved');
+ INSERT INTO upgrade_batches(token,teacher_ids,status) VALUES('valid','[1]','pending');`);
+ await assert.rejects(db.query("SELECT * FROM confirm_teacher_batch('valid',ARRAY[1,3])"),/CONFIRM_SCOPE_VIOLATION/);
+ assert.equal((await db.query('SELECT status FROM teachers WHERE id=1')).rows[0].status,'sent');
+ const results=await Promise.all([db.query("SELECT * FROM confirm_teacher_batch('valid',ARRAY[1,2])"),db.query("SELECT * FROM confirm_teacher_batch('valid',ARRAY[1,2])")]);
+ assert.equal(results.reduce((n,r)=>n+r.rows.length,0),2);
+ assert.equal((await db.query('SELECT status FROM teachers WHERE id=3')).rows[0].status,'sent');
+ await db.query("UPDATE upgrade_batches SET token_expires_at=now()-interval '1 second' WHERE token='valid'");
+ await assert.rejects(db.query("SELECT * FROM confirm_teacher_batch('valid',ARRAY[1])"),/INVALID_CONFIRM_TOKEN/);
+ await db.query(`INSERT INTO teachers(id,school_id,email,status,verification_status) VALUES(4,1,'four@school.test','pending','unverified'),(5,1,'five@external.test','pending','unverified');
+ INSERT INTO email_verification_tokens(teacher_id,token,expires_at) VALUES(4,'hash4',now()+interval '30 minutes'),(5,'hash5',now()+interval '30 minutes');`);
+ assert.equal((await db.query('SELECT email_verified_at FROM teachers WHERE id=4')).rows[0].email_verified_at,null);
+ const verifies=await Promise.all([db.query("SELECT verify_teacher_email('hash4') AS status"),db.query("SELECT verify_teacher_email('hash4') AS status")]);
+ assert.deepEqual(verifies.map(r=>r.rows[0].status).sort(),['approved',null].sort());
+ assert.equal((await db.query("SELECT verify_teacher_email('hash5') AS status")).rows[0].status,'email_verified');
+ }finally{await db.end();}
+});

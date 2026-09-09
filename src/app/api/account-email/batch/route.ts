@@ -1,3 +1,5 @@
+import { checkAuth } from "@/lib/auth";
+import { confirmationExpiry } from "@/lib/confirmation-token";
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "crypto";
@@ -19,7 +21,6 @@ import {
 import { invoiceViewUrl, loadOpenInvoiceItemsForEmail } from "@/lib/invoice-ledger";
 import { claimAccountRequestSideEffects } from "@/lib/market-void-db";
 import { getReceiverFulfillmentPausedResponse } from "@/lib/receiver-fulfillment-pause";
-import { checkAuth } from "@/lib/auth";
 import { buildProcessingEmail } from "@/lib/account-processing";
 import { loadProcessingReminders, processingListUnavailableResponse } from "@/lib/processing-ledger";
 import { isMarketLegacyAuditRequest } from "@/lib/market-legacy-audit";
@@ -250,7 +251,7 @@ export async function POST(req: NextRequest) {
         token = randomBytes(16).toString("hex");
         const [created] = await db
           .update(accountRequests)
-          .set({ confirmToken: token, updatedAt: new Date() })
+          .set({ confirmToken: token, tokenExpiresAt: confirmationExpiry(), updatedAt: new Date() })
           .where(and(eq(accountRequests.id, id), isNull(accountRequests.confirmToken)))
           .returning({ confirmToken: accountRequests.confirmToken });
         if (!created) {

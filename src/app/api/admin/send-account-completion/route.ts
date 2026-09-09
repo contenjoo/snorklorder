@@ -15,7 +15,8 @@ export async function POST(req: NextRequest) {
   const pausedResponse = getReceiverFulfillmentPausedResponse();
   if (pausedResponse) return pausedResponse;
 
-  const body = await req.json();
+  const body = await req.json().catch(()=>null);
+  if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({error:"Invalid JSON"},{status:400});
   const id = Number(body.id);
   if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: "id required" }, { status: 400 });
 

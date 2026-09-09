@@ -10,7 +10,8 @@ export async function POST(req: NextRequest) {
   if (!(await checkAuth())) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   let dryRun = false;
   try {
-    const body = await req.json();
+    const body = await req.json().catch(()=>null);
+  if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({error:"Invalid JSON"},{status:400});
     dryRun = body?.dryRun === true;
   } catch {
     // 본문 없음 — 실제 반영

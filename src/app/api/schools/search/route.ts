@@ -1,4 +1,3 @@
-// TODO(security): code field is enumeration-sensitive. Consider returning only {id, name, nameEn} and require auth or a per-session token for the code lookup. See QC report L2.
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
@@ -12,15 +11,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json([]);
   }
 
+  const literal = q.replace(/[\\%_]/g, "\\$&");
   const results = await db
-    .select({ id: schools.id, name: schools.name, nameEn: schools.nameEn, code: schools.code, team: schools.team })
+    .select({ id: schools.id, name: schools.name, nameEn: schools.nameEn, team: schools.team })
     .from(schools)
     .where(
-      sql`${schools.name} ILIKE ${"%" + q + "%"} OR ${schools.nameEn} ILIKE ${"%" + q + "%"} OR ${schools.code} ILIKE ${"%" + q + "%"}`
+      sql`${schools.name} ILIKE ${"%" + literal + "%"} OR ${schools.nameEn} ILIKE ${"%" + literal + "%"}`
     )
     .limit(10);
 
   return NextResponse.json(results, {
-    headers: { "Cache-Control": "s-maxage=60, stale-while-revalidate=120" },
+    headers: { "Cache-Control": "no-store" },
   });
 }

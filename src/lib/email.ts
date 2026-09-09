@@ -17,6 +17,7 @@ export interface EmailResult {
 }
 
 export type EmailKind =
+  | "teacher_verification"
   | "batch_notification"
   | "teacher_upgraded"
   | "account_confirm"

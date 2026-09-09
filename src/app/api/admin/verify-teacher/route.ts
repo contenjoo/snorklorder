@@ -10,7 +10,8 @@ export async function POST(req: NextRequest) {
   if (!(await checkAuth())) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const body = await req.json();
+  const body = await req.json().catch(()=>null);
+  if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({error:"Invalid JSON"},{status:400});
   const { ids, action, reason } = body as { ids: number[]; action: "approve" | "reject"; reason?: string };
 
   const cleanIds = Array.isArray(ids) ? ids.filter((id) => Number.isInteger(id)) : [];

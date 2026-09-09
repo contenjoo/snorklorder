@@ -9,7 +9,7 @@ import {
 } from "@/lib/signed-session";
 
 export async function POST(req: NextRequest) {
-  const rateLimit = checkRateLimit({
+  const rateLimit = await checkRateLimit({
     request: req,
     key: "partner-login",
     limit: 10,
@@ -20,7 +20,9 @@ export async function POST(req: NextRequest) {
     return createRateLimitResponse("Too many login attempts. Please try again later.", rateLimit.retryAfter);
   }
 
-  const { password } = await req.json();
+  const authBody = await req.json().catch(()=>null);
+  if (!authBody || typeof authBody !== "object") return NextResponse.json({error:"Invalid JSON"},{status:400});
+  const { password } = authBody;
 
   if (typeof password !== "string") {
     return NextResponse.json({ error: "Wrong password" }, { status: 401 });

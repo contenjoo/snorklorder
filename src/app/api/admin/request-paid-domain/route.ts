@@ -12,7 +12,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   try {
-    const body = await req.json();
+    const body = await req.json().catch(()=>null);
+  if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({error:"Invalid JSON"},{status:400});
     const { schoolName, schoolNameEn, domain, team, note } = body || {};
     if (!schoolName?.trim() || !domain?.trim()) {
       return NextResponse.json({ error: "schoolName and domain required" }, { status: 400 });

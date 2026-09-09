@@ -1,3 +1,4 @@
+import { checkAuth } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
@@ -7,8 +8,10 @@ import { sendBatchNotification } from "@/lib/email";
 import { randomBytes } from "crypto";
 
 export async function POST(req: NextRequest) {
+  if (!(await checkAuth())) return NextResponse.json({error:"Unauthorized"},{status:401});
   try {
-  const body = await req.json();
+  const body = await req.json().catch(()=>null);
+  if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({error:"Invalid JSON"},{status:400});
   const { teacherIds } = body;
 
   if (!teacherIds?.length) {
@@ -85,6 +88,6 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ...result, token });
   } catch (err) {
     console.error("[/api/send-email] failed:", err);
-    return NextResponse.json({ success: false, error: String(err) }, { status: 500 });
+    return NextResponse.json({ success: false, error: "Request failed" }, { status: 500 });
   }
 }

@@ -62,7 +62,7 @@ export async function runBillingSync(options: BillingSyncOptions = {}): Promise<
   if (missing.length > 0) {
     return { ok: true, skipped: true, reason: `Gmail env 미설정: ${missing.join(", ")}` };
   }
-  const dryRun = options.dryRun === true;
+  const dryRun = options.dryRun === true || process.env.BILLING_AUTH_VERIFIED !== "true";
   const { mails, warnings } = await fetchBillingMails({
     newerThanDays: options.newerThanDays,
     maxPerKind: options.maxPerKind,
