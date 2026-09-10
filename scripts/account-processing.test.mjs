@@ -93,6 +93,7 @@ function harness(initial, options = {}) {
       return !ids.some((id) => !rows.some((r) => r.id === id && !["prepared", "voided"].includes(r.marketVoidState)));
     } },
     "@/lib/invoice-ledger": { invoiceViewUrl: () => null, loadOpenInvoiceItemsForEmail: async (items) => ({ items, newIds: items.map((r) => r.requestId) }) },
+    "@/lib/processing-mail-outbox": { sendTrackedProcessingMail: async (transporter, mail) => transporter.sendMail(mail) },
     "@/lib/email": {
       BASE_URL: "https://example.test", HQ_EMAIL: "jon@example.test", HQ_INVOICE_TO: "cailie@example.test",
       getTransporter: () => ({ sendMail: async (mail) => { mails.push(mail); if (options.failSmtp === mails.length) throw new Error("unknown delivery"); } }),

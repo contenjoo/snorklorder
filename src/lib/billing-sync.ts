@@ -1,3 +1,4 @@
+import { runProcessingMailSync, type ProcessingSyncResult } from "./processing-mail-sync";
 // 본사 청구 메일 → account_requests 반영.
 //
 // 인보이스 PDF 는 관리자 화면의 "인보이스 번호 일괄 입력" 과 같은 결과를 만들고(번호·금액·invoiced),
@@ -49,6 +50,7 @@ export type BillingSyncResult =
       scanned: number;
       invoices: { applied: AppliedInvoice[]; alreadySynced: number; unmatched: UnmatchedItem[] };
       payments: { applied: AppliedPayment[]; alreadySynced: number; unmatched: UnmatchedItem[] };
+      processing: ProcessingSyncResult;
       claimSkipped: number;
       warnings: string[];
       timestamp: string;
@@ -209,9 +211,16 @@ export async function runBillingSync(options: BillingSyncOptions = {}): Promise<
     console.warn(`[sync-billing] unmatched — invoices: ${invoices.unmatched.length}, payments: ${payments.unmatched.length}`);
   }
 
+  let processing: ProcessingSyncResult;
+  try { processing = await runProcessingMailSync({ ...options, dryRun }); }
+  catch (error) {
+    console.error('[processing-mail-sync] failed', error);
+    processing = {scanned:0,applied:[],alreadyConfirmed:[],review:[],incomplete:true,dryRun,error:'처리 완료 메일 동기화 실패 — 재시도 필요'};
+  }
   return {
     ok: true,
     skipped: false,
+    processing,
     dryRun,
     scanned: mails.length,
     invoices,

@@ -1,3 +1,4 @@
+import { sendTrackedProcessingMail } from "@/lib/processing-mail-outbox";
 import { checkAuth } from "@/lib/auth";
 import { confirmationExpiry } from "@/lib/confirmation-token";
 export const dynamic = "force-dynamic";
@@ -328,7 +329,7 @@ export async function POST(req: NextRequest) {
       const logTo = formatLogRecipients(HQ_EMAIL);
 
       try {
-        await transporter.sendMail({ from, to: HQ_EMAIL, subject, text: body });
+        await sendTrackedProcessingMail(transporter, { from, to: HQ_EMAIL, subject, text: body }, [...requestIds.map(id => rows.find(r => r.id === id)!), ...pending.reminders]);
       } catch {
         try {
           await logEmail({ to: logTo, subject, kind: "account_email", status: "failed", error: "Jon processing email delivery outcome unknown; check Gmail Sent", relatedType: "account_request" });

@@ -82,3 +82,6 @@
 ## 검증 방법
 
 `npm run test:contracts`, `npm run lint`, `npm run build`를 실행한다. 격리 DB 테스트는 `SECURITY_TEST_DATABASE_URL=postgresql://contenjoo@127.0.0.1:55439/postgres node --test scripts/security-db.test.mjs scripts/security-rate.test.mjs`로 실행하며 다른 호스트를 거절한다. HTTP 테스트는 DB와 SMTP를 모의 어댑터로 바꾼 별도 임시 앱에서만 `SECURITY_HTTP_TEST=local node --test scripts/security-http.test.mjs`로 실행한다. 운영 URL에는 이 테스트를 실행하지 않는다.
+
+| `GET /api/admin/processing-mail` | 관리자 세션 · no-store 검토 목록 |
+| `POST /api/admin/processing-mail` | 관리자 세션 · 동일 출처 · 요청별 근거 검토 |

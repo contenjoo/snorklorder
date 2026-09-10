@@ -131,10 +131,10 @@ test("단건 API는 SMTP throw 뒤 claim을 UNKNOWN으로 보존하고 수동 �
   assert.match(route, /code: "EMAIL_DELIVERY_UNKNOWN"/);
   assert.match(route, /failed to persist processing email success log/);
   assert.match(route, /failed to persist invoice email success log/);
-  assert.match(route, /await transporter\.sendMail\(\{[\s\S]*?html:[\s\S]*?\n\s*\}\);\n\s*\} catch \{/);
+  assert.match(route, /await sendTrackedProcessingMail\(transporter, \{[\s\S]*?html:[\s\S]*?\n\s*\}, \[existing!, \.\.\.pending\.reminders\]\);\n\s*\} catch \{/);
   assert.match(route, /await transporter\.sendMail\(\{ from, to: HQ_INVOICE_TO, cc: HQ_EMAIL, subject: inv\.subject, text: inv\.body \}\);\n\s*\} catch \{/);
   const processingThrowCatch = route.slice(
-    route.indexOf("await transporter.sendMail({"),
+    route.indexOf("await sendTrackedProcessingMail(transporter, {"),
     route.indexOf("failed to persist processing email success log"),
   );
   assert.doesNotMatch(processingThrowCatch, /processingEmailSendStartedAt: null/);
@@ -169,10 +169,10 @@ test("배치 API도 SMTP throw 뒤 모든 claim을 UNKNOWN으로 보존한다", 
   assert.match(route, /code: "EMAIL_DELIVERY_UNKNOWN"/);
   assert.match(route, /failed to persist processing email success log/);
   assert.match(route, /failed to persist invoice email success log/);
-  assert.match(route, /await transporter\.sendMail\(\{ from, to: HQ_EMAIL, subject, text: body \}\);\n\s*\} catch \{/);
+  assert.match(route, /await sendTrackedProcessingMail\(transporter, \{ from, to: HQ_EMAIL, subject, text: body \}, [^\n]+\);\n\s*\} catch \{/);
   assert.match(route, /requestId: id,/);
   const processingThrowCatch = route.slice(
-    route.indexOf("await transporter.sendMail({ from, to: HQ_EMAIL"),
+    route.indexOf("await sendTrackedProcessingMail(transporter, { from, to: HQ_EMAIL"),
     route.indexOf("failed to persist processing email success log"),
   );
   assert.doesNotMatch(processingThrowCatch, /processingEmailSendStartedAt: null/);

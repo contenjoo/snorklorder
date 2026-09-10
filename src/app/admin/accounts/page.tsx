@@ -796,11 +796,13 @@ function AccountsPageContent() {
       const invCount = (data.invoices.applied as Applied[]).reduce((n, a) => n + a.ids.length, 0);
       const payCount = (data.payments.applied as Applied[]).reduce((n, a) => n + a.ids.length, 0);
       const unmatched = [...(data.invoices.unmatched as Unmatched[]), ...(data.payments.unmatched as Unmatched[])];
-      const head = `메일 ${data.scanned}통 확인 — 인보이스 ${invCount}건 기록, 결제 ${payCount}건 완료`;
+      const completed = data.processing?.applied?.length || 0;
+      const processingNote = data.processing?.error || (data.processing?.incomplete ? '처리 메일 추가 수집 필요' : data.processing?.paused ? '처리 반영 일시 중지' : '');
+      const head = `${data.dryRun ? '[미리보기] ' : ''}메일 ${data.scanned}통 확인 — 인보이스 ${invCount}건 기록, 결제 ${payCount}건 완료 · 계정 처리 ${completed}건 · 검토 ${data.processing?.review?.length || 0}건${processingNote ? ` · ${processingNote}` : ''}`;
       setSendMsg(unmatched.length > 0
         ? `⚠️ ${head} · 미매칭 ${unmatched.length}건: ${unmatched.map((u) => `#${u.invoiceNumber} ${u.reason}`).join(" / ")}`
         : `✓ ${head}`);
-      if (invCount + payCount > 0) load();
+      if (invCount + payCount + completed > 0) load();
     } catch {
       setSendMsg("메일 동기화 실패");
     } finally {
@@ -993,11 +995,12 @@ function AccountsPageContent() {
               variant="outline"
               onClick={syncBillingMail}
               disabled={billingSyncing}
-              title="Cailie 인보이스 PDF · QuickBooks 결제 확인 메일을 읽어 계정 요청에 반영"
+              title="Jon 처리 완료 · Cailie 인보이스 · QuickBooks 결제 확인을 읽어 반영"
               className="h-7 text-xs whitespace-nowrap border-emerald-300 text-emerald-800 hover:bg-emerald-50"
             >
               {billingSyncing ? "⏳ 동기화 중…" : "📥 메일 동기화"}
             </Button>
+            <a href="/admin/processing-mail" className="text-xs underline whitespace-nowrap">처리 메일 검토</a>
             <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) resetForm(); }}>
               <DialogTrigger className="inline-flex items-center justify-center rounded-md text-xs font-semibold bg-slate-900 text-white h-7 px-3 hover:bg-slate-800 cursor-pointer whitespace-nowrap">
                 + 새 요청
