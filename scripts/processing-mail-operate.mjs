@@ -9,7 +9,7 @@ const load=moduleLoader();
 const {fetchProcessingReplies}=load('@/lib/processing-mail-imap');
 const {recordProcessingReply}=load('@/lib/processing-mail-sync');
 try {
- const collected=await fetchProcessingReplies({newerThanDays:14,maxPerKind:40});
+ const collected=await fetchProcessingReplies({newerThanDays:14,maxPerKind:1,messageId:"<CAOPu73M+hgtQZMh2KFjDZ6pPAU6YeCsEnfn0X0qNAjLgCMpaZQ@mail.gmail.com>"});
  console.log({scanned:collected.replies.length,incomplete:collected.incomplete});
  // The one-time live operation is scoped to today's exact, previously reviewed message.
  const replies=collected.replies.filter(r=>r.receivedAt>='2026-09-09T23:00:00Z' && r.receivedAt<='2026-09-10T00:00:00Z'

@@ -32,7 +32,9 @@ export async function recordProcessingReply(reply: ProcessingReply, options: { d
       const eligible = ids.length ? await tx.select().from(accountRequests).where(and(inArray(accountRequests.id, ids), sentCondition())) : [];
       const selectedValid = plan.selected.every(id => {
         const r = rows.find(r => r.id === id), s = reply.snapshots.find(s => s.id === id);
-        return r && s && snapshotMatches(r,s) && (r.confirmedAt || eligible.some(e => e.id === id));
+        return r && s && snapshotMatches(r,s) && r.processingEmailSentAt
+          && r.processingEmailSentAt.getTime() <= Date.parse(reply.receivedAt)
+          && (r.confirmedAt || eligible.some(e => e.id === id));
       });
       if (!options.dryRun) {
         await tx.execute(sql`INSERT INTO processing_mail_evidence(message_id,parent_id,sender,received_at,gmail_id,authenticated,source_verified,excerpt,reason,snapshots,selected_ids,incomplete)
@@ -65,7 +67,7 @@ export async function recordProcessingReply(reply: ProcessingReply, options: { d
             if (claim.rows[0]?.claimed !== true) throw new Error('Processing completion fence rejected');
             const [locked] = await tx.select().from(accountRequests).where(eq(accountRequests.id,r.id)).for('update');
             const snapshot = reply.snapshots.find(s => s.id === r.id)!;
-            if (!locked || !snapshotMatches(locked,snapshot)) throw new Error('Processing request changed during confirmation');
+            if (!locked || !snapshotMatches(locked,snapshot) || !locked.processingEmailSentAt || locked.processingEmailSentAt.getTime()>Date.parse(reply.receivedAt)) throw new Error('Processing request changed during confirmation');
             if (locked.confirmedAt) outcome = 'already_confirmed';
             else {
               const updated = await tx.update(accountRequests).set(processingConfirmationValues()).where(and(eq(accountRequests.id,r.id),sentCondition())).returning({id:accountRequests.id});
@@ -114,11 +116,11 @@ export async function reviewProcessingMail(messageId: string, requestId: number,
     if (action === 'confirm') {
       const snapshot = (e.snapshots as SentRequestSnapshot[]).find(s => s.id === requestId);
       const [row] = await tx.select().from(accountRequests).where(and(eq(accountRequests.id,requestId),sentCondition()));
-      if (!e.authenticated || !e.source_verified || e.incomplete || !row || !snapshot || !snapshotMatches(row,snapshot)) throw new Error('REVIEW_SCOPE_INVALID');
+      if (!e.authenticated || !e.source_verified || e.incomplete || !row || !snapshot || !snapshotMatches(row,snapshot) || !row.processingEmailSentAt || row.processingEmailSentAt.getTime()>new Date(String(e.received_at)).getTime()) throw new Error('REVIEW_SCOPE_INVALID');
       const claim = await tx.execute(sql`SELECT claim_market_request_side_effects(ARRAY[${requestId}]::integer[]) AS claimed`);
       if (claim.rows[0]?.claimed !== true) throw new Error('REVIEW_FENCED');
       const [locked] = await tx.select().from(accountRequests).where(eq(accountRequests.id,requestId)).for('update');
-      if (!locked || !snapshotMatches(locked,snapshot)) throw new Error('REVIEW_STATE_CHANGED');
+      if (!locked || !snapshotMatches(locked,snapshot) || !locked.processingEmailSentAt || locked.processingEmailSentAt.getTime()>new Date(String(e.received_at)).getTime()) throw new Error('REVIEW_STATE_CHANGED');
       const updated = await tx.update(accountRequests).set(processingConfirmationValues()).where(and(eq(accountRequests.id,requestId),sentCondition())).returning({id:accountRequests.id});
       if (!updated.length) throw new Error('REVIEW_STATE_CHANGED');
     }

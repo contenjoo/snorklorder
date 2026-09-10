@@ -7,13 +7,18 @@ import { historicalSnapshots, type ProcessingReply, type SentRequestSnapshot } f
 
 const singleId = (value: unknown): string => typeof value === 'string' && /^<[^<>\s]+>$/.test(value.trim()) ? value.trim() : '';
 const parentId = (mail: ParsedMail) => singleId(mail.inReplyTo) || singleId(Array.isArray(mail.references) ? mail.references.at(-1) : mail.references);
-export async function fetchProcessingReplies(options: { newerThanDays?: number; maxPerKind?: number } = {}) {
+export async function fetchProcessingReplies(options: { newerThanDays?: number; maxPerKind?: number; messageId?: string } = {}) {
   const user = process.env.GMAIL_USER?.trim(), pass = process.env.GMAIL_APP_PASSWORD?.trim();
   if (!user || !pass) throw new Error('Gmail configuration missing');
+  const started = Date.now();
   const client = new ImapFlow({ host: 'imap.gmail.com', port: 993, secure: true, auth: { user, pass }, logger: false, socketTimeout: 20000 });
+  const trace = (stage:string) => { if(process.env.PROCESSING_MAIL_DIAGNOSTICS === 'true') console.info('[processing-mail]',stage); };
+  trace('connecting');
   await client.connect();
+  trace('connected');
   try {
     const boxes = await client.list();
+    trace('listed mailboxes');
     const all = boxes.find(b => b.specialUse === '\\All');
     if (!all) throw new Error('Gmail All Mail unavailable');
     const lock = await client.getMailboxLock(all.path, { readOnly: true });
@@ -23,9 +28,10 @@ export async function fetchProcessingReplies(options: { newerThanDays?: number; 
       const cursor = await db.execute(sql`SELECT last_uid FROM processing_mail_cursor WHERE mailbox=${mailbox} AND uid_validity=${validity}`);
       const lastUid = Number(cursor.rows[0]?.last_uid || 0);
       const since = new Date(Date.now() - Math.min(90, Math.max(1, options.newerThanDays || 14)) * 86400000);
-      const limit = Math.min(40, Math.max(1, options.maxPerKind || 20));
-      const uids = ((await client.search({ since, from: 'jon@snorkl.app' }, { uid: true })) || []).filter(n => n > lastUid).sort((a,b) => a-b);
+      const limit = Math.min(40, Math.max(1, options.maxPerKind || 10));
+      const uids = ((await client.search(options.messageId ? {header:{'message-id':options.messageId}} : { since, from: 'jon@snorkl.app' }, { uid: true })) || []).filter(n => options.messageId || n > lastUid).sort((a,b) => a-b);
       const selected = uids.slice(0, limit);
+      trace(`found ${uids.length}, reading ${selected.length}`);
       // Persistently retry missing ancestors independently of the forward cursor.
       const retry = await db.execute(sql`SELECT message_id FROM processing_mail_evidence WHERE (incomplete=true OR EXISTS (SELECT 1 FROM processing_mail_decisions d WHERE d.message_id=processing_mail_evidence.message_id AND d.outcome='review' AND selected_ids @> jsonb_build_array(d.request_id))) AND received_at>=${since.toISOString()}::timestamptz ORDER BY updated_at LIMIT 5`);
       const read = async (uid: number) => {
@@ -43,16 +49,20 @@ export async function fetchProcessingReplies(options: { newerThanDays?: number; 
         const exact = value?.mail.messageId?.trim() === id ? value : null;
         cache.set(id, exact); return exact;
       };
-      const incoming = [];
-      for (const uid of selected) incoming.push(await read(uid));
-      const firstUnread = incoming.findIndex(v => !v);
-      const checkpointUid = firstUnread < 0 ? selected.at(-1) || lastUid : selected[firstUnread - 1] || lastUid;
-      for (const r of retry.rows) incoming.push(await byId(String(r.message_id)));
+      const incoming = []; const readUids:number[] = [];
+      for (const uid of selected) {
+        if(Date.now()-started>45000) break;
+        incoming.push(await read(uid)); readUids.push(uid); trace(`read ${incoming.length}`);
+      }
+      if(!options.messageId) for (const r of retry.rows) incoming.push(await byId(String(r.message_id)));
+      let checkpointUid=lastUid, budgetExceeded=readUids.length<selected.length;
       const replies: ProcessingReply[] = [];
-      for (const item of incoming) {
-        if (!item) continue;
+      for (const [index,item] of incoming.entries()) {
+        if(Date.now()-started>90000) {budgetExceeded=true;break;}
+        if (!item) {budgetExceeded=true;break;}
         const m = item.mail, id = singleId(m.messageId);
-        if (!id || replies.some(r => r.messageId === id)) continue;
+        if (!id) {budgetExceeded=true;break;}
+        if (replies.some(r => r.messageId === id)) continue;
         const sender = m.from?.value.length === 1 ? m.from.value[0].address?.toLowerCase() || '' : '';
         const authenticated = sender === 'jon@snorkl.app' && authenticateBillingMail(m, 'invoice');
         const pId = parentId(m);
@@ -61,6 +71,7 @@ export async function fetchProcessingReplies(options: { newerThanDays?: number; 
         if (authenticated && pId) {
           let next = pId; const visited = new Set<string>(); const snapshots = new Map<number, SentRequestSnapshot>();
           for (let depth = 0; next && depth < 8; depth++) {
+            if(Date.now()-started>90000) {reply.incomplete=true;budgetExceeded=true;break;}
             if (visited.has(next)) { reply.incomplete = true; break; }
             visited.add(next);
             const ancestor = await byId(next);
@@ -87,8 +98,9 @@ export async function fetchProcessingReplies(options: { newerThanDays?: number; 
           if (!reply.snapshots.length) reply.incomplete = true;
         }
         replies.push(reply);
+        if(index<readUids.length)checkpointUid=readUids[index];
       }
-      return { replies, incomplete: uids.length > selected.length || incoming.some(v => !v) || replies.some(r => r.incomplete),
+      return { replies, incomplete: budgetExceeded || uids.length > selected.length || incoming.some(v => !v) || replies.some(r => r.incomplete),
         checkpoint: { mailbox, validity, lastUid: checkpointUid } };
     } finally { lock.release(); }
   } finally { await client.logout().catch(() => undefined); }

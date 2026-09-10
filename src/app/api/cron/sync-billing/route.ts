@@ -1,6 +1,6 @@
 export const dynamic = "force-dynamic";
 // IMAP 접속 + PDF 파싱이라 기본 10초로는 빠듯하다.
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 import { NextRequest, NextResponse } from "next/server";
 import { authorizeCron } from "@/lib/cron-auth";
