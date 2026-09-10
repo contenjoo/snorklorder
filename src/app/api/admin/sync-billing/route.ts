@@ -10,11 +10,19 @@ export async function POST(req: NextRequest) {
   if (!(await checkAuth())) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   let dryRun = false;
   try {
-    const body = await req.json().catch(()=>null);
-  if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({error:"Invalid JSON"},{status:400});
-    dryRun = body?.dryRun === true;
+    // The existing admin button sends a bodyless POST. Only an absent/empty
+    // body uses defaults; malformed JSON must never trigger a real sync.
+    const text = await req.text();
+    const body = text === "" ? {} : JSON.parse(text);
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    }
+    if (body.dryRun !== undefined && typeof body.dryRun !== "boolean") {
+      return NextResponse.json({ error: "dryRun must be a boolean" }, { status: 400 });
+    }
+    dryRun = body.dryRun === true;
   } catch {
-    // 본문 없음 — 실제 반영
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
   try {
     const result = await runBillingSync({ dryRun });
