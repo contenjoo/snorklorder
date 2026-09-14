@@ -56,14 +56,95 @@ const SCHOOL_SUFFIXES: [string, string][] = [
   ["학교", "School"],
 ];
 
+const KNOWN_SCHOOL_NAMES: Record<string, string> = {
+  전남대학교사범대학부설고등학교: "Chonnam National University High School",
+  전남대학교사범대학부속고등학교: "Chonnam National University High School",
+};
+
+const KNOWN_INSTITUTIONS = ([
+  ["한국교원대학교", "Korea National University of Education"],
+  ["서울대학교", "Seoul National University"],
+  ["부산대학교", "Pusan National University"],
+  ["경북대학교", "Kyungpook National University"],
+  ["전남대학교", "Chonnam National University"],
+  ["전북대학교", "Jeonbuk National University"],
+  ["충남대학교", "Chungnam National University"],
+  ["충북대학교", "Chungbuk National University"],
+  ["강원대학교", "Kangwon National University"],
+  ["제주대학교", "Jeju National University"],
+] as [string, string][]).sort((a, b) => b[0].length - a[0].length);
+
+const ATTACHED_SCHOOL_MARKERS = [
+  "사범대학부설",
+  "사범대학부속",
+  "교육대학부설",
+  "교육대학부속",
+  "부설",
+  "부속",
+];
+
 function capitalize(word: string): string {
   return word ? word.charAt(0).toUpperCase() + word.slice(1) : word;
 }
 
+function normalizeSchoolName(name: string) {
+  return name.replace(/\s+/g, "").trim();
+}
+
+function romanizeWords(text: string): string {
+  return text
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => capitalize(romanizeHangul(w)))
+    .join(" ");
+}
+
+function translateInstitutionName(korean: string): string {
+  const name = normalizeSchoolName(korean);
+  const known = KNOWN_INSTITUTIONS.find(([ko]) => name === ko);
+  if (known) return known[1];
+
+  for (const [ko, en] of SCHOOL_SUFFIXES) {
+    if (name.endsWith(ko)) {
+      const stem = name.slice(0, -ko.length).trim();
+      return [romanizeWords(stem), en].filter(Boolean).join(" ").trim();
+    }
+  }
+
+  return romanizeWords(name);
+}
+
+export function translateKnownSchoolName(korean: string): string | null {
+  const name = normalizeSchoolName(korean);
+  if (!name) return null;
+  if (KNOWN_SCHOOL_NAMES[name]) return KNOWN_SCHOOL_NAMES[name];
+
+  for (const [suffixKo, suffixEn] of SCHOOL_SUFFIXES) {
+    if (!name.endsWith(suffixKo)) continue;
+    const stem = name.slice(0, -suffixKo.length);
+    const marker = ATTACHED_SCHOOL_MARKERS.find((item) => stem.endsWith(item));
+    if (!marker) continue;
+
+    const host = stem.slice(0, -marker.length);
+    if (!host) continue;
+    return `${translateInstitutionName(host)} ${suffixEn}`.trim();
+  }
+
+  return null;
+}
+
+export function isSuspiciousSchoolTranslation(value: string | null | undefined): boolean {
+  const compact = value?.toLowerCase().replace(/[^a-z]/g, "") || "";
+  return /(?:daehak|haggyo|godeung|junghak|chodeung|sabeom|buseol|busok)/.test(compact);
+}
+
 /** "효명고등학교" → "Hyomyeong High School". 접미사 없으면 전체 로마자 변환만. */
 export function translateSchoolName(korean: string): string {
-  const name = korean.trim();
+  const name = normalizeSchoolName(korean);
   if (!name) return "";
+
+  const known = translateKnownSchoolName(name);
+  if (known) return known;
 
   let stem = name;
   let suffixEn = "";
@@ -75,11 +156,7 @@ export function translateSchoolName(korean: string): string {
     }
   }
 
-  const romanized = stem
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((w) => capitalize(romanizeHangul(w)))
-    .join(" ");
+  const romanized = romanizeWords(stem);
 
   return [romanized, suffixEn].filter(Boolean).join(" ").trim();
 }
