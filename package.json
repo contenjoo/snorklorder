@@ -10,6 +10,7 @@
     "test:contracts": "node --test scripts/*.test.mjs",
     "db:audit": "node scripts/audit-db-waste.mjs",
     "db:migrate:0021": "node scripts/apply-0021.mjs",
+    "db:migrate:0022": "node scripts/apply-0022.mjs",
     "db:backfill:billing": "node scripts/backfill-billing-cycles.mjs",
     "db:migrate:partner:check": "node scripts/apply-0018.mjs",
     "db:prune": "node scripts/prune-upgrade-batches.mjs",
