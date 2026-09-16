@@ -53,10 +53,17 @@ export const schoolRequests = pgTable("school_requests", {
   contactEmail: text("contact_email").notNull(),
   status: text("status").notNull().default("pending"), // pending | approved | rejected
   rejectReason: text("reject_reason"),
+  // 학교 등록 승인 후 관리자가 명시적으로 생성한 학교 계정·청구 요청.
+  // DB FK가 정합성을 보장하며, nullable이므로 기존 학교 요청은 영향을 받지 않는다.
+  accountRequestId: integer("account_request_id"),
+  billingRequestCreatedAt: timestamp("billing_request_created_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   reviewedAt: timestamp("reviewed_at"),
 }, (table) => [
   index("school_requests_status_created_at_idx").on(table.status, table.createdAt),
+  uniqueIndex("school_requests_account_request_unique_idx")
+    .on(table.accountRequestId)
+    .where(sql`${table.accountRequestId} is not null`),
 ]);
 
 export const accountRequests = pgTable("account_requests", {

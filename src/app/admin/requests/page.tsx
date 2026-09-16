@@ -14,6 +14,8 @@ interface SchoolRequest {
   contactEmail: string;
   status: string;
   rejectReason: string | null;
+  accountRequestId: number | null;
+  billingRequestCreatedAt: string | null;
   createdAt: string;
   reviewedAt: string | null;
 }
@@ -23,6 +25,7 @@ interface SchoolRequest {
 export default function RequestsPage() {
   const [requests, setRequests] = useState<SchoolRequest[]>([]);
   const [processing, setProcessing] = useState<number | null>(null);
+  const [billingProcessing, setBillingProcessing] = useState<number | null>(null);
   const [message, setMessage] = useState("");
 
   async function load() {
@@ -61,6 +64,31 @@ export default function RequestsPage() {
       setMessage("오류 발생");
     } finally {
       setProcessing(null);
+    }
+  }
+
+  async function createBillingRequest(id: number) {
+    setBillingProcessing(id);
+    setMessage("");
+    try {
+      const res = await fetch("/api/school-requests/account-request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMessage(data.error || "계정·청구 요청 생성에 실패했습니다.");
+        return;
+      }
+      setMessage(data.created
+        ? `생성 완료: 계정·청구 요청 #${data.accountRequestId}. Jon 발송 후 통합 청구에 편입됩니다.`
+        : `연결 완료: 이미 계정·청구 요청 #${data.accountRequestId}과 연결되어 있습니다.`);
+      await load();
+    } catch {
+      setMessage("계정·청구 요청 생성 중 오류가 발생했습니다.");
+    } finally {
+      setBillingProcessing(null);
     }
   }
 
@@ -155,7 +183,7 @@ export default function RequestsPage() {
           </div>
           <div className="bg-white rounded-xl border overflow-hidden divide-y divide-slate-50">
             {processed.map((r) => (
-              <div key={r.id} className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5">
+              <div key={r.id} className="flex flex-wrap items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5">
                 <StatusDot status={r.status} />
                 <StatusChip status={r.status} className="shrink-0" />
                 <span className="text-sm font-medium text-slate-900 truncate">{r.name}</span>
@@ -163,6 +191,24 @@ export default function RequestsPage() {
                 <span className="text-[10px] text-slate-300 ml-auto shrink-0">
                   {r.reviewedAt && new Date(r.reviewedAt).toLocaleDateString("ko-KR", { month: "short", day: "numeric" })}
                 </span>
+                {r.status === "approved" && (r.accountRequestId ? (
+                  <a
+                    href={`/admin/accounts?focus=${r.accountRequestId}`}
+                    className="inline-flex h-7 items-center rounded-md border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-medium text-emerald-700 hover:bg-emerald-100"
+                  >
+                    계정·청구 #{r.accountRequestId}
+                  </a>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-[11px] border-blue-200 text-blue-700 hover:bg-blue-50"
+                    onClick={() => createBillingRequest(r.id)}
+                    disabled={billingProcessing === r.id}
+                  >
+                    {billingProcessing === r.id ? "생성 중..." : "계정·청구 요청 생성"}
+                  </Button>
+                ))}
               </div>
             ))}
           </div>
