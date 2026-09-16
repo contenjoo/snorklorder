@@ -111,7 +111,7 @@ export function parseInvoicePdfText(text: string): ParsedInvoicePdf | null {
     const noteEnd = rest.search(/View\s+and\s+pay|Subtotal/i);
     note = noteEnd > 0 ? rest.slice(0, noteEnd) : rest;
   }
-  const cycleCode = note.match(/(?:Billing\s+cycle|Invoice\s+Batch|Cycle)\s*:?\s*(BACKLOG-\d{4}-\d{2}-\d{2}|\d{4}-\d{2}-[AB])/i)?.[1]?.toUpperCase() ?? null;
+  const cycleCode = note.match(/(?:Billing\s+cycle|Invoice\s+Batch|Cycle)\s*:?\s*(BACKLOG-\d{4}-\d{2}-\d{2}(?:-[A-Z0-9]+)*|\d{4}-\d{2}-[AB])\b/i)?.[1]?.toUpperCase() ?? null;
   const matches = [...note.matchAll(/\[#(\d+)\]/g)];
   const requestItems = matches.map((match, index) => {
     const requestId = Number(match[1]);

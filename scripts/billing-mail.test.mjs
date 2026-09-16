@@ -44,6 +44,24 @@ const row = (id, over = {}) => ({
   id, status: "processed", invoiceNumber: null, invoiceAmount: null, quantity: 1, marketVoidState: "active", ...over,
 });
 
+test("school backlog invoice preserves the complete cycle code and four school quantities", () => {
+  const invoice = parseInvoicePdfText(`Invoice no.: 1158
+Note to customer
+Billing cycle: BACKLOG-2026-09-16-SCHOOLS
+[#235] Muntae High School — School-wide upgrade
+[#236] Asan Elementary School — School-wide upgrade
+[#237] Samsung Girls' High School — School-wide upgrade
+[#238] Hanam High School — School-wide upgrade
+View and pay
+Total $3200.00`);
+  assert.equal(invoice.cycleCode, "BACKLOG-2026-09-16-SCHOOLS");
+  assert.equal(invoice.totalCents, 320000);
+  assert.deepEqual(invoice.requestItems, [235, 236, 237, 238].map(requestId => ({ requestId, quantity: 1 })));
+  for (const code of ["BACKLOG-2026-09-16", "BACKLOG-2026-09-16-SCHOOLS-2", "2026-09-A", "2026-09-B"]) {
+    assert.equal(parseInvoicePdfText(`Invoice no.: 1158\nNote to customer\nBilling cycle: ${code}\nTotal $3200.00`).cycleCode, code);
+  }
+});
+
 test("usDateToIso: 미국 날짜 → ISO", () => {
   assert.equal(usDateToIso("09/01/2026"), "2026-09-01");
   assert.equal(usDateToIso("9/1/2026"), "2026-09-01");
