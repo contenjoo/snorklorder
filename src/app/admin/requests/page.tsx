@@ -108,6 +108,15 @@ export default function RequestsPage() {
         )}
       </PageHeader>
 
+      <section className="rounded-xl border border-blue-200 bg-blue-50/70 px-4 py-3">
+        <h2 className="text-sm font-bold text-blue-950">학교 청구 진행 순서</h2>
+        <div className="mt-2 grid gap-2 text-xs text-blue-900 sm:grid-cols-3">
+          <p><strong>1. 학교 승인</strong><br />학교 코드를 생성하고 담당자에게 발송합니다.</p>
+          <p><strong>2. 청구 요청 생성</strong><br />승인된 학교의 버튼을 눌러 학교 계정 1건을 생성합니다.</p>
+          <p><strong>3. Jon에게 발송</strong><br />계정 요청 화면에서 검토·발송하면 통합 청구에 편입됩니다.</p>
+        </div>
+      </section>
+
       {/* Status message */}
       {message && (
         <div className={`px-4 py-2.5 rounded-xl text-sm ${message.includes("완료") ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
@@ -135,15 +144,15 @@ export default function RequestsPage() {
                       {r.region && <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{r.region}</span>}
                       {r.domain && <span className="text-[10px] font-mono text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">@{r.domain}</span>}
                     </div>
-                    <div className="flex items-center gap-3 mt-1.5 text-xs text-slate-500 ml-4">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-xs text-slate-500 ml-4">
                       <span>{r.contactName}</span>
-                      <span className="font-mono text-slate-400">{r.contactEmail}</span>
+                      <span className="font-mono text-slate-400 break-all">{r.contactEmail}</span>
                       <span className="text-slate-300">
                         {new Date(r.createdAt).toLocaleDateString("ko-KR", { month: "short", day: "numeric" })}
                       </span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0 ml-4 sm:ml-0">
+                  <div className="flex w-full items-center gap-2 pl-4 sm:w-auto sm:shrink-0 sm:pl-0">
                     <Button
                       size="sm"
                       onClick={() => handleAction(r.id, "approve")}
@@ -181,35 +190,48 @@ export default function RequestsPage() {
             <h2 className="text-sm font-bold text-slate-900">처리 완료</h2>
             <span className="text-xs text-slate-400">{processed.length}건</span>
           </div>
-          <div className="bg-white rounded-xl border overflow-hidden divide-y divide-slate-50">
+          <div className="bg-white rounded-xl border overflow-hidden divide-y divide-slate-100">
             {processed.map((r) => (
-              <div key={r.id} className="flex flex-wrap items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5">
-                <StatusDot status={r.status} />
-                <StatusChip status={r.status} className="shrink-0" />
-                <span className="text-sm font-medium text-slate-900 truncate">{r.name}</span>
-                <span className="text-xs text-slate-400 truncate hidden sm:inline">{r.contactEmail}</span>
-                <span className="text-[10px] text-slate-300 ml-auto shrink-0">
-                  {r.reviewedAt && new Date(r.reviewedAt).toLocaleDateString("ko-KR", { month: "short", day: "numeric" })}
-                </span>
-                {r.status === "approved" && (r.accountRequestId ? (
-                  <a
-                    href={`/admin/accounts?focus=${r.accountRequestId}`}
-                    className="inline-flex h-7 items-center rounded-md border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-medium text-emerald-700 hover:bg-emerald-100"
-                  >
-                    계정·청구 #{r.accountRequestId}
-                  </a>
-                ) : (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 text-[11px] border-blue-200 text-blue-700 hover:bg-blue-50"
-                    onClick={() => createBillingRequest(r.id)}
-                    disabled={billingProcessing === r.id}
-                  >
-                    {billingProcessing === r.id ? "생성 중..." : "계정·청구 요청 생성"}
-                  </Button>
-                ))}
-              </div>
+              <article
+                key={r.id}
+                className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-3 px-4 py-3 lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:items-center"
+              >
+                <div className="pt-1 lg:pt-0"><StatusDot status={r.status} /></div>
+                <div className="min-w-0">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <StatusChip status={r.status} className="shrink-0" />
+                    <span className="min-w-0 truncate text-sm font-medium text-slate-900">{r.name}</span>
+                  </div>
+                  <div className="mt-1 flex min-w-0 flex-col gap-0.5 text-xs text-slate-400 sm:flex-row sm:items-center sm:gap-3">
+                    <span className="break-all font-mono">{r.contactEmail}</span>
+                    <span className="shrink-0 text-[10px] text-slate-300">
+                      {r.reviewedAt && new Date(r.reviewedAt).toLocaleDateString("ko-KR", { month: "short", day: "numeric" })}
+                    </span>
+                  </div>
+                </div>
+                {r.status === "approved" && (
+                  <div className="col-span-2 flex min-w-0 justify-end lg:col-span-1 lg:min-w-44">
+                    {r.accountRequestId ? (
+                      <a
+                        href={`/admin/accounts?focus=${r.accountRequestId}`}
+                        className="inline-flex h-8 w-full items-center justify-center whitespace-nowrap rounded-md border border-emerald-200 bg-emerald-50 px-3 text-xs font-medium text-emerald-700 hover:bg-emerald-100 lg:w-auto"
+                      >
+                        계정·청구 #{r.accountRequestId} 열기
+                      </a>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 w-full whitespace-nowrap border-blue-200 text-xs text-blue-700 hover:bg-blue-50 lg:w-auto"
+                        onClick={() => createBillingRequest(r.id)}
+                        disabled={billingProcessing === r.id}
+                      >
+                        {billingProcessing === r.id ? "생성 중..." : "학교 계정·청구 요청 생성"}
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </article>
             ))}
           </div>
         </div>
