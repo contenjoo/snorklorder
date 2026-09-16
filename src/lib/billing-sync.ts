@@ -1,6 +1,7 @@
 import { runProcessingMailSync, type ProcessingSyncResult } from "./processing-mail-sync";
 import { and, eq, inArray, isNull, notInArray, or, type SQL } from "drizzle-orm";
 import { db } from "@/db";
+import { withBillingTransaction } from "@/db/billing-transaction";
 import { accountRequests, billingCycles } from "@/db/schema";
 import { VOID_EXCLUDED_STATES } from "@/lib/account-email-template";
 import { compareFrozenBillingItems } from "@/lib/billing-cycle";
@@ -85,7 +86,7 @@ export async function runBillingSync(options: BillingSyncOptions = {}): Promise<
         }
         if (!dryRun) {
           try {
-            await db.transaction(async (tx) => {
+            await withBillingTransaction(async (tx) => {
               for (const item of plan.apply) {
                 const updated = await tx.update(accountRequests).set({ invoiceNumber: mail.invoice.invoiceNumber, invoiceAmount: item.invoiceAmount, invoiceDueDate: mail.invoice.dueDate, status: "invoiced", updatedAt: new Date() }).where(and(eq(accountRequests.id, item.id), inArray(accountRequests.status, INVOICE_APPLY_STATUSES), isNull(accountRequests.invoiceNumber), notInArray(accountRequests.marketVoidState, [...VOID_EXCLUDED_STATES]))).returning({ id: accountRequests.id });
                 if (!updated.length) throw new Error(`request #${item.id} claim failed`);
@@ -93,7 +94,9 @@ export async function runBillingSync(options: BillingSyncOptions = {}): Promise<
               const updatedCycle = await tx.update(billingCycles).set({ status: "invoiced", invoiceNumber: mail.invoice.invoiceNumber, invoiceGmailMessageId: mail.messageId, invoiceReceivedAt: new Date(mail.receivedAt), lastError: null, updatedAt: new Date() }).where(and(eq(billingCycles.id, cycle.id), inArray(billingCycles.status, ["sent", "invoice_mismatch"]))).returning({ id: billingCycles.id });
               if (!updatedCycle.length) throw new Error(`cycle ${cycle.code} claim failed`);
             });
-          } catch {
+          } catch (error) {
+            console.error("[billing-sync] invoice transaction failed", error);
+            invoices.unmatched.push({ invoiceNumber: mail.invoice.invoiceNumber, reason: "인보이스 저장 실패 — 재동기화 필요" });
             claimSkipped++;
             continue;
           }
@@ -153,7 +156,7 @@ export async function runBillingSync(options: BillingSyncOptions = {}): Promise<
     }
     if (!dryRun) {
       try {
-        await db.transaction(async (tx) => {
+        await withBillingTransaction(async (tx) => {
           for (const id of plan.ids) {
             const claimed = await tx.update(accountRequests).set({ status: "paid", paymentDate: mail.payment.paidOn ?? mail.receivedAt.slice(0, 10), paymentMethod: mail.payment.paymentMethod ?? "card", updatedAt: new Date() }).where(and(eq(accountRequests.id, id), inArray(accountRequests.status, PAYMENT_APPLY_STATUSES))).returning({ invoiceNumber: accountRequests.invoiceNumber });
             if (!claimed.length || normalizeInvoiceNumber(claimed[0].invoiceNumber) !== mail.payment.invoiceNumber) throw new Error(`request #${id} payment claim failed`);
@@ -163,7 +166,12 @@ export async function runBillingSync(options: BillingSyncOptions = {}): Promise<
             if (!updatedCycle.length) throw new Error(`cycle ${cycle.code} payment claim failed`);
           }
         });
-      } catch { claimSkipped++; continue; }
+      } catch (error) {
+        console.error("[billing-sync] payment transaction failed", error);
+        payments.unmatched.push({ invoiceNumber: mail.payment.invoiceNumber, reason: "결제 저장 실패 — 재동기화 필요" });
+        claimSkipped++;
+        continue;
+      }
     }
     for (const id of plan.ids) { const row = rows.find((candidate) => candidate.id === id); if (row) row.status = "paid"; }
     payments.applied.push({ invoiceNumber: plan.invoiceNumber, ids: plan.ids, paidOn: mail.payment.paidOn });
