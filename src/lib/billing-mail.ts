@@ -22,6 +22,8 @@ export interface ParsedInvoicePdf {
   invoiceDate: string | null; // 'YYYY-MM-DD'
   dueDate: string | null; // 'YYYY-MM-DD'
   totalCents: number | null; // 할인 후 Total
+  cycleCode: string | null;
+  requestItems: { requestId: number; quantity: number | null }[];
   requestIds: number[]; // Note to customer 의 [#id] — 등장 순, 중복 제거
 }
 
@@ -109,13 +111,23 @@ export function parseInvoicePdfText(text: string): ParsedInvoicePdf | null {
     const noteEnd = rest.search(/View\s+and\s+pay|Subtotal/i);
     note = noteEnd > 0 ? rest.slice(0, noteEnd) : rest;
   }
-  const requestIds: number[] = [];
-  for (const m of note.matchAll(/\[#(\d+)\]/g)) {
-    const id = Number(m[1]);
-    if (Number.isFinite(id) && !requestIds.includes(id)) requestIds.push(id);
-  }
+  const cycleCode = note.match(/(?:Billing\s+cycle|Invoice\s+Batch|Cycle)\s*:?\s*(BACKLOG-\d{4}-\d{2}-\d{2}|\d{4}-\d{2}-[AB])/i)?.[1]?.toUpperCase() ?? null;
+  const matches = [...note.matchAll(/\[#(\d+)\]/g)];
+  const requestItems = matches.map((match, index) => {
+    const requestId = Number(match[1]);
+    const start = (match.index ?? 0) + match[0].length;
+    const end = matches[index + 1]?.index ?? note.length;
+    const line = note.slice(start, end);
+    const quantityMatch = line.match(/(\d+)\s+(?:teacher|student|school)(?:\s+account)?s?/i);
+    const quantity = /school-wide\s+upgrade/i.test(line) ? 1 : quantityMatch ? Number(quantityMatch[1]) : null;
+    return {
+      requestId,
+      quantity: quantity !== null && Number.isSafeInteger(quantity) && quantity > 0 ? quantity : null,
+    };
+  }).filter((item) => Number.isSafeInteger(item.requestId) && item.requestId > 0);
+  const requestIds = [...new Set(requestItems.map((item) => item.requestId))];
 
-  return { invoiceNumber: num[1], invoiceDate, dueDate, totalCents, requestIds };
+  return { invoiceNumber: num[1], invoiceDate, dueDate, totalCents, cycleCode, requestItems, requestIds };
 }
 
 // ─── ② QuickBooks 결제 확인 메일 ─────────────────────────────────────────────

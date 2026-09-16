@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { accountRequests, marketOrderVoidFences } from "@/db/schema";
+import { accountRequests, billingCycleItems, billingCycles, marketOrderVoidFences } from "@/db/schema";
 import { and, desc, eq, inArray, or } from "drizzle-orm";
 import { checkAuth } from "@/lib/auth";
 import { checkRateLimit, createRateLimitResponse, isValidEmail, normalizeText } from "@/lib/security";
@@ -160,9 +160,23 @@ export async function GET() {
         .where(inArray(marketOrderVoidFences.marketOrderId, marketOrderIds))
     : [];
   const fenceState = new Map(fences.map((fence) => [fence.marketOrderId, fence.state]));
+  const cycleRows = result.length > 0
+    ? await db.select({
+      requestId: billingCycleItems.accountRequestId,
+      cycleId: billingCycleItems.cycleId,
+      cycleCode: billingCycles.code,
+      cycleStatus: billingCycles.status,
+    }).from(billingCycleItems)
+      .innerJoin(billingCycles, eq(billingCycleItems.cycleId, billingCycles.id))
+      .where(inArray(billingCycleItems.accountRequestId, result.map((row) => row.id)))
+    : [];
+  const cycleByRequest = new Map(cycleRows.map((row) => [row.requestId, row]));
   const hydrated = await hydrateAccountRequestSchoolNames(result);
   return NextResponse.json(hydrated.map((row) => ({
     ...row,
+    billingCycleId: cycleByRequest.get(row.id)?.cycleId ?? null,
+    billingCycleCode: cycleByRequest.get(row.id)?.cycleCode ?? null,
+    billingCycleStatus: cycleByRequest.get(row.id)?.cycleStatus ?? null,
     marketVoidState: row.marketOrderId
       ? fenceState.get(row.marketOrderId) ?? row.marketVoidState
       : row.marketVoidState,

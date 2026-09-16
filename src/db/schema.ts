@@ -141,6 +141,60 @@ export const accountRequests = pgTable("account_requests", {
   ),
 ]);
 
+/** 월 2회 본사 청구 목록의 불변 원장. */
+export const billingCycles = pgTable("billing_cycles", {
+  id: serial("id").primaryKey(),
+  code: text("code").notNull().unique(),
+  kind: text("kind").notNull().default("regular"), // regular | backlog
+  status: text("status").notNull().default("collecting"),
+  periodStart: timestamp("period_start", { withTimezone: true }).notNull(),
+  periodEnd: timestamp("period_end", { withTimezone: true }).notNull(),
+  lockedAt: timestamp("locked_at", { withTimezone: true }),
+  sendStartedAt: timestamp("send_started_at", { withTimezone: true }),
+  sentAt: timestamp("sent_at", { withTimezone: true }),
+  requestGmailMessageId: text("request_gmail_message_id"),
+  invoiceNumber: text("invoice_number"),
+  invoiceGmailMessageId: text("invoice_gmail_message_id"),
+  receiptGmailMessageId: text("receipt_gmail_message_id"),
+  invoiceReceivedAt: timestamp("invoice_received_at", { withTimezone: true }),
+  paidAt: timestamp("paid_at", { withTimezone: true }),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index("billing_cycles_status_period_end_idx").on(table.status, table.periodEnd),
+  uniqueIndex("billing_cycles_invoice_gmail_message_id_unique_idx").on(table.invoiceGmailMessageId),
+  uniqueIndex("billing_cycles_request_gmail_message_id_unique_idx").on(table.requestGmailMessageId),
+  uniqueIndex("billing_cycles_receipt_gmail_message_id_unique_idx").on(table.receiptGmailMessageId),
+  check("billing_cycles_kind_check", sql`${table.kind} in ('regular', 'backlog')`),
+  check(
+    "billing_cycles_status_check",
+    sql`${table.status} in ('collecting', 'ready', 'sending', 'sent', 'send_unknown', 'invoice_mismatch', 'invoiced', 'payment_mismatch', 'paid', 'empty')`,
+  ),
+  check("billing_cycles_period_check", sql`${table.periodEnd} > ${table.periodStart}`),
+]);
+
+/** 주기 마감 후에도 바뀌지 않는 요청별 청구 스냅샷. */
+export const billingCycleItems = pgTable("billing_cycle_items", {
+  id: serial("id").primaryKey(),
+  cycleId: integer("cycle_id")
+    .notNull()
+    .references(() => billingCycles.id, { onDelete: "restrict" }),
+  accountRequestId: integer("account_request_id")
+    .notNull()
+    .references(() => accountRequests.id, { onDelete: "restrict" }),
+  schoolNameEn: text("school_name_en").notNull(),
+  requestType: text("request_type").notNull(),
+  accountType: text("account_type"),
+  quantity: integer("quantity").notNull().default(1),
+  extensionDate: text("extension_date"),
+  includedAt: timestamp("included_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index("billing_cycle_items_cycle_id_idx").on(table.cycleId),
+  uniqueIndex("billing_cycle_items_account_request_unique_idx").on(table.accountRequestId),
+  check("billing_cycle_items_quantity_check", sql`${table.quantity} > 0`),
+]);
+
 /** 협력사 신청 배치의 멱등 원장. 응답 유실 후 같은 operation은 결과를 재사용한다. */
 export const partnerRequestOperations = pgTable("partner_request_operations", {
   operationId: text("operation_id").primaryKey(),

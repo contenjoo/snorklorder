@@ -8,6 +8,7 @@ export interface AccountEmailDeliveryRecord {
   processingEmailSentAt: Date | string | null;
   invoiceEmailSendStartedAt: Date | string | null;
   invoiceEmailSentAt: Date | string | null;
+  billingCycleId?: number | null;
 }
 
 export type AccountEmailDeliveryState =
@@ -38,6 +39,7 @@ export function getAccountEmailDeliveryState(
     // 0016 이전 행은 발송 타임스탬프가 없으므로 기존 업무 상태로 중복 발송을 차단한다.
     return record.status === "draft" ? "ready" : "legacy_complete";
   }
+  if (record.billingCycleId) return "complete";
   if (record.needsInvoice && !record.invoiceEmailSentAt) {
     return record.invoiceEmailSendStartedAt ? "invoice_unknown" : "invoice_retry";
   }

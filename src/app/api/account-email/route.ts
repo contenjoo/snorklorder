@@ -25,6 +25,7 @@ import { getReceiverFulfillmentPausedResponse } from "@/lib/receiver-fulfillment
 import { buildProcessingEmail } from "@/lib/account-processing";
 import { loadProcessingReminders, processingListUnavailableResponse } from "@/lib/processing-ledger";
 import { isMarketLegacyAuditRequest } from "@/lib/market-legacy-audit";
+import { assignRequestsToCurrentBillingCycle } from "@/lib/billing-cycle-db";
 
 function deliveryUnknownResponse(stage: "processing" | "invoice", status = 409) {
   return NextResponse.json({
@@ -119,7 +120,9 @@ export async function POST(req: NextRequest) {
       processingEmailSentAt: Date | null;
       invoiceEmailSendStartedAt: Date | null;
       invoiceEmailSentAt: Date | null;
+      invoiceEmailLastError: string | null;
       partnerLifecycleState: string;
+      billingCycleId?: number | null;
     } | null = null;
     if (requestId) {
       [existing] = await db
@@ -150,7 +153,13 @@ export async function POST(req: NextRequest) {
           processingEmailSentAt: accountRequests.processingEmailSentAt,
           invoiceEmailSendStartedAt: accountRequests.invoiceEmailSendStartedAt,
           invoiceEmailSentAt: accountRequests.invoiceEmailSentAt,
+          invoiceEmailLastError: accountRequests.invoiceEmailLastError,
           partnerLifecycleState: accountRequests.partnerLifecycleState,
+          billingCycleId: sql<number | null>`(
+            SELECT cycle_id FROM billing_cycle_items
+            WHERE account_request_id = ${accountRequests.id}
+            LIMIT 1
+          )`,
         })
         .from(accountRequests)
         .where(eq(accountRequests.id, requestId));
@@ -207,6 +216,13 @@ export async function POST(req: NextRequest) {
           error: deliveryState === "ready"
             ? "Jon processing email must be sent before the invoice."
             : "Cailie invoice email was already sent.",
+        }, { status: 409 });
+      }
+      if (mode === "invoice_only" && !existing.invoiceEmailLastError) {
+        return NextResponse.json({
+          success: false,
+          code: "BILLING_CYCLE_REPAIR_REQUIRED",
+          error: "This request belongs in consolidated billing and cannot use the legacy invoice-only path.",
         }, { status: 409 });
       }
 
@@ -337,6 +353,32 @@ export async function POST(req: NextRequest) {
           processingEmailSent: true,
           invoiceRequired: false,
           invoiceSent: false,
+        });
+      }
+
+      try {
+        const queued = await assignRequestsToCurrentBillingCycle([existing.id], existing.processingEmailSentAt ?? new Date());
+        return NextResponse.json({
+          success: true,
+          partialSuccess: false,
+          confirmLink,
+          processingEmailSent: true,
+          invoiceRequired: true,
+          invoiceSent: false,
+          billingQueued: queued.queuedIds.includes(existing.id),
+          billingCycleCode: queued.cycleCode,
+        });
+      } catch {
+        console.error("[account-email] processing sent but billing-cycle assignment needs repair");
+        return NextResponse.json({
+          success: true,
+          partialSuccess: false,
+          confirmLink,
+          processingEmailSent: true,
+          invoiceRequired: true,
+          invoiceSent: false,
+          billingQueued: false,
+          billingReviewRequired: true,
         });
       }
     }

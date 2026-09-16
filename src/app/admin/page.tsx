@@ -167,6 +167,7 @@ interface DashboardData {
   monthlyUpgrades: { teachers: number; schools: number };
   activity: ActivityItem[];
   billingStatusCounts: Record<string, number>;
+  billingCycleStatusCounts: Record<string, number>;
 }
 
 const teamColorMap = TEAM_COLORS;
@@ -266,7 +267,9 @@ export default function AdminDashboard() {
     );
   }
 
-  const { stats, pipeline, teamGroups, approvalQueue, upgradeNeeded, recentTeachers, recentBatches, recentFailedEmails, openAccountRequests, openDomainRequests, regions, monthlyUpgrades, activity, billingStatusCounts } = data;
+  const { stats, pipeline, teamGroups, approvalQueue, upgradeNeeded, recentTeachers, recentBatches, recentFailedEmails, openAccountRequests, openDomainRequests, regions, monthlyUpgrades, activity, billingStatusCounts, billingCycleStatusCounts = {} } = data;
+  const billingCycleIssueCount = ["send_unknown", "invoice_mismatch", "payment_mismatch"]
+    .reduce((sum, status) => sum + (billingCycleStatusCounts[status] || 0), 0);
 
   // Billing pipeline 분류 (account + domain 통합) — 기존 classify 로직 재사용
   type BillingItem = {
@@ -500,6 +503,13 @@ export default function AdminDashboard() {
           <p className="text-[11px] text-slate-500">{monthlyUpgrades?.schools ?? 0}개교 · 인사이트 →</p>
         </Link>
       </div>
+
+      {(billingCycleIssueCount > 0 || (billingCycleStatusCounts.ready || 0) > 0) && (
+        <Link href="/admin/accounts" className={`block rounded-xl border px-4 py-3 text-sm ${billingCycleIssueCount > 0 ? "border-rose-300 bg-rose-50 text-rose-900" : "border-amber-300 bg-amber-50 text-amber-900"}`}>
+          <strong>통합 청구</strong> · 발송 대기 {billingCycleStatusCounts.ready || 0}개 · 확인 필요 {billingCycleIssueCount}개
+          <span className="float-right text-xs underline">원장 확인</span>
+        </Link>
+      )}
 
       {/* ── 메인 2컬럼 ── */}
       <div className="grid lg:grid-cols-[1.6fr_1fr] gap-4 items-start">

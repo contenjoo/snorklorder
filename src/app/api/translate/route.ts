@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { checkRateLimit, createRateLimitResponse } from '@/lib/security';
-import { translateSchoolName } from '@/lib/romanize';
+import {
+  isSuspiciousSchoolTranslation,
+  translateKnownSchoolName,
+  translateSchoolName,
+} from '@/lib/romanize';
 
 // Google 비공식 endpoint. 데이터센터 IP(Vercel)에서는 429로 차단되는 일이 잦다 —
 // 실패하면 아래 로컬 로마자 변환으로 폴백하므로 이 호출은 best-effort.
@@ -36,12 +40,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid input' }, { status: 400 });
     }
 
-    const viaGoogle = await googleTranslate(text.trim());
-    if (viaGoogle) {
+    const normalizedText = text.trim();
+    const knownSchoolName = translateKnownSchoolName(normalizedText);
+    if (knownSchoolName) {
+      return NextResponse.json({ translated: knownSchoolName, source: 'school-rule' });
+    }
+
+    const viaGoogle = await googleTranslate(normalizedText);
+    if (viaGoogle && !isSuspiciousSchoolTranslation(viaGoogle)) {
       return NextResponse.json({ translated: viaGoogle, source: 'google' });
     }
 
-    const translated = translateSchoolName(text);
+    const translated = translateSchoolName(normalizedText);
     if (!translated) {
       return NextResponse.json({ error: 'Translation failed' }, { status: 502 });
     }
