@@ -25,7 +25,10 @@ test("school billing request creation is authenticated, same-origin, explicit, a
 
 test("school request admin shows a deliberate billing action and the linked request", () => {
   const page = readFileSync(new URL("../src/app/admin/requests/page.tsx", import.meta.url), "utf8");
-  assert.match(page, /계정·청구 요청 생성/);
+  assert.match(page, /학교 청구 진행 순서/);
+  assert.match(page, /학교 계정·청구 요청 생성/);
   assert.match(page, /\/api\/school-requests\/account-request/);
   assert.match(page, /\/admin\/accounts\?focus=/);
+  assert.match(page, /grid-cols-\[auto_minmax\(0,1fr\)\]/);
+  assert.match(page, /col-span-2.*lg:col-span-1/);
 });
