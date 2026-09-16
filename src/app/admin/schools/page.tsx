@@ -48,6 +48,10 @@ interface School {
 
 const REGIONS = ["서울", "부산", "대구", "인천", "광주", "대전", "울산", "세종", "경기", "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주"];
 
+function isGroupPurchase(school: School) {
+  return Boolean(school.team && !school.team.includes("개별") && school.team !== "미배정");
+}
+
 const statusLabel: Record<string, string> = {
   upgraded: "확정",
   individual: "개별",
@@ -66,7 +70,7 @@ export default function SchoolsPage() {
   const [copied, setCopied] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState("");
-  const [showSection, setShowSection] = useState<"all" | "teams" | "individual">("all");
+  const [showSection, setShowSection] = useState<"regions" | "teams" | "individual">("regions");
 
   // School admins (학교 관리자 이메일)
   const [adminPanelSchoolId, setAdminPanelSchoolId] = useState<number | null>(null);
@@ -118,22 +122,25 @@ export default function SchoolsPage() {
   }, []);
 
   // Computed data
-  const { teamGroups, individualSchools, totalTeachers, confirmedCount, pendingCount } = useMemo(() => {
+  const { teamGroups, regionGroups, totalTeachers, confirmedCount, pendingCount } = useMemo(() => {
     const teamMap = new Map<string, School[]>();
-    const indivList: School[] = [];
+    const regionMap = new Map<string, School[]>();
 
     for (const s of schools) {
       if (search) {
         const q = search.toLowerCase();
         const match = s.name.toLowerCase().includes(q) || (s.nameEn || "").toLowerCase().includes(q) ||
-          s.code.toLowerCase().includes(q) || s.teachers.some(t => t.name.toLowerCase().includes(q) || t.email.toLowerCase().includes(q));
+          s.code.toLowerCase().includes(q) || (s.region || "").includes(q) || (s.team || "").includes(q) || s.teachers.some(t => t.name.toLowerCase().includes(q) || t.email.toLowerCase().includes(q));
         if (!match) continue;
       }
-      if (s.team && !s.team.includes("개별") && s.team !== "미배정") {
+      if (showSection !== "individual" || !isGroupPurchase(s)) {
+        const region = s.region?.trim() || "지역 미등록";
+        if (!regionMap.has(region)) regionMap.set(region, []);
+        regionMap.get(region)!.push(s);
+      }
+      if (isGroupPurchase(s) && s.team) {
         if (!teamMap.has(s.team)) teamMap.set(s.team, []);
         teamMap.get(s.team)!.push(s);
-      } else {
-        indivList.push(s);
       }
     }
 
@@ -149,12 +156,18 @@ export default function SchoolsPage() {
     const allTeachers = schools.flatMap(s => s.teachers);
     return {
       teamGroups: groups,
-      individualSchools: indivList.sort((a, b) => b.teachers.length - a.teachers.length),
+      regionGroups: Array.from(regionMap, ([name, members]) => ({
+        name,
+        schools: members.sort((a, b) => a.name.localeCompare(b.name, "ko")),
+      })).sort((a, b) => {
+        const rank = (name: string) => name === "지역 미등록" ? 999 : REGIONS.includes(name) ? REGIONS.indexOf(name) : 998;
+        return rank(a.name) - rank(b.name) || a.name.localeCompare(b.name, "ko");
+      }),
       totalTeachers: allTeachers.length,
       confirmedCount: allTeachers.filter(t => t.status === "upgraded" || t.status === "individual").length,
       pendingCount: allTeachers.filter(t => t.status === "pending").length,
     };
-  }, [schools, search]);
+  }, [schools, search, showSection]);
 
   const rate = totalTeachers > 0 ? Math.round((confirmedCount / totalTeachers) * 100) : 0;
   const teamSchoolCount = teamGroups.reduce((s, g) => s + g.schools.length, 0);
@@ -313,27 +326,30 @@ export default function SchoolsPage() {
   }
 
   // Render school row (reused in teams and individual sections)
-  function renderSchoolRow(school: School, indent = false) {
+  function renderSchoolRow(school: School) {
     const isOpen = expandedSchool === school.id;
     const conf = school.teachers.filter(t => t.status === "upgraded" || t.status === "individual").length;
     const pend = school.teachers.filter(t => t.status === "pending" || t.status === "sent").length;
 
     return (
-      <div key={school.id} className={indent ? "" : ""}>
+      <div key={school.id}>
         <div
-          className={`flex items-center gap-3 px-3 sm:px-4 py-2.5 cursor-pointer transition-colors group ${isOpen ? "bg-blue-50/60" : "hover:bg-slate-50"}`}
+          className={`flex flex-wrap items-center gap-2 px-3 sm:px-4 py-2.5 cursor-pointer transition-colors group ${isOpen ? "bg-blue-50/60" : "hover:bg-slate-50"}`}
           onClick={() => setExpandedSchool(isOpen ? null : school.id)}
         >
           {/* Status indicator */}
           <div className={`w-2 h-2 rounded-full shrink-0 ${pend > 0 ? "bg-amber-400" : school.teachers.length > 0 ? "bg-emerald-400" : "bg-slate-200"}`} />
 
           {/* School name — 좁은 컬럼에서 영문명이 줄바꿈되지 않게 truncate */}
-          <div className="flex-1 min-w-0 flex items-center gap-2">
-            <span className="text-sm font-medium text-slate-900 whitespace-nowrap">{school.name}</span>
+          <div className="flex-1 min-w-0 basis-40">
+            <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-sm font-medium text-slate-900 break-words min-w-0">{school.name}</span>
             {(() => { const lv = schoolLevel(school.name, school.nameEn); return lv ? (
               <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded whitespace-nowrap shrink-0 ${levelBadgeCls[lv]}`}>{lv}</span>
             ) : null; })()}
-            {school.nameEn && <span className="text-xs text-slate-400 hidden sm:inline truncate min-w-0">{school.nameEn}</span>}
+            {isGroupPurchase(school) && <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-blue-50 text-blue-700" title={school.team || undefined}>공동구매 · {school.team}</span>}
+            </div>
+            {school.nameEn && <span className="text-xs text-slate-400 block truncate mt-0.5" title={school.nameEn}>{school.nameEn}</span>}
           </div>
 
           {/* Teacher count + status */}
@@ -341,14 +357,14 @@ export default function SchoolsPage() {
             {pend > 0 && <span className="text-[10px] font-medium text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">{pend}대기</span>}
             <span className="text-xs font-semibold text-slate-600 tabular-nums w-8 text-right">{school.teachers.length}명</span>
             {school.teachers.length > 0 && (
-              <div className="w-12 h-1 rounded-full bg-slate-100 overflow-hidden">
+              <div className="hidden xl:block w-12 h-1 rounded-full bg-slate-100 overflow-hidden">
                 <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${(conf / school.teachers.length) * 100}%` }} />
               </div>
             )}
           </div>
 
           {/* Actions (visible on hover) */}
-          <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shrink-0">
+          <div className="flex items-center gap-1 shrink-0">
             <button onClick={(e) => { e.stopPropagation(); openEditDialog(school); }}
               className="p-1 rounded text-slate-300 hover:text-blue-600 hover:bg-blue-50" title="수정">
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" /></svg>
@@ -482,8 +498,9 @@ export default function SchoolsPage() {
 
           {/* Section filter */}
           <div className="flex items-center bg-slate-100 rounded-lg p-0.5 shrink-0">
-            {([["all", "전체"], ["teams", "공동구매"], ["individual", "개별"]] as const).map(([val, label]) => (
+            {([["regions", "지역별 전체"], ["teams", "공동구매팀"], ["individual", "개별 학교"]] as const).map(([val, label]) => (
               <button key={val} onClick={() => setShowSection(val)}
+                aria-pressed={showSection === val}
                 className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${showSection === val ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
                 {label}
               </button>
@@ -601,19 +618,18 @@ export default function SchoolsPage() {
         </div>
       )}
 
-      {/* Main content: two-column layout */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+      <div className="space-y-4">
 
         {/* Left: 공동구매팀 (8 cols) */}
-        {(showSection === "all" || showSection === "teams") && (
-          <div className={showSection === "teams" ? "col-span-1 md:col-span-12" : "col-span-1 md:col-span-8"}>
+        {showSection === "teams" && (
+          <div>
             <div className="flex items-center gap-2 mb-3">
               <div className="w-1 h-5 rounded-full bg-blue-500" />
               <h2 className="text-sm font-bold text-slate-900">공동구매팀</h2>
               <span className="text-xs text-slate-400">{teamGroups.length}팀 · {teamSchoolCount}교</span>
             </div>
 
-            <div className={showSection === "teams" ? "grid grid-cols-1 lg:grid-cols-2 gap-3" : "space-y-3"}>
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 items-start">
               {teamGroups.map(group => {
                 const color = teamColor(group.name).hex;
                 const allConfirmed = group.teacherCount > 0 && group.confirmedCount === group.teacherCount;
@@ -662,7 +678,7 @@ export default function SchoolsPage() {
 
                     {/* Schools list - always expanded */}
                     <div className="border-t divide-y divide-slate-50">
-                      {group.schools.map(school => renderSchoolRow(school, true))}
+                      {group.schools.map(school => renderSchoolRow(school))}
                     </div>
                   </div>
                 );
@@ -675,21 +691,25 @@ export default function SchoolsPage() {
           </div>
         )}
 
-        {/* Right: 개별 학교 (4 cols) */}
-        {(showSection === "all" || showSection === "individual") && (
-          <div className={showSection === "individual" ? "col-span-1 md:col-span-12" : "col-span-1 md:col-span-4"}>
+        {showSection !== "teams" && (
+          <div>
             <div className="flex items-center gap-2 mb-3">
               <div className="w-1 h-5 rounded-full bg-slate-400" />
-              <h2 className="text-sm font-bold text-slate-900">개별 학교</h2>
-              <span className="text-xs text-slate-400">{individualSchools.length}교</span>
+              <h2 className="text-sm font-bold text-slate-900">{showSection === "individual" ? "개별 학교 · 지역별" : "지역별 전체 학교"}</h2>
+              <span className="text-xs text-slate-400">{regionGroups.length}개 지역 · {regionGroups.reduce((sum, group) => sum + group.schools.length, 0)}교</span>
             </div>
-
-            <div className="bg-white rounded-xl border overflow-hidden">
-                <div className={`divide-y divide-slate-50 ${showSection === "all" ? "max-h-[calc(100vh-200px)] overflow-y-auto" : ""}`}>
-                {individualSchools.map(school => renderSchoolRow(school))}
-              </div>
-
-              {individualSchools.length === 0 && (
+            <p className="text-xs text-slate-500 mb-3">{showSection === "regions" ? "공동구매 학교도 해당 지역에 함께 표시됩니다. 팀별 목록은 공동구매팀에서 확인하세요." : "공동구매팀에 속하지 않은 학교입니다."}</p>
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+              {regionGroups.map(group => (
+                <section key={group.name} className="min-w-0 bg-white rounded-xl border overflow-hidden">
+                  <div className="flex items-center gap-2 px-4 py-3 border-b bg-slate-50">
+                    <h3 className="text-sm font-bold text-slate-900">{group.name}</h3>
+                    <span className="text-xs text-slate-500">{group.schools.length}교</span>
+                  </div>
+                  <div className="divide-y divide-slate-100">{group.schools.map(school => renderSchoolRow(school))}</div>
+                </section>
+              ))}
+              {regionGroups.length === 0 && (
                 <p className="text-center text-slate-400 text-xs py-6">검색 결과 없음</p>
               )}
             </div>
