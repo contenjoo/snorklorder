@@ -67,6 +67,7 @@ export default function SchoolsPage() {
   const [expandedSchool, setExpandedSchool] = useState<number | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [search, setSearch] = useState("");
+  const [selectedRegion, setSelectedRegion] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState("");
@@ -122,17 +123,21 @@ export default function SchoolsPage() {
   }, []);
 
   // Computed data
-  const { teamGroups, regionGroups, totalTeachers, confirmedCount, pendingCount } = useMemo(() => {
+  const { teamGroups, regionGroups, regionCounts, totalTeachers, confirmedCount, pendingCount } = useMemo(() => {
     const teamMap = new Map<string, School[]>();
     const regionMap = new Map<string, School[]>();
+    const regionCounts = new Map<string, number>();
+    const terms = search.trim().toLowerCase().split(/\s+/).filter(Boolean);
 
     for (const s of schools) {
-      if (search) {
-        const q = search.toLowerCase();
-        const match = s.name.toLowerCase().includes(q) || (s.nameEn || "").toLowerCase().includes(q) ||
-          s.code.toLowerCase().includes(q) || (s.region || "").includes(q) || (s.team || "").includes(q) || s.teachers.some(t => t.name.toLowerCase().includes(q) || t.email.toLowerCase().includes(q));
-        if (!match) continue;
-      }
+      if (showSection === "teams" && !isGroupPurchase(s)) continue;
+      if (showSection === "individual" && isGroupPurchase(s)) continue;
+      const searchable = [s.name, s.nameEn, s.code, s.region, s.team,
+        ...s.teachers.flatMap(t => [t.name, t.email])].filter(Boolean).join(" ").toLowerCase();
+      if (!terms.every(term => searchable.includes(term))) continue;
+      const schoolRegion = s.region?.trim() || "지역 미등록";
+      regionCounts.set(schoolRegion, (regionCounts.get(schoolRegion) || 0) + 1);
+      if (selectedRegion && schoolRegion !== selectedRegion) continue;
       if (showSection !== "individual" || !isGroupPurchase(s)) {
         const region = s.region?.trim() || "지역 미등록";
         if (!regionMap.has(region)) regionMap.set(region, []);
@@ -156,6 +161,7 @@ export default function SchoolsPage() {
     const allTeachers = schools.flatMap(s => s.teachers);
     return {
       teamGroups: groups,
+      regionCounts,
       regionGroups: Array.from(regionMap, ([name, members]) => ({
         name,
         schools: members.sort((a, b) => a.name.localeCompare(b.name, "ko")),
@@ -167,10 +173,12 @@ export default function SchoolsPage() {
       confirmedCount: allTeachers.filter(t => t.status === "upgraded" || t.status === "individual").length,
       pendingCount: allTeachers.filter(t => t.status === "pending").length,
     };
-  }, [schools, search, showSection]);
+  }, [schools, search, showSection, selectedRegion]);
 
   const rate = totalTeachers > 0 ? Math.round((confirmedCount / totalTeachers) * 100) : 0;
   const teamSchoolCount = teamGroups.reduce((s, g) => s + g.schools.length, 0);
+  const resultCount = showSection === "teams" ? teamSchoolCount : regionGroups.reduce((sum, group) => sum + group.schools.length, 0);
+  const regionOptions = [...new Set([...REGIONS, ...schools.map(s => s.region?.trim() || "지역 미등록")])];
 
   // Functions
   function openEditDialog(school: School) {
@@ -469,11 +477,11 @@ export default function SchoolsPage() {
       {/* Compact header bar */}
       <div className="space-y-2">
         {/* Row 1: Title + stats */}
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-4">
           <h1 className="text-lg font-bold text-slate-900 whitespace-nowrap">학교 관리</h1>
 
           {/* Mini stats */}
-          <div className="flex items-center gap-3 text-xs text-slate-500 whitespace-nowrap">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
             <span><strong className="text-slate-900 text-sm">{schools.length}</strong> 학교</span>
             <span className="text-slate-200">|</span>
             <span><strong className="text-slate-900 text-sm">{totalTeachers}</strong> 교사</span>
@@ -491,9 +499,10 @@ export default function SchoolsPage() {
         {/* Row 2: Search + filter + add */}
         <div className="flex items-center gap-2 flex-wrap">
           {/* Search */}
-          <div className="relative shrink-0">
+          <div className="relative w-full sm:w-80">
             <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
-            <Input placeholder="학교·교사 검색" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8 h-8 w-48 text-xs" />
+            <Input aria-label="학교·교사·지역·팀 검색" placeholder="학교, 교사, 지역, 팀 검색" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8 pr-14 h-10 w-full text-sm" />
+            {search && <button type="button" onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-500 px-1 py-2" aria-label="검색어 지우기">지우기</button>}
           </div>
 
           {/* Section filter */}
@@ -592,6 +601,28 @@ export default function SchoolsPage() {
         </Dialog>
         </div>
       </div>
+
+      <section aria-label="지역 빠른 선택" className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-sm font-semibold text-slate-900">지역 바로 찾기</span>
+          <span role="status" className="text-xs text-slate-500">{selectedRegion || "전국"} · 검색 결과 <strong className="text-slate-900">{resultCount}교</strong></span>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {["", ...regionOptions].map(region => {
+            const count = region ? regionCounts.get(region) || 0 : Array.from(regionCounts.values()).reduce((sum, n) => sum + n, 0);
+            return <button key={region} type="button" aria-pressed={selectedRegion === region}
+              onClick={() => setSelectedRegion(region)}
+              className={`inline-flex items-center gap-1.5 min-h-9 rounded-lg border px-3 py-1.5 text-xs transition-colors ${selectedRegion === region ? "border-blue-600 bg-blue-600 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:bg-blue-50"}`}>
+              {region || "전국"}<span className={selectedRegion === region ? "text-blue-100 tabular-nums" : "text-slate-400 tabular-nums"}>{count}</span>
+            </button>;
+          })}
+        </div>
+        {(search || selectedRegion) && <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-2 text-xs text-slate-500">
+          <span>{selectedRegion || "전국"}{search.trim() ? ` / ${search.trim()}` : ""}에서 찾는 중</span>
+          <button type="button" onClick={() => { setSearch(""); setSelectedRegion(""); }} className="ml-auto font-medium text-blue-700 px-2 py-1">검색·지역 초기화</button>
+        </div>}
+        {resultCount === 0 && <p className="text-xs text-slate-500">조건에 맞는 학교가 없습니다. 지역을 바꾸거나 검색어를 지워 주세요.</p>}
+      </section>
 
       {/* Toast message (visible when no selection bar shown) */}
       {message && selected.size === 0 && (
