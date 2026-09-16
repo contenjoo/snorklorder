@@ -36,6 +36,7 @@ import { getAccountEmailDeliveryState } from "@/lib/account-email-delivery";
 import { fetchProcessingEmailPreview, ProcessingPreviewNotes, useProcessingEmailPreview } from "@/components/admin/processing-email-preview";
 import { processingReviewReason } from "@/lib/account-processing";
 import { isMarketLegacyAuditRequest } from "@/lib/market-legacy-audit";
+import BillingCyclePanel from "@/components/admin/billing-cycle-panel";
 
 const LicenseCertificateDialog = dynamic(() => import("@/components/admin/license-certificate-dialog"), { ssr: false });
 
@@ -69,6 +70,9 @@ interface AccountRequest {
   invoiceEmailSendStartedAt: string | null;
   invoiceEmailSentAt: string | null;
   invoiceEmailLastError: string | null;
+  billingCycleId: number | null;
+  billingCycleCode: string | null;
+  billingCycleStatus: string | null;
   externalSource: string | null;
   marketRequestId: string | null;
   marketOrderId: string | null;
@@ -444,7 +448,9 @@ function AccountsPageContent() {
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        setSendMsg("✓ 발송 완료");
+        setSendMsg(data.billingQueued
+          ? `✓ Jon 발송 완료 · ${data.billingCycleCode} 통합 청구에 편입`
+          : "✓ Jon 발송 완료");
         setEmailPreview(null);
         load();
       } else if (data.deliveryUnknown) {
@@ -851,7 +857,9 @@ function AccountsPageContent() {
       if (res.ok && data.success) {
         setSendMsg(retryOnly
           ? `✓ ${data.count}건 Cailie 인보이스 재전송 완료 — Jon 재발송 없음`
-          : `✓ ${data.count}건 묶음 발송 완료`);
+          : data.billingQueued
+            ? `✓ ${data.count}건 Jon 발송 완료 · ${data.billingCycleCode} 통합 청구에 편입`
+            : `✓ ${data.count}건 묶음 발송 완료`);
         setBatchPreviewOpen(false);
         clearSelection();
         load();
@@ -1164,7 +1172,7 @@ function AccountsPageContent() {
                       {fNeedsInvoice ? "ON" : "OFF"}
                     </span>
                   </button>
-                  <div className="text-[10px] text-slate-400">켜면 Cailie가 CC로 포함됩니다</div>
+                  <div className="text-[10px] text-slate-400">켜면 Jon 발송 성공 후 현재 통합 청구 주기에 편입됩니다</div>
                 </div>
                 {editing && (
                   <details className="border rounded-lg p-3">
@@ -1186,6 +1194,8 @@ function AccountsPageContent() {
           </div>
         </div>
       </div>
+
+      <BillingCyclePanel onMessage={setSendMsg} />
 
       {/* 묶음 발송 액션 바 */}
       {selectedIds.size > 0 && (
@@ -1747,7 +1757,7 @@ function AccountsPageContent() {
                 {processingPreview.error && <Button variant="outline" size="sm" onClick={processingPreview.retry}>다시 불러오기</Button>}
                 <pre className="text-sm text-slate-800 whitespace-pre-wrap font-sans leading-relaxed">{body}</pre>
               </div>
-              {emailPreview.needsInvoice && (() => {
+              {emailPreview.needsInvoice && invoiceRetryOnly && (() => {
                 const merged = mergeOpenInvoiceItems([{
                   requestId: emailPreview.id, schoolName: emailPreview.schoolName,
                   schoolNameEn: emailPreview.schoolNameEn, type: emailPreview.type,
@@ -1865,11 +1875,9 @@ function AccountsPageContent() {
         const { subject, body: previewBody } = !hasPreviouslySent
           ? processingPreview.data || { subject: "목록 확인 중", body: processingPreview.error || "완료 확인 대기 목록을 불러오고 있어요." }
           : buildBatchEmail(items, totalEmails);
-        const invoiceRequests = selectedRequests.filter((request) => (
-          invoiceRetryOnly
-            ? needsInvoiceRetry(request)
-            : request.needsInvoice ?? defaultNeedsInvoice(request.type)
-        ));
+        const invoiceRequests = invoiceRetryOnly
+          ? selectedRequests.filter(needsInvoiceRetry)
+          : [];
         const invMerged = mergeOpenInvoiceItems(
           invoiceRequests.map((r) => ({
             requestId: r.id, schoolName: r.schoolName, schoolNameEn: r.schoolNameEn,
@@ -1900,6 +1908,7 @@ function AccountsPageContent() {
                     <>
                       <div><b>To:</b> {HQ_TO} <span className="text-slate-400">— 처리 요청</span></div>
                       <div><b>Subject:</b> {subject}</div>
+                      <div className="pt-0.5 text-blue-700">인보이스 대상은 Jon 발송 성공 후 현재 통합 청구 주기에 자동 편입됩니다.</div>
                     </>
                   )}
                   {invPreview && (

@@ -58,12 +58,35 @@ test("parseInvoicePdfText: 번호·날짜·총액(Subtotal 제외)·[#id] 등장
     invoiceDate: "2026-09-01",
     dueDate: "2026-10-01",
     totalCents: 32000,
+    cycleCode: null,
+    requestItems: [206, 203, 204, 205].map((requestId) => ({ requestId, quantity: 1 })),
     requestIds: [206, 203, 204, 205],
   });
 });
 
 test("parseInvoicePdfText: 인보이스가 아닌 PDF 는 null", () => {
   assert.equal(parseInvoicePdfText("Receipt\nThanks for your order [#1]"), null);
+});
+
+test("parseInvoicePdfText: 주기 코드·요청별 수량·중복 요청을 보존한다", () => {
+  const parsed = parseInvoicePdfText(`
+Invoice no.: 1200
+Invoice date: 09/16/2026
+Due date: 10/16/2026
+Note to customer
+Billing cycle: 2026-09-B
+[#230] Asan Elementary School — Upgrade, 30 teacher accounts
+[#231] Mirae High School — School-wide upgrade
+[#231] Mirae High School — School-wide upgrade
+Subtotal $2,560.00
+Total $2,560.00`);
+  assert.equal(parsed?.cycleCode, "2026-09-B");
+  assert.deepEqual(parsed?.requestItems, [
+    { requestId: 230, quantity: 30 },
+    { requestId: 231, quantity: 1 },
+    { requestId: 231, quantity: 1 },
+  ]);
+  assert.deepEqual(parsed?.requestIds, [230, 231]);
 });
 
 test("parseQuickBooksPaymentText: 전액 결제", () => {

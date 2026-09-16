@@ -14,7 +14,8 @@ const row = (id, overrides = {}) => ({
   schoolNameEn: `School ${id}`, emails: `teacher${id}@example.test`, quantity: 1,
   channel: "school_store", partnerLifecycleState: "active", needsInvoice: false, status: "sent", confirmedAt: null,
   confirmToken: `a${id}`, tokenExpiresAt:new Date(Date.now()+86400000), processingEmailSentAt: new Date(`2026-09-${String(id).padStart(2, "0")}T00:00:00Z`),
-  processingEmailSendStartedAt: null, invoiceEmailSendStartedAt: null, invoiceEmailSentAt: null,
+  processingEmailSendStartedAt: null, invoiceEmailSendStartedAt: null, invoiceEmailSentAt: null, invoiceEmailLastError: null,
+  billingCycleId: null,
   marketVoidState: "active", externalSource: null, ...overrides,
 });
 const fresh = (id, overrides = {}) => row(id, { status: "draft", confirmToken: null, processingEmailSentAt: null, ...overrides });
@@ -42,6 +43,7 @@ function harness(initial, options = {}) {
     desc: (a) => a,
     sql: (strings) => {
       if (strings.join("").includes("root_request")) return () => true;
+      if (strings.join("").includes("billing_cycle_items")) return { key: "billingCycleId" };
       assert.match(strings.join(""), /CASE WHEN/);
       return strings.join("").includes("THEN 'sent'") ? { finalizeSend: true } : { preserveBilling: true };
     },
@@ -187,20 +189,18 @@ for (const batch of [false, true]) {
       assert.equal(h.rows[1].processingEmailSendStartedAt, null);
     }
   });
-  test(`${batch ? "batch" : "single"} SMTP uncertainty blocks retry; invoice-only never resends Jon/reminders`, async () => {
+  test(`${batch ? "batch" : "single"} consolidated billing replaces per-request invoice delivery`, async () => {
     const h = harness([row(1), fresh(3, { needsInvoice: true })], { failSmtp: 2 });
-    assert.equal((await send(h, [3], batch)).status, 502);
-    assert.equal(h.mails.length, 2);
+    assert.equal((await send(h, [3], batch)).status, 200);
+    assert.equal(h.mails.length, 1);
     assert.match(h.mails[0].text, /\[#1\]/);
-    assert.doesNotMatch(h.mails[1].text, /\[#1\]/);
     assert.equal((await send(h, [3], batch)).status, 409);
     assert.equal((await send(h, [3], batch, "invoice_only")).status, 409);
-    assert.equal(h.mails.length, 2);
-    // Explicit audit resolution: a not-delivered invoice claim is cleared before retry.
-    h.rows[1].invoiceEmailSendStartedAt = null;
-    assert.equal((await send(h, [3], batch, "invoice_only")).status, 200);
-    assert.equal(h.mails.length, 3); assert.equal(h.mails[2].to, "cailie@example.test");
-    assert.equal(h.rows[0].invoiceEmailSentAt, null);
+    assert.equal(h.mails.length, 1);
+    // Only an explicit legacy delivery failure remains eligible for invoice-only recovery.
+    h.rows[1].invoiceEmailLastError = "legacy delivery failed";
+    assert.equal((await send(h, [3], batch, "invoice_only")).status, 502);
+    assert.equal(h.mails.length, 2); assert.equal(h.mails[1].to, "cailie@example.test");
     const unknown = harness([row(1), fresh(3)], { failSmtp: 1 });
     assert.equal((await send(unknown, [3], batch)).status, 502);
     assert.equal((await send(unknown, [3], batch)).status, 409);

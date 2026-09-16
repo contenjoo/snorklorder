@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import { db } from "@/db";
 import { accountRequests } from "@/db/schema";
-import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { getTransporter, logEmail, formatLogRecipients, BASE_URL, HQ_EMAIL, HQ_INVOICE_TO } from "@/lib/email";
 import { buildInvoiceEmail, defaultNeedsInvoice, generateAccountEmail, type BatchEmailItem, type InvoiceEmailItem } from "@/lib/account-email-template";
 import {
@@ -25,6 +25,7 @@ import { getReceiverFulfillmentPausedResponse } from "@/lib/receiver-fulfillment
 import { buildProcessingEmail } from "@/lib/account-processing";
 import { loadProcessingReminders, processingListUnavailableResponse } from "@/lib/processing-ledger";
 import { isMarketLegacyAuditRequest } from "@/lib/market-legacy-audit";
+import { assignRequestsToCurrentBillingCycle } from "@/lib/billing-cycle-db";
 
 interface Section {
   subject: string;
@@ -136,11 +137,18 @@ export async function POST(req: NextRequest) {
         processingEmailSentAt: accountRequests.processingEmailSentAt,
         invoiceEmailSendStartedAt: accountRequests.invoiceEmailSendStartedAt,
         invoiceEmailSentAt: accountRequests.invoiceEmailSentAt,
+        invoiceEmailLastError: accountRequests.invoiceEmailLastError,
         partnerLifecycleState: accountRequests.partnerLifecycleState,
+        billingCycleId: sql<number | null>`(
+          SELECT cycle_id FROM billing_cycle_items
+          WHERE account_request_id = ${accountRequests.id}
+          LIMIT 1
+        )`,
       })
       .from(accountRequests)
       .where(inArray(accountRequests.id, requestIds));
-    const rows = await hydrateAccountRequestSchoolNames(rawRows);
+    const hydratedRows = await hydrateAccountRequestSchoolNames(rawRows);
+    const rows = hydratedRows;
 
     const uniqueRequestIds = [...new Set(requestIds)];
     if (uniqueRequestIds.length !== requestIds.length || rows.length !== uniqueRequestIds.length) {
@@ -222,6 +230,15 @@ export async function POST(req: NextRequest) {
           code: "INVOICE_RETRY_NOT_AVAILABLE",
           error: "Every selected request must have a pending Cailie invoice.",
           blockedRequestIds: notRetryable.map((item) => item.id),
+        }, { status: 409 });
+      }
+      const nonLegacyRecovery = rows.filter((row) => !row.invoiceEmailLastError);
+      if (nonLegacyRecovery.length > 0) {
+        return NextResponse.json({
+          success: false,
+          code: "BILLING_CYCLE_REPAIR_REQUIRED",
+          error: "Selected requests belong in consolidated billing and cannot use the legacy invoice-only path.",
+          blockedRequestIds: nonLegacyRecovery.map((row) => row.id),
         }, { status: 409 });
       }
     }
@@ -381,9 +398,36 @@ export async function POST(req: NextRequest) {
         row.processingEmailSendStartedAt = null;
         row.processingEmailSentAt = processingSentAt;
       }
+
+      const invoiceIds = rows.filter((row) => row.needsInvoice).map((row) => row.id);
+      let billingCycleCode: string | null = null;
+      let billingQueuedIds: number[] = [];
+      let billingReviewRequired = false;
+      if (invoiceIds.length > 0) {
+        try {
+          const queued = await assignRequestsToCurrentBillingCycle(invoiceIds, processingSentAt);
+          billingCycleCode = queued.cycleCode;
+          billingQueuedIds = queued.queuedIds;
+        } catch {
+          billingReviewRequired = true;
+          console.error("[batch-account-email] processing sent but billing-cycle assignment needs repair");
+        }
+      }
+      return NextResponse.json({
+        success: true,
+        partialSuccess: false,
+        count: requestIds.length,
+        totalEmails,
+        processingEmailSent: true,
+        invoiceSent: false,
+        invoiceCount: invoiceIds.length,
+        billingQueued: billingQueuedIds.length === invoiceIds.length,
+        billingCycleCode,
+        billingReviewRequired,
+      });
     }
 
-    // 인보이스 메일 → Cailie (CC: Jon). invoice_only 재시도도 이 경로만 사용한다.
+    // 레거시 invoice_only만 유지한다. 신규 요청은 위에서 청구 주기에 편입하고 반환한다.
     const invoiceItems: InvoiceEmailItem[] = requestIds
       .filter((id, index) => mode === "invoice_only" || items[index].needsInvoice)
       .map((id) => rows.find((r) => r.id === id))

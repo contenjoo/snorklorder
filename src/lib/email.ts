@@ -22,6 +22,7 @@ export type EmailKind =
   | "teacher_upgraded"
   | "account_confirm"
   | "account_email"
+  | "billing_cycle"
   | "stale_reminder"
   | "daily_digest" // 레거시 — 발송 코드는 제거됨, 과거 email_logs 행 + /admin 라벨용으로 유지
   | "school_code"

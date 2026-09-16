@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { desc, eq, ne, inArray, sql, and, gte, isNotNull, notInArray } from "drizzle-orm";
 import { db } from "@/db";
-import { schools, teachers, upgradeBatches, emailLogs, teams, accountRequests, domainRequests } from "@/db/schema";
+import { schools, teachers, upgradeBatches, emailLogs, teams, accountRequests, billingCycles, domainRequests } from "@/db/schema";
 import { checkAuth } from "@/lib/auth";
 
 type SchoolCounts = {
@@ -33,7 +33,7 @@ export async function GET() {
   monthStart.setDate(1);
   monthStart.setHours(0, 0, 0, 0);
 
-  const [schoolRows, countRows, pendingRows, recentRows, recentBatchRows, recentFailedEmails, teamRows, openAccountRequests, openDomainRequests, approvalQueueRows, pipelineRows, monthlyBatchRows, activityEmailRows, activityConfirmRows, billingStatusRows] = await Promise.all([
+  const [schoolRows, countRows, pendingRows, recentRows, recentBatchRows, recentFailedEmails, teamRows, openAccountRequests, openDomainRequests, approvalQueueRows, pipelineRows, monthlyBatchRows, activityEmailRows, activityConfirmRows, billingStatusRows, billingCycleStatusRows] = await Promise.all([
     db
       .select({
         id: schools.id,
@@ -221,6 +221,10 @@ export async function GET() {
       .from(accountRequests)
       .where(notInArray(accountRequests.marketVoidState, ["prepared", "voided"]))
       .groupBy(accountRequests.status),
+    db
+      .select({ status: billingCycles.status, count: sql<number>`count(*)::int` })
+      .from(billingCycles)
+      .groupBy(billingCycles.status),
   ]);
 
   // Hydrate recent confirmed batches with school summaries — one query covers all batches
@@ -409,6 +413,8 @@ export async function GET() {
 
   const billingStatusCounts: Record<string, number> = {};
   for (const row of billingStatusRows) billingStatusCounts[row.status] = Number(row.count);
+  const billingCycleStatusCounts: Record<string, number> = {};
+  for (const row of billingCycleStatusRows) billingCycleStatusCounts[row.status] = Number(row.count);
 
   return NextResponse.json({
     stats,
@@ -426,5 +432,6 @@ export async function GET() {
     monthlyUpgrades,
     activity,
     billingStatusCounts,
+    billingCycleStatusCounts,
   });
 }
