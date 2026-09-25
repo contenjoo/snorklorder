@@ -65,6 +65,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ...result, invoiceSent: invoiceResult.success, confirmLink });
   } catch (err) {
     console.error("[/api/admin/request-paid-domain] failed:", err);
-    return NextResponse.json({ success: false, error: String(err) }, { status: 500 });
+    return NextResponse.json({ success: false, error: "Failed to request paid domain" }, { status: 500 });
   }
 }

@@ -109,7 +109,7 @@ export async function PATCH(req: NextRequest) {
   if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({error:"Invalid JSON"},{status:400});
   const { ids } = body;
 
-  if (!ids?.length) {
+  if (!Array.isArray(ids) || ids.length === 0 || ids.length > 1000 || !ids.every((id) => Number.isSafeInteger(id) && id > 0 && id <= 2147483647)) {
     return NextResponse.json({ error: "Teacher IDs required" }, { status: 400 });
   }
 

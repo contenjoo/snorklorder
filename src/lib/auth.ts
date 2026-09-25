@@ -4,6 +4,7 @@ import {
   PARTNER_SESSION_COOKIE_NAME,
   verifyAdminSessionToken,
 } from "@/lib/signed-session";
+import { secretEquals } from "@/lib/api-key";
 
 const COOKIE_NAME = ADMIN_SESSION_COOKIE_NAME;
 const PARTNER_COOKIE_NAME = PARTNER_SESSION_COOKIE_NAME;
@@ -32,11 +33,11 @@ function getCailiePassword() {
 export function verifyPartnerPassword(password: string): string | null {
   const trimmed = password.trim();
   const jonPw = getJonPassword();
-  if (jonPw && trimmed === jonPw) return "jon";
+  if (jonPw && secretEquals(trimmed, jonPw)) return "jon";
   const jeffPw = getJeffPassword();
-  if (jeffPw && trimmed === jeffPw) return "jeff";
+  if (jeffPw && secretEquals(trimmed, jeffPw)) return "jeff";
   const cailiePw = getCailiePassword();
-  if (cailiePw && trimmed === cailiePw) return "cailie";
+  if (cailiePw && secretEquals(trimmed, cailiePw)) return "cailie";
   return null;
 }
 
@@ -52,7 +53,7 @@ export function isAdminPasswordConfigured(): boolean {
 export function verifyPassword(password: string): boolean {
   const adminPassword = getAdminPassword();
   if (!adminPassword) return false;
-  return password.trim() === adminPassword;
+  return secretEquals(password.trim(), adminPassword);
 }
 
 export { COOKIE_NAME, PARTNER_COOKIE_NAME };

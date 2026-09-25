@@ -40,5 +40,16 @@ test('isolated PostgreSQL: scope, expiry, concurrency, proof and migration repla
  const verifies=await Promise.all([db.query("SELECT verify_teacher_email('hash4') AS status"),db.query("SELECT verify_teacher_email('hash4') AS status")]);
  assert.deepEqual(verifies.map(r=>r.rows[0].status).sort(),['approved',null].sort());
  assert.equal((await db.query("SELECT verify_teacher_email('hash5') AS status")).rows[0].status,'email_verified');
+ const scopeMigration=readFileSync(new URL('../drizzle/0023_confirm_requires_approved.sql',import.meta.url),'utf8');
+ await db.query(scopeMigration); await db.query(scopeMigration);
+ assert.match((await db.query("SELECT pg_get_functiondef('confirm_teacher_batch(text,integer[])'::regprocedure) AS def")).rows[0].def,/t\.status IN \('pending','sent'\) AND t\.verification_status='approved'/);
+ await db.query(`INSERT INTO teachers(id,school_id,email,status,verification_status) VALUES(6,1,'six@school.test','pending','unverified'),(7,1,'seven@school.test','pending','approved'),(8,1,'eight@school.test','sent','email_verified'),(9,1,'nine@school.test','pending','rejected'),(10,1,'ten@school.test','sent','approved');
+ INSERT INTO upgrade_batches(token,teacher_ids,status) VALUES('scoped','[10]','pending');`);
+ for(const id of [6,8,9]){
+  await assert.rejects(db.query(`SELECT * FROM confirm_teacher_batch('scoped',ARRAY[10,${id}])`),/CONFIRM_SCOPE_VIOLATION/);
+ }
+ assert.deepEqual((await db.query('SELECT id,status,verification_status FROM teachers WHERE id IN (6,8,9,10) ORDER BY id')).rows.map(r=>[r.id,r.status,r.verification_status]),[[6,'pending','unverified'],[8,'sent','email_verified'],[9,'pending','rejected'],[10,'sent','approved']]);
+ assert.deepEqual((await db.query("SELECT teacher_id FROM confirm_teacher_batch('scoped',ARRAY[10,7]) ORDER BY teacher_id")).rows.map(r=>r.teacher_id),[7,10]);
+ assert.equal((await db.query('SELECT status FROM teachers WHERE id=7')).rows[0].status,'upgraded');
  }finally{await db.end();}
 });

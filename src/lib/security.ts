@@ -12,8 +12,39 @@ export function clientIp(request: Request) {
  if (process.env.VERCEL === "1") return request.headers.get("x-vercel-forwarded-for")?.split(",")[0]?.trim() || "unknown";
  return "local";
 }
+
+/**
+ * Normalises a rate-limit identity so IPv6 rotation within a single /64 can't bypass per-IP
+ * limits: IPv4 addresses (and IPv4-mapped ::ffff:a.b.c.d) are left as their IPv4 form, IPv6
+ * addresses are truncated to their /64 prefix. Non-IP values (e.g. "unknown", "local") pass
+ * through unchanged.
+ */
+export function normalizeIpForRateLimit(ip: string): string {
+ if (!ip) return ip;
+ const trimmed = ip.trim();
+ if (!trimmed.includes(":")) return trimmed; // IPv4 or opaque token (e.g. "unknown", "local")
+
+ // IPv4-mapped IPv6, e.g. ::ffff:192.168.1.1
+ const mapped = trimmed.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
+ if (mapped) return mapped[1];
+
+ // Expand '::' compression to 8 groups so we can safely take the first 4 (the /64 prefix).
+ const [head, tail] = trimmed.split("::");
+ const headGroups = head ? head.split(":").filter(Boolean) : [];
+ const tailGroups = tail ? tail.split(":").filter(Boolean) : [];
+ let groups: string[];
+ if (trimmed.includes("::")) {
+  const missing = 8 - headGroups.length - tailGroups.length;
+  groups = [...headGroups, ...Array(Math.max(missing, 0)).fill("0"), ...tailGroups];
+ } else {
+  groups = trimmed.split(":");
+ }
+ const prefix = groups.slice(0, 4).map((g) => g || "0");
+ return prefix.join(":") + "::/64";
+}
+
 export async function checkRateLimit(options: RateLimitOptions): Promise<{ok:boolean; retryAfter:number}> {
- const identity = options.subject ?? clientIp(options.request);
+ const identity = options.subject ?? normalizeIpForRateLimit(clientIp(options.request));
  const key = createHash("sha256").update(`${options.key}:${identity}`).digest("hex");
  try {
   const result = await db.execute(sql`
@@ -36,8 +67,17 @@ export function createRateLimitResponse(message="Too many requests. Please try a
  });
 }
 export async function checkEmailSendLimit(request: Request, email: string) {
- for (const rule of [{key:"email-minute",limit:1,windowMs:60000},{key:"email-hour",limit:5,windowMs:3600000}]) {
-  const result=await checkRateLimit({request,subject:email.trim().toLowerCase(),...rule});
+ const normalizedEmail = email.trim().toLowerCase();
+ const ipBucket = normalizeIpForRateLimit(clientIp(request));
+ // Strict buckets are keyed on email+IP so one attacker can't spend a victim's whole budget by
+ // hammering their address from a single IP. A looser per-address ceiling (any IP) still caps
+ // total mail sent to one address.
+ for (const rule of [
+  {key:"email-minute",limit:1,windowMs:60000,subject:`${normalizedEmail}|${ipBucket}`},
+  {key:"email-hour",limit:5,windowMs:3600000,subject:`${normalizedEmail}|${ipBucket}`},
+  {key:"email-hour-address",limit:20,windowMs:3600000,subject:normalizedEmail},
+ ]) {
+  const result=await checkRateLimit({request,...rule});
   if(!result.ok) return createRateLimitResponse("Please wait before requesting another email.",result.retryAfter);
  }
  return null;

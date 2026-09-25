@@ -79,6 +79,8 @@
 
 0019 마이그레이션은 명시적인 DATABASE_URL과 SECURITY_MIGRATION_APPLY=confirmed로 실행한다. 기존 확인 링크는 첫 적용 시각부터 7일만 유예하며 재실행해도 연장하지 않는다. ADMIN_SESSION_SECRET 및 SCHOOL_SESSION_SECRET은 각각 별도 설정한다. BILLING_AUTH_VERIFIED=true는 정상·위조 메일 검증 이후에만 설정한다. PUBLIC_REGISTRATION_ENABLED=false로 신규 공개 등록을 일시 중지할 수 있다.
 
+0023 마이그레이션은 HQ 확인 링크가 같은 학교의 미승인 교사(unverified·email_verified·rejected)를 승격하지 못하게 `confirm_teacher_batch` 범위 검사를 좁힌다. `DATABASE_URL=… CONFIRM_SCOPE_MIGRATION_APPLY=confirmed npm run db:migrate:0023 -- --apply`로 적용하고 출력의 `requires_approved: true`를 확인한다. 코드 배포와 순서는 무관하다.
+
 ## 검증 방법
 
 `npm run test:contracts`, `npm run lint`, `npm run build`를 실행한다. 격리 DB 테스트는 `SECURITY_TEST_DATABASE_URL=postgresql://contenjoo@127.0.0.1:55439/postgres node --test scripts/security-db.test.mjs scripts/security-rate.test.mjs`로 실행하며 다른 호스트를 거절한다. HTTP 테스트는 DB와 SMTP를 모의 어댑터로 바꾼 별도 임시 앱에서만 `SECURITY_HTTP_TEST=local node --test scripts/security-http.test.mjs`로 실행한다. 운영 URL에는 이 테스트를 실행하지 않는다.
