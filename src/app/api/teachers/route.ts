@@ -53,8 +53,12 @@ export async function PATCH(req: NextRequest) {
   if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({error:"Invalid JSON"},{status:400});
   const { ids, status } = body;
 
-  if (!ids?.length || !status) {
-    return NextResponse.json({ error: "IDs and status required" }, { status: 400 });
+  if (!Array.isArray(ids) || ids.length === 0 || ids.length > 1000 || !ids.every((id) => Number.isSafeInteger(id) && id > 0 && id <= 2147483647)) {
+    return NextResponse.json({ error: "Teacher IDs required" }, { status: 400 });
+  }
+
+  if (!status || !["pending", "sent", "upgraded"].includes(status)) {
+    return NextResponse.json({ error: "Invalid status" }, { status: 400 });
   }
 
   const updates: Record<string, unknown> = { status };

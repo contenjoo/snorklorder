@@ -11,6 +11,7 @@ import { isValidEmail, normalizeText } from "@/lib/security";
 export async function POST(req: NextRequest) {
   const schoolId = await getSchoolSession();
   if (!schoolId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (req.headers.get('origin') !== req.nextUrl.origin) return NextResponse.json({ error: 'Invalid origin' }, { status: 403 });
 
   const body = await req.json().catch(()=>null);
   if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({error:"Invalid JSON"},{status:400});

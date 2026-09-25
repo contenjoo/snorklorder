@@ -62,7 +62,9 @@ export async function GET(
         and(
           inArray(teachers.schoolId, schoolIds),
           notInArray(teachers.id, teacherIds),
-          inArray(teachers.status, ["pending", "sent"])
+          inArray(teachers.status, ["pending", "sent"]),
+          // 미인증·학교관리자 대기·거절 교사는 HQ 확인 링크로 승격시키지 않는다.
+          eq(teachers.verificationStatus, "approved")
         )
       );
   }

@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { schools, teachers } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { randomBytes } from "crypto";
+import { isValidEmail, normalizeText } from "@/lib/security";
 
 interface SyncBody {
   schoolName?: string;
@@ -26,10 +27,28 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = (await req.json()) as SyncBody;
-    const { schoolName, schoolNameEn, region, team, teacherName, email } = body;
+    const { team } = body;
+    let { schoolName, schoolNameEn, region, teacherName, email } = body;
 
-    if (!schoolName?.trim() || !teacherName?.trim() || !email?.trim()) {
+    if (typeof schoolName !== "string" || typeof teacherName !== "string" || typeof email !== "string") {
       return NextResponse.json({ error: "schoolName, teacherName, email required" }, { status: 400 });
+    }
+    if ([schoolNameEn, region, team].some((v) => v != null && typeof v !== "string")) {
+      return NextResponse.json({ error: "schoolNameEn, region, team must be strings" }, { status: 400 });
+    }
+
+    schoolName = normalizeText(schoolName, 120);
+    schoolNameEn = schoolNameEn ? normalizeText(schoolNameEn, 160) : null;
+    teacherName = normalizeText(teacherName, 80);
+    region = region ? normalizeText(region, 40) : null;
+    email = normalizeText(email, 254).toLowerCase();
+
+    if (!schoolName || !teacherName || !email) {
+      return NextResponse.json({ error: "schoolName, teacherName, email required" }, { status: 400 });
+    }
+
+    if (!isValidEmail(email)) {
+      return NextResponse.json({ error: "Invalid email" }, { status: 400 });
     }
 
     if (team && !TEAM_REGEX.test(team) && team !== "취소") {
@@ -40,17 +59,17 @@ export async function POST(req: NextRequest) {
     let [school] = await db
       .select({ id: schools.id, team: schools.team })
       .from(schools)
-      .where(eq(schools.name, schoolName.trim()));
+      .where(eq(schools.name, schoolName));
 
     if (!school) {
       const code = randomBytes(4).toString("hex").toUpperCase();
       const inserted = await db
         .insert(schools)
         .values({
-          name: schoolName.trim(),
-          nameEn: schoolNameEn?.trim() || null,
+          name: schoolName,
+          nameEn: schoolNameEn || null,
           code,
-          region: region?.trim() || null,
+          region: region || null,
           team: team || null,
         })
         .returning({ id: schools.id, team: schools.team });
@@ -60,19 +79,18 @@ export async function POST(req: NextRequest) {
     }
 
     // Teacher upsert (school+email unique)
-    const emailNorm = email.trim().toLowerCase();
     const [existing] = await db
       .select({ id: teachers.id, status: teachers.status })
       .from(teachers)
-      .where(and(eq(teachers.schoolId, school.id), eq(teachers.email, emailNorm)));
+      .where(and(eq(teachers.schoolId, school.id), eq(teachers.email, email)));
 
     if (!existing) {
       const [created] = await db
         .insert(teachers)
         .values({
           schoolId: school.id,
-          name: teacherName.trim(),
-          email: emailNorm,
+          name: teacherName,
+          email: email,
           status: "pending",
           // 신뢰된 동기화 소스(API키) → 검증 면제, 자동 승인
           verificationStatus: "approved",

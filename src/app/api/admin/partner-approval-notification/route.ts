@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { accountRequests } from "@/db/schema";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { callMarketPartnerNotification } from "@/lib/market-partner-notification";
+import { checkAuth } from "@/lib/auth";
 
 const OPERATION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,199}$/;
 const PARTNER_REQUEST_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,199}$/;
@@ -67,6 +68,9 @@ async function saveResult(
 }
 
 export async function POST(request: NextRequest) {
+  if (!(await checkAuth())) return json({ error: "Unauthorized" }, 401);
+  if (request.headers.get("origin") !== request.nextUrl.origin) return json({ error: "Invalid origin" }, 403);
+
   const raw = await request.json().catch(() => null) as Record<string, unknown> | null;
   if (!raw || typeof raw.action !== "string") return json({ error: "Invalid request" }, 400);
 

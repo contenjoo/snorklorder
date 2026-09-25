@@ -23,7 +23,21 @@ export async function GET() {
   }
 
   const teacherRows = await db
-    .select()
+    .select({
+      id: teachers.id,
+      schoolId: teachers.schoolId,
+      name: teachers.name,
+      email: teachers.email,
+      subject: teachers.subject,
+      status: teachers.status,
+      verificationStatus: teachers.verificationStatus,
+      emailVerifiedAt: teachers.emailVerifiedAt,
+      approvedAt: teachers.approvedAt,
+      approvedBy: teachers.approvedBy,
+      rejectedReason: teachers.rejectedReason,
+      escalatedAt: teachers.escalatedAt,
+      createdAt: teachers.createdAt,
+    })
     .from(teachers)
     .where(eq(teachers.schoolId, schoolId))
     .orderBy(desc(teachers.createdAt));
@@ -79,7 +93,16 @@ export async function GET() {
   ].filter((c): c is NonNullable<typeof c> => c !== undefined);
 
   const accountRequestRows = await db
-    .select()
+    .select({
+      id: accountRequests.id,
+      schoolName: accountRequests.schoolName,
+      schoolNameEn: accountRequests.schoolNameEn,
+      emails: accountRequests.emails,
+      status: accountRequests.status,
+      quantity: accountRequests.quantity,
+      type: accountRequests.type,
+      createdAt: accountRequests.createdAt,
+    })
     .from(accountRequests)
     .where(and(
       notInArray(accountRequests.marketVoidState, ["prepared", "voided"]),

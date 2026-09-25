@@ -454,6 +454,7 @@ export async function POST(req: NextRequest) {
       idempotencyKey: accountRequests.idempotencyKey,
       draftOnly: accountRequests.draftOnly,
       marketVoidState: accountRequests.marketVoidState,
+      partnerLifecycleState: accountRequests.partnerLifecycleState,
     }).from(accountRequests).where(eq(accountRequests.id, id));
     if (!prev) return NextResponse.json({ error: "Account request not found" }, { status: 404 });
     const nextChannel = typeof updates.channel === "string" ? updates.channel : prev.channel;
@@ -494,6 +495,13 @@ export async function POST(req: NextRequest) {
       if (isProcessingConfirmed(prev)) {
         const [request] = await db.select().from(accountRequests).where(eq(accountRequests.id, id));
         return NextResponse.json({ request });
+      }
+      // 취소된 파트너 주문은 처리완료로 넘길 수 없다 (account-email 가드와 동일 기준).
+      if (prev.channel === "partner" && prev.partnerLifecycleState !== "active") {
+        return NextResponse.json({
+          code: "PARTNER_REQUEST_INACTIVE",
+          error: "Cancelled partner request cannot be marked as processed.",
+        }, { status: 409 });
       }
       if (!(await claimAccountRequestSideEffects([id]))) {
         return NextResponse.json({ code: "MARKET_VOID_FENCED", error: "취소 진행 중인 요청은 완료 처리할 수 없습니다." }, { status: 409 });

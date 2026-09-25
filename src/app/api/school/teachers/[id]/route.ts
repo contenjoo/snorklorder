@@ -14,10 +14,11 @@ export async function PATCH(
   if (schoolId == null) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  if (req.headers.get('origin') !== req.nextUrl.origin) return NextResponse.json({ error: 'Invalid origin' }, { status: 403 });
 
   const { id } = await params;
   const teacherId = Number(id);
-  if (!Number.isFinite(teacherId)) {
+  if (!(Number.isSafeInteger(teacherId) && teacherId > 0 && teacherId <= 2147483647)) {
     return NextResponse.json({ error: "Invalid id" }, { status: 400 });
   }
 
@@ -75,17 +76,18 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const schoolId = await getSchoolSession();
   if (schoolId == null) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  if (req.headers.get('origin') !== req.nextUrl.origin) return NextResponse.json({ error: 'Invalid origin' }, { status: 403 });
 
   const { id } = await params;
   const teacherId = Number(id);
-  if (!Number.isFinite(teacherId)) {
+  if (!(Number.isSafeInteger(teacherId) && teacherId > 0 && teacherId <= 2147483647)) {
     return NextResponse.json({ error: "Invalid id" }, { status: 400 });
   }
 

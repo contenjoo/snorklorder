@@ -19,7 +19,7 @@ function isPublicApiRequest(request: NextRequest, pathname: string) {
   if (["/api/schools/lookup","/api/schools/search"].includes(pathname) && method === "GET") return true;
   if (/^\/api\/(?:confirm|account-confirm|domain-confirm)\/[^/]+$/.test(pathname) && ["GET","POST"].includes(method)) return true;
   if (pathname === "/api/partner/auth" && ["GET","POST"].includes(method)) return true;
-  if (["/api/cron/school-drift","/api/cron/daily-digest","/api/cron/sync-billing","/api/cron/verification-maintenance"].includes(pathname) && ["GET","POST"].includes(method)) return true;
+  if (["/api/cron/school-drift","/api/cron/daily-digest","/api/cron/sync-billing","/api/cron/verification-maintenance","/api/cron/prepare-billing-cycles"].includes(pathname) && ["GET","POST"].includes(method)) return true;
 
   if (pathname === "/api/school-requests" && request.method === "POST") {
     return true;
