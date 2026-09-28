@@ -132,6 +132,7 @@ export async function POST(req: NextRequest) {
         oldEmail: accountRequests.oldEmail,
         fromType: accountRequests.fromType,
         extensionDate: accountRequests.extensionDate,
+        termYears: accountRequests.termYears,
         notes: accountRequests.notes,
         processingEmailSendStartedAt: accountRequests.processingEmailSendStartedAt,
         processingEmailSentAt: accountRequests.processingEmailSentAt,
@@ -435,6 +436,7 @@ export async function POST(req: NextRequest) {
       .map((r) => ({
         requestId: r.id, schoolName: r.schoolName, schoolNameEn: r.schoolNameEn,
         type: r.type, accountType: r.accountType, quantity: r.quantity, extensionDate: r.extensionDate,
+        termYears: r.termYears,
       }));
 
     if (invoiceItems.length > 0) {

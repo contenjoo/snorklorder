@@ -11,6 +11,7 @@
 import {
   VOID_EXCLUDED_STATES,
   allocateInvoiceAmounts,
+  invoiceWeight,
   formatCentsAsAmount,
   parseInvoiceAmountToCents,
 } from "./account-email-template.ts";
@@ -41,6 +42,8 @@ export interface BillingRow {
   invoiceNumber: string | null;
   invoiceAmount: string | null;
   quantity: number | null;
+  /** 없으면 1년. 금액 배분 가중치 = 계정 수 × 연수. */
+  termYears?: number | null;
   marketVoidState: string | null;
 }
 
@@ -197,7 +200,7 @@ export function planInvoiceSync(inv: ParsedInvoicePdf, rows: BillingRow[]): Invo
     return { ...base, kind: "unmatched", reason: `요청 #${missing.join(", #")} 없음` };
   }
   const present = found as BillingRow[];
-  const alloc = allocateInvoiceAmounts(inv.totalCents, present.map((r) => r.quantity || 1));
+  const alloc = allocateInvoiceAmounts(inv.totalCents, present.map(invoiceWeight));
 
   const apply: InvoicePlan["apply"] = [];
   const skipped: SkippedItem[] = [];

@@ -25,6 +25,9 @@ import {
   isOpenInvoiceRequest,
   mergeOpenInvoiceItems,
   allocateInvoiceAmounts,
+  invoiceWeight,
+  normalizeTermYears,
+  TERM_YEARS,
   parseInvoiceAmountToCents,
   formatCentsAsAmount,
   type InvoiceEmailItem,
@@ -56,6 +59,7 @@ interface AccountRequest {
   oldEmail: string | null;
   fromType: string | null;
   extensionDate: string | null;
+  termYears: number;
   notes: string | null;
   needsInvoice: boolean;
   status: string;
@@ -231,6 +235,7 @@ function AccountsPageContent() {
   const [fOldEmail, setFOldEmail] = useState("");
   const [fFromType, setFFromType] = useState("teacher");
   const [fExtDate, setFExtDate] = useState("");
+  const [fTermYears, setFTermYears] = useState(1);
   const [fNotes, setFNotes] = useState("");
   const [fNeedsInvoice, setFNeedsInvoice] = useState(defaultNeedsInvoice("upgrade"));
   const [fInvNum, setFInvNum] = useState("");
@@ -299,7 +304,7 @@ function AccountsPageContent() {
 
   function resetForm() {
     setFChannel("company"); setFApplicant("school"); setFBulk(false); setFBulkText(""); setFType("upgrade"); setFSchool(""); setFSchoolEn(""); setFEmails(""); setFAccType("teacher");
-    setFQty(1); setFOldEmail(""); setFFromType("teacher"); setFExtDate("");
+    setFQty(1); setFOldEmail(""); setFFromType("teacher"); setFExtDate(""); setFTermYears(1);
     setFNotes(""); setFNeedsInvoice(defaultNeedsInvoice("upgrade"));
     setFInvNum(""); setFInvAmt(""); setFInvDue("");
     setFPayLink(""); setFPayDate(""); setFPayMethod(""); setEditing(null);
@@ -321,7 +326,7 @@ function AccountsPageContent() {
     setFChannel(r.channel || "company"); setFApplicant(r.applicantType || "school"); setFType(r.type); setFSchool(r.schoolName); setFSchoolEn(r.schoolNameEn || ""); setFEmails(r.emails);
     setFAccType(r.accountType || "teacher"); setFQty(r.quantity || 1);
     setFOldEmail(r.oldEmail || ""); setFFromType(r.fromType || "teacher");
-    setFExtDate(r.extensionDate || ""); setFNotes(r.notes || "");
+    setFExtDate(r.extensionDate || ""); setFTermYears(normalizeTermYears(r.termYears)); setFNotes(r.notes || "");
     setFNeedsInvoice(r.needsInvoice ?? defaultNeedsInvoice(r.type));
     setFInvNum(r.invoiceNumber || ""); setFInvAmt(r.invoiceAmount || "");
     setFInvDue(r.invoiceDueDate || ""); setFPayLink(r.paymentLink || "");
@@ -359,7 +364,7 @@ function AccountsPageContent() {
           channel: fChannel, applicantType: "individual", type: fType,
           schoolName: e.name, schoolNameEn: null, emails: e.email,
           accountType: fAccType, quantity: 1,
-          oldEmail: null, fromType: null, extensionDate: fExtDate || null,
+          oldEmail: null, fromType: null, extensionDate: fExtDate || null, termYears: fTermYears,
           notes: fNotes || null, needsInvoice: fNeedsInvoice,
         };
         const res = await fetch("/api/account-requests", {
@@ -376,7 +381,7 @@ function AccountsPageContent() {
     const data = {
       channel: fChannel, applicantType: fApplicant, type: fType, schoolName: fSchool, schoolNameEn: fSchoolEn || null, emails: fEmails, accountType: fAccType,
       quantity: fQty, oldEmail: fOldEmail || null, fromType: fFromType || null,
-      extensionDate: fExtDate || null, notes: fNotes || null,
+      extensionDate: fExtDate || null, termYears: fTermYears, notes: fNotes || null,
       needsInvoice: fNeedsInvoice,
       invoiceNumber: fInvNum || null, invoiceAmount: fInvAmt || null,
       invoiceDueDate: fInvDue || null, paymentLink: fPayLink || null,
@@ -749,7 +754,7 @@ function AccountsPageContent() {
   const invBulkCents = parseInvoiceAmountToCents(invBulkTotal);
   const invBulkSplit = invBulkCents === null
     ? []
-    : allocateInvoiceAmounts(invBulkCents, invBulkTargets.map((r) => r.quantity || 1));
+    : allocateInvoiceAmounts(invBulkCents, invBulkTargets.map(invoiceWeight));
 
   async function saveInvoiceBulk() {
     if (!invBulkNum.trim() || invBulkCents === null || invBulkTargets.length === 0) return;
@@ -913,6 +918,7 @@ function AccountsPageContent() {
     .map((r) => ({
       requestId: r.id, schoolName: r.schoolName, schoolNameEn: r.schoolNameEn,
       type: r.type, accountType: r.accountType, quantity: r.quantity, extensionDate: r.extensionDate,
+            termYears: r.termYears,
     }));
 
   const filtered = requests.filter((r) => {
@@ -1156,6 +1162,26 @@ function AccountsPageContent() {
                     <Input type="date" value={fExtDate} onChange={(e) => setFExtDate(e.target.value)} className="h-8 text-sm" />
                   </div>
                 )}
+                {(fType === "upgrade" || fType === "extension") && (
+                  <div className="space-y-1">
+                    <Label className="text-xs">결제 기간</Label>
+                    <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="결제 기간">
+                      {TERM_YEARS.map((years) => (
+                        <button
+                          key={years}
+                          type="button"
+                          role="radio"
+                          aria-checked={fTermYears === years}
+                          onClick={() => setFTermYears(years)}
+                          className={`py-1.5 rounded-lg text-xs transition-colors ${fTermYears === years ? "bg-blue-100 ring-1 ring-blue-400 font-semibold" : "bg-slate-50 hover:bg-slate-100 text-slate-500"}`}
+                        >
+                          {years}년
+                        </button>
+                      ))}
+                    </div>
+                    <div className="text-[10px] text-slate-400">청구 메일에 &quot;{fTermYears}-year license&quot;로 표시됩니다</div>
+                  </div>
+                )}
                 <div className="space-y-1">
                   <Label className="text-xs">메모</Label>
                   <Textarea value={fNotes} onChange={(e) => setFNotes(e.target.value)} rows={2} placeholder="추가 메모" className="text-sm" />
@@ -1263,14 +1289,14 @@ function AccountsPageContent() {
 
               <div className="rounded-lg border border-slate-200 overflow-hidden">
                 <div className="px-3 py-2 bg-slate-50 text-[11px] font-medium text-slate-500 border-b">
-                  계정 수 비례 배분 {invBulkCents !== null && `· 합계 ${formatCentsAsAmount(invBulkCents)}`}
+                  계정 수 × 결제 연수 비례 배분 {invBulkCents !== null && `· 합계 ${formatCentsAsAmount(invBulkCents)}`}
                 </div>
                 <ul className="divide-y divide-slate-100">
                   {invBulkTargets.map((r, i) => (
                     <li key={r.id} className="flex items-center gap-3 px-3 py-2 text-xs">
                       <span className="font-mono text-slate-400 w-11 shrink-0">#{r.id}</span>
                       <span className="flex-1 min-w-0 truncate">{r.schoolNameEn || r.schoolName}</span>
-                      <span className="text-slate-400 shrink-0">{r.quantity || 1}계정</span>
+                      <span className="text-slate-400 shrink-0">{r.quantity || 1}계정 · {normalizeTermYears(r.termYears)}년</span>
                       <span className="font-mono font-medium text-slate-900 shrink-0 w-20 text-right">
                         {invBulkCents === null ? "—" : formatCentsAsAmount(invBulkSplit[i] ?? 0)}
                       </span>
@@ -1474,6 +1500,9 @@ function AccountsPageContent() {
                     )}
                     {r.needsInvoice && (
                       <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 font-medium" title="인보이스 필요 — Cailie CC">💳</span>
+                    )}
+                    {r.termYears === 2 && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-800 font-semibold" title="2년 결제">2년</span>
                     )}
                     {needsInvoiceRetry(r) && (
                       <span
@@ -1763,6 +1792,7 @@ function AccountsPageContent() {
                   schoolNameEn: emailPreview.schoolNameEn, type: emailPreview.type,
                   accountType: emailPreview.accountType, quantity: emailPreview.quantity,
                   extensionDate: emailPreview.extensionDate,
+                  termYears: emailPreview.termYears,
                 }], openInvoiceItems);
                 const inv = buildInvoiceEmail(merged.items, {
                   newIds: merged.newIds,
@@ -1882,6 +1912,7 @@ function AccountsPageContent() {
           invoiceRequests.map((r) => ({
             requestId: r.id, schoolName: r.schoolName, schoolNameEn: r.schoolNameEn,
             type: r.type, accountType: r.accountType, quantity: r.quantity, extensionDate: r.extensionDate,
+            termYears: r.termYears,
           })),
           openInvoiceItems,
         );

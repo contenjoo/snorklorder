@@ -76,6 +76,7 @@ async function assignEligibleRequestsToCycle(
     accountType: accountRequests.accountType,
     quantity: accountRequests.quantity,
     extensionDate: accountRequests.extensionDate,
+    termYears: accountRequests.termYears,
   }).from(accountRequests).where(and(...conditions)).orderBy(accountRequests.id);
 
   if (!rows.length) return [];
@@ -87,6 +88,7 @@ async function assignEligibleRequestsToCycle(
     accountType: row.accountType,
     quantity: row.quantity && row.quantity > 0 ? row.quantity : 1,
     extensionDate: row.extensionDate,
+    termYears: row.termYears,
   }))).onConflictDoNothing({ target: billingCycleItems.accountRequestId })
     .returning({ requestId: billingCycleItems.accountRequestId });
 }
@@ -181,6 +183,7 @@ export async function listBillingCycleViews(limit = VISIBLE_CYCLE_LIMIT): Promis
       accountType: item.accountType,
       quantity: item.quantity,
       extensionDate: item.extensionDate,
+      termYears: item.termYears,
       includedAt: item.includedAt.toISOString(),
     })),
   }));
@@ -207,6 +210,7 @@ export async function loadBillingCycleForSend(id: number) {
       accountType: item.accountType,
       quantity: item.quantity,
       extensionDate: item.extensionDate,
+      termYears: item.termYears,
     })),
   };
 }

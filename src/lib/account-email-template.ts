@@ -128,6 +128,21 @@ export interface InvoiceEmailItem {
   accountType?: string | null;
   quantity?: number | null;
   extensionDate?: string | null;
+  /** 결제 기간(년). 연장 날짜만으로는 몇 년치인지 알 수 없어 청구 줄에 따로 밝힌다. */
+  termYears?: number | null;
+}
+
+/** 결제 기간은 1년 또는 2년뿐이다. 그 밖의 값·누락은 기존 기본값인 1년으로 본다. */
+export const TERM_YEARS = [1, 2] as const;
+export type TermYears = (typeof TERM_YEARS)[number];
+
+export function normalizeTermYears(value: unknown): TermYears {
+  return value === 2 || value === "2" ? 2 : 1;
+}
+
+/** "1-year license" / "2-year license". 청구 PDF 수량 파서가 계정 수로 오인하지 않는 표현이다. */
+export function termLabel(termYears: number | null | undefined): string {
+  return `${normalizeTermYears(termYears)}-year license`;
 }
 
 /** 파트너에게 보이는 학교 이름은 영문 우선 — 메일과 화면이 같은 이름을 써야 대조가 된다. */
@@ -141,13 +156,21 @@ export function invoiceWhat(it: InvoiceEmailItem): string {
   const acc = it.accountType === "school" ? "school account" : it.accountType === "student" ? "student account" : "teacher account";
   const plural = qty > 1 ? `${qty} ${acc}s` : `1 ${acc}`;
 
+  const term = termLabel(it.termYears);
+
   if (it.type === "extension") {
-    return `Extension through ${it.extensionDate || "[DATE]"}, ${plural}`;
+    return `Extension through ${it.extensionDate || "[DATE]"}, ${plural}, ${term}`;
   }
   if (it.type === "upgrade" && it.accountType === "school") {
-    return "School-wide upgrade";
+    return `School-wide upgrade, ${term}`;
   }
-  return `Upgrade, ${plural}`;
+  return `Upgrade, ${plural}, ${term}`;
+}
+
+/** 인보이스 총액 배분 가중치 — 2년치는 같은 계정 수의 1년치보다 두 배를 차지한다. */
+export function invoiceWeight(it: { quantity?: number | null; termYears?: number | null }): number {
+  const qty = it.quantity && it.quantity > 0 ? it.quantity : 1;
+  return qty * normalizeTermYears(it.termYears);
 }
 
 /** 인보이스 한 건을 사람이 읽는 한 줄로. 교사 이메일 목록은 청구에 불필요하므로 넣지 않는다. */
@@ -253,7 +276,7 @@ export function formatCentsAsAmount(cents: number): string {
 }
 
 /**
- * 인보이스 총액을 요청별 계정 수에 비례해 나눈다.
+ * 인보이스 총액을 요청별 가중치(계정 수 × 결제 연수, invoiceWeight)에 비례해 나눈다.
  *
  * 반올림 잔여 센트는 마지막 건이 흡수해 **합계가 총액과 정확히 일치**하도록 한다.
  * 합이 안 맞으면 나중에 결제 대조가 깨지므로 이 불변식이 핵심이다.

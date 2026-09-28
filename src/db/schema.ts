@@ -80,6 +80,8 @@ export const accountRequests = pgTable("account_requests", {
   oldEmail: text("old_email"),
   fromType: text("from_type"),
   extensionDate: text("extension_date"),
+  // 결제 기간(년) — 1 또는 2. 연장 날짜만으로는 몇 년치 청구인지 알 수 없다.
+  termYears: integer("term_years").notNull().default(1),
   notes: text("notes"),
   status: text("status").notNull().default("draft"), // draft | sent | processed | invoiced | paid
   // 인보이스가 필요한 요청인지 — true 일 때만 본사 정산 담당(Cailie)을 CC 에 포함한다.
@@ -142,6 +144,7 @@ export const accountRequests = pgTable("account_requests", {
   uniqueIndex("account_requests_partner_item_unique_idx").on(table.partnerRequestId, table.partnerItemId),
   index("account_requests_order_number_idx").on(table.orderNumber),
   index("account_requests_market_void_state_idx").on(table.marketVoidState),
+  check("account_requests_term_years_check", sql`${table.termYears} in (1, 2)`),
   check(
     "account_requests_market_void_state_check",
     sql`${table.marketVoidState} in ('active', 'non_voidable', 'prepared', 'voided')`,
@@ -195,11 +198,13 @@ export const billingCycleItems = pgTable("billing_cycle_items", {
   accountType: text("account_type"),
   quantity: integer("quantity").notNull().default(1),
   extensionDate: text("extension_date"),
+  termYears: integer("term_years").notNull().default(1),
   includedAt: timestamp("included_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
   index("billing_cycle_items_cycle_id_idx").on(table.cycleId),
   uniqueIndex("billing_cycle_items_account_request_unique_idx").on(table.accountRequestId),
   check("billing_cycle_items_quantity_check", sql`${table.quantity} > 0`),
+  check("billing_cycle_items_term_years_check", sql`${table.termYears} in (1, 2)`),
 ]);
 
 /** 협력사 신청 배치의 멱등 원장. 응답 유실 후 같은 operation은 결과를 재사용한다. */

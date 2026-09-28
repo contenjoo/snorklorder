@@ -115,6 +115,7 @@ export async function POST(req: NextRequest) {
       oldEmail: string | null;
       fromType: string | null;
       extensionDate: string | null;
+      termYears: number;
       notes: string | null;
       processingEmailSendStartedAt: Date | null;
       processingEmailSentAt: Date | null;
@@ -148,6 +149,7 @@ export async function POST(req: NextRequest) {
           oldEmail: accountRequests.oldEmail,
           fromType: accountRequests.fromType,
           extensionDate: accountRequests.extensionDate,
+          termYears: accountRequests.termYears,
           notes: accountRequests.notes,
           processingEmailSendStartedAt: accountRequests.processingEmailSendStartedAt,
           processingEmailSentAt: accountRequests.processingEmailSentAt,

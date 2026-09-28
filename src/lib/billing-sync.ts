@@ -45,7 +45,7 @@ export async function runBillingSync(options: BillingSyncOptions = {}): Promise<
   if (numbers.size) conditions.push(inArray(accountRequests.invoiceNumber, [...numbers].flatMap((number) => [number, `#${number}`])));
   const rows: BillingRow[] = conditions.length ? await db.select({
     id: accountRequests.id, status: accountRequests.status, invoiceNumber: accountRequests.invoiceNumber,
-    invoiceAmount: accountRequests.invoiceAmount, quantity: accountRequests.quantity, marketVoidState: accountRequests.marketVoidState,
+    invoiceAmount: accountRequests.invoiceAmount, quantity: accountRequests.quantity, termYears: accountRequests.termYears, marketVoidState: accountRequests.marketVoidState,
   }).from(accountRequests).where(conditions.length === 1 ? conditions[0] : or(...conditions)) : [];
 
   const invoices = { applied: [] as AppliedInvoice[], alreadySynced: 0, unmatched: [] as UnmatchedItem[] };

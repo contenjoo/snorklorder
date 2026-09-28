@@ -27,8 +27,8 @@ function publicCycle(cycle: BillingCycleView) {
     sentAt: cycle.sentAt,
     invoiceNumber: cycle.invoiceNumber,
     paidAt: cycle.paidAt,
-    items: cycle.items.map(({ requestId, schoolNameEn, requestType, accountType, quantity, extensionDate }) => ({
-      requestId, schoolNameEn, requestType, accountType, quantity, extensionDate,
+    items: cycle.items.map(({ requestId, schoolNameEn, requestType, accountType, quantity, extensionDate, termYears }) => ({
+      requestId, schoolNameEn, requestType, accountType, quantity, extensionDate, termYears,
     })),
   };
 }
