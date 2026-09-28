@@ -7,7 +7,7 @@ import { checkAuth } from "@/lib/auth";
 import { checkRateLimit, createRateLimitResponse, isValidEmail, normalizeText } from "@/lib/security";
 import { sendAccountUpgradeCompletion } from "@/lib/email";
 // 인보이스 필요 여부 기본값은 SSOT 한 곳에서만 정의한다 (미리보기/발송/저장이 갈라지지 않도록).
-import { defaultNeedsInvoice } from "@/lib/account-email-template";
+import { defaultNeedsInvoice, normalizeTermYears } from "@/lib/account-email-template";
 import {
   hydrateAccountRequestSchoolNames,
   resolveAccountRequestSchoolNameEn,
@@ -321,6 +321,8 @@ export async function POST(req: NextRequest) {
       isAuthenticated && typeof data.needsInvoice === "boolean"
         ? data.needsInvoice
         : defaultNeedsInvoice(insertedType);
+    // 결제 기간은 관리자 폼에서만 고른다. Market 주문은 payload hash 계약에 없으므로 기본 1년.
+    const insertedTermYears = isAuthenticated && !marketEnvelope ? normalizeTermYears(data.termYears) : 1;
 
     const requestValues = {
       channel: insertedChannel,
@@ -409,7 +411,7 @@ export async function POST(req: NextRequest) {
 
     const [item] = await db
       .insert(accountRequests)
-      .values(requestValues)
+      .values({ ...requestValues, termYears: insertedTermYears })
       .returning();
 
     // 자동 Jon 발송은 사용자 정책상 비활성. 정산 화면에서 수동으로 검토 후 발송.
@@ -434,6 +436,7 @@ export async function POST(req: NextRequest) {
     for (const f of fields) {
       if (data[f] !== undefined) updates[f] = data[f];
     }
+    if (data.termYears !== undefined) updates.termYears = normalizeTermYears(data.termYears);
     if (typeof updates.schoolName === "string") {
       updates.schoolNameEn = await resolveAccountRequestSchoolNameEn(
         updates.schoolName,
@@ -524,6 +527,18 @@ export async function POST(req: NextRequest) {
         }, { status: 409 });
       }
       throw error;
+    }
+    // 아직 마감 전(collecting) 청구 묶음의 스냅샷에도 결제 기간을 반영한다. 마감 후 스냅샷은 불변.
+    if (item && updates.termYears !== undefined) {
+      await db.update(billingCycleItems)
+        .set({ termYears: item.termYears })
+        .where(and(
+          eq(billingCycleItems.accountRequestId, id),
+          inArray(
+            billingCycleItems.cycleId,
+            db.select({ id: billingCycles.id }).from(billingCycles).where(eq(billingCycles.status, "collecting")),
+          ),
+        ));
     }
     // 정산이 processed(Jon 처리완료)로 새로 전환된 교사 업그레이드 건 → 교사 본인에게 활성화 완료 메일 자동 발송
     // (Jon이 확인 링크로 처리하면 account-confirm 플로우가 이미 발송하므로, 여기선 대시보드 수동 전환 케이스를 커버)

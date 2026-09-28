@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
-interface Item { requestId: number; schoolNameEn: string; requestType: string; accountType: string | null; quantity: number; extensionDate: string | null; }
+interface Item { requestId: number; schoolNameEn: string; requestType: string; accountType: string | null; quantity: number; extensionDate: string | null; termYears?: number; }
 interface Cycle { id: number; code: string; status: string; periodStart: string; periodEnd: string; sentAt: string | null; invoiceNumber: string | null; paidAt: string | null; items: Item[]; }
 interface Ledger { collecting: Cycle[]; awaiting: Cycle[]; issues: Cycle[]; recent: Cycle[]; }
 
@@ -18,8 +18,9 @@ function formatDate(iso: string) {
 }
 
 function what(item: Item) {
-  if (item.requestType === "extension") return `Extend ${item.quantity} ${item.accountType || "account"}${item.quantity === 1 ? "" : "s"}${item.extensionDate ? ` to ${item.extensionDate}` : ""}`;
-  return `${item.requestType.replaceAll("_", " ")} · ${item.quantity} ${item.accountType || "account"}${item.quantity === 1 ? "" : "s"}`;
+  const term = ` · ${item.termYears === 2 ? 2 : 1}-year license`;
+  if (item.requestType === "extension") return `Extend ${item.quantity} ${item.accountType || "account"}${item.quantity === 1 ? "" : "s"}${item.extensionDate ? ` to ${item.extensionDate}` : ""}${term}`;
+  return `${item.requestType.replaceAll("_", " ")} · ${item.quantity} ${item.accountType || "account"}${item.quantity === 1 ? "" : "s"}${term}`;
 }
 
 function CycleCard({ cycle, tone = "slate" }: { cycle: Cycle; tone?: "slate" | "amber" | "rose" | "green" }) {

@@ -42,6 +42,7 @@ const LEDGER_FIELDS = {
   accountType: accountRequests.accountType,
   quantity: accountRequests.quantity,
   extensionDate: accountRequests.extensionDate,
+  termYears: accountRequests.termYears,
   status: accountRequests.status,
   invoiceNumber: accountRequests.invoiceNumber,
   invoiceEmailSentAt: accountRequests.invoiceEmailSentAt,
@@ -56,6 +57,7 @@ export interface LedgerRow {
   accountType: string | null;
   quantity: number | null;
   extensionDate: string | null;
+  termYears: number;
   status: string;
   invoiceNumber: string | null;
   invoiceEmailSentAt: Date | null;
@@ -123,6 +125,7 @@ export function toInvoiceEmailItem(row: LedgerRow): InvoiceEmailItem {
     accountType: row.accountType,
     quantity: row.quantity,
     extensionDate: row.extensionDate,
+    termYears: row.termYears,
   };
 }
 

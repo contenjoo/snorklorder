@@ -20,6 +20,7 @@ export interface BillingCycleEmailItem {
   accountType: string | null;
   quantity: number;
   extensionDate: string | null;
+  termYears: number;
 }
 
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
@@ -74,6 +75,7 @@ export function billingCycleItemLine(item: BillingCycleEmailItem): string {
     accountType: item.accountType,
     quantity: item.quantity,
     extensionDate: item.extensionDate,
+    termYears: item.termYears,
   })}`;
 }
 

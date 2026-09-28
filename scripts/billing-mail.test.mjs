@@ -142,6 +142,25 @@ test("planInvoiceSync: 계정 수 비례 배분, 합계 = 총액", () => {
   assert.deepEqual(plan1101.apply.map((a) => a.invoiceAmount), ["$80.00", "$160.00", "$160.00"]);
 });
 
+test("결제 기간 문구는 수량 파싱을 바꾸지 않고, 2년치는 배분에서 두 배를 받는다", () => {
+  const inv = parseInvoicePdfText(`Invoice no.: 1170
+Note to customer
+Billing cycle: 2026-09-B
+[#245] Changdong Middle School — Extension through 2028-03-31, 1 teacher account, 1-year license
+[#246] Changdong Middle School — Extension through 2028-09-17, 1 teacher account, 2-
+year license
+[#247] Gusan Middle School — Upgrade, 2 teacher accounts, 2-year license
+View and pay
+Total $560.00`);
+  assert.deepEqual(inv.requestItems, [
+    { requestId: 245, quantity: 1 },
+    { requestId: 246, quantity: 1 },
+    { requestId: 247, quantity: 2 },
+  ]);
+  const plan = planInvoiceSync(inv, [row(245), row(246, { termYears: 2 }), row(247, { quantity: 2, termYears: 2 })]);
+  assert.deepEqual(plan.apply.map((a) => a.invoiceAmount), ["$80.00", "$160.00", "$320.00"]);
+});
+
 test("planInvoiceSync: 재실행은 already_synced, 다른 번호가 있으면 손대지 않는다", () => {
   const inv = parseInvoicePdfText(INVOICE_1116);
   const done = [203, 204, 205, 206].map((id) => row(id, { status: "invoiced", invoiceNumber: "1116", invoiceAmount: "$80.00" }));

@@ -8,6 +8,9 @@ import {
   mergeOpenInvoiceItems,
   shouldMarkInvoicedOnNumberEntry,
   allocateInvoiceAmounts,
+  invoiceWeight,
+  normalizeTermYears,
+  termLabel,
   parseInvoiceAmountToCents,
   formatCentsAsAmount,
 } from "../src/lib/account-email-template.ts";
@@ -99,15 +102,39 @@ test("남은 게 없으면 목록 대신 다 끝났다고 말한다", () => {
 });
 
 test("청구 내용 문구는 유형별로 갈린다", () => {
-  assert.equal(invoiceWhat(upgrade(1, "A")), "Upgrade, 1 teacher account");
-  assert.equal(invoiceWhat(upgrade(1, "A", 5)), "Upgrade, 5 teacher accounts");
+  assert.equal(invoiceWhat(upgrade(1, "A")), "Upgrade, 1 teacher account, 1-year license");
+  assert.equal(invoiceWhat(upgrade(1, "A", 5)), "Upgrade, 5 teacher accounts, 1-year license");
   assert.equal(
     invoiceWhat({ ...upgrade(1, "A"), accountType: "school" }),
-    "School-wide upgrade",
+    "School-wide upgrade, 1-year license",
   );
   assert.equal(
     invoiceWhat({ ...upgrade(1, "A"), type: "extension", extensionDate: "2027-08-28" }),
-    "Extension through 2027-08-28, 1 teacher account",
+    "Extension through 2027-08-28, 1 teacher account, 1-year license",
+  );
+});
+
+test("결제 기간은 1년·2년만 있고 청구 줄에 항상 밝힌다", () => {
+  assert.equal(
+    invoiceWhat({ ...upgrade(246, "Changdong"), type: "extension", extensionDate: "2028-09-17", termYears: 2 }),
+    "Extension through 2028-09-17, 1 teacher account, 2-year license",
+  );
+  assert.equal(invoiceWhat({ ...upgrade(1, "A", 2), termYears: 2 }), "Upgrade, 2 teacher accounts, 2-year license");
+  assert.equal(invoiceWhat({ ...upgrade(1, "A"), accountType: "school", termYears: 2 }), "School-wide upgrade, 2-year license");
+  // 누락·이상값은 기존 기본값 1년
+  assert.equal(normalizeTermYears(undefined), 1);
+  assert.equal(normalizeTermYears(3), 1);
+  assert.equal(normalizeTermYears("2"), 2);
+  assert.equal(termLabel(null), "1-year license");
+});
+
+test("인보이스 배분 가중치는 계정 수 × 결제 연수다", () => {
+  assert.equal(invoiceWeight({ quantity: 2, termYears: 2 }), 4);
+  assert.equal(invoiceWeight({ quantity: null, termYears: null }), 1);
+  // 1계정 1년 + 1계정 2년 = $240 → $80 / $160
+  assert.deepEqual(
+    allocateInvoiceAmounts(24000, [{ quantity: 1, termYears: 1 }, { quantity: 1, termYears: 2 }].map(invoiceWeight)),
+    [8000, 16000],
   );
 });
 
