@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { desc, eq, ne, inArray, sql, and, gte, isNotNull, notInArray } from "drizzle-orm";
 import { db } from "@/db";
-import { schools, teachers, upgradeBatches, emailLogs, teams, accountRequests, billingCycles, domainRequests } from "@/db/schema";
+import { schools, teachers, upgradeBatches, emailLogs, teams, accountRequests, billingCycles, billingCycleItems, domainRequests } from "@/db/schema";
 import { checkAuth } from "@/lib/auth";
 
 type SchoolCounts = {
@@ -133,10 +133,19 @@ export async function GET() {
       invoiceDueDate: accountRequests.invoiceDueDate,
       paymentLink: accountRequests.paymentLink,
       paymentDate: accountRequests.paymentDate,
+      needsInvoice: accountRequests.needsInvoice,
       createdAt: accountRequests.createdAt,
       updatedAt: accountRequests.updatedAt,
       confirmedAt: accountRequests.confirmedAt,
-    }).from(accountRequests).where(and(
+      // 통합 청구 묶음 — 마감 전 묶음에 들어간 건은 본사 차례가 아니다.
+      billingCycleCode: billingCycles.code,
+      billingCycleStatus: billingCycles.status,
+      billingCyclePeriodEnd: billingCycles.periodEnd,
+      billingCycleSentAt: billingCycles.sentAt,
+    }).from(accountRequests)
+      .leftJoin(billingCycleItems, eq(billingCycleItems.accountRequestId, accountRequests.id))
+      .leftJoin(billingCycles, eq(billingCycles.id, billingCycleItems.cycleId))
+      .where(and(
       inArray(accountRequests.status, ["draft", "sent", "processed", "invoiced"]),
       notInArray(accountRequests.marketVoidState, ["prepared", "voided"]),
     )).orderBy(desc(accountRequests.updatedAt)),
