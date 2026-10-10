@@ -75,9 +75,14 @@ interface OpenAccountRequest {
   invoiceDueDate: string | null;
   paymentLink: string | null;
   paymentDate: string | null;
+  needsInvoice?: boolean;
   createdAt: string;
   updatedAt: string;
   confirmedAt: string | null;
+  billingCycleCode?: string | null;
+  billingCycleStatus?: string | null;
+  billingCyclePeriodEnd?: string | null;
+  billingCycleSentAt?: string | null;
 }
 
 interface OpenDomainRequest {
@@ -109,20 +114,34 @@ interface ActivityItem {
   schoolNameEn?: string | null;
 }
 
+/** "10/16 09:00" (KST). 마감은 항상 KST 09:00 경계다. */
+function formatCycleDeadline(iso: string | null): string {
+  if (!iso) return "마감일 미정";
+  const kst = new Date(new Date(iso).getTime() + 9 * 60 * 60 * 1000);
+  return `${kst.getUTCMonth() + 1}/${kst.getUTCDate()} ${String(kst.getUTCHours()).padStart(2, "0")}:00`;
+}
+
 function parseAmount(s?: string | null): number {
   if (!s) return 0;
   const n = Number(String(s).replace(/[^\d.]/g, ""));
   return isNaN(n) ? 0 : n;
 }
 
-function classifyAccount(r: OpenAccountRequest): "JON_PROCESS" | "JON_INVOICE" | "ME_PAY" | "JON_CONFIRM" {
+type Bucket = "JON_PROCESS" | "JON_INVOICE" | "BATCH_WAIT" | "ME_PAY" | "JON_CONFIRM" | "NONE";
+
+/** 마감 전 통합 청구 묶음 — 아직 Cailie 에게 청구 메일이 나가지 않았다. */
+const PRE_SEND_CYCLE_STATUSES = ["collecting", "ready"];
+
+function classifyAccount(r: OpenAccountRequest): Bucket {
   if (r.status === "draft" || r.status === "sent") return "JON_PROCESS";
+  if (r.status === "processed" && r.needsInvoice === false) return "NONE";
+  if (r.status === "processed" && !r.invoiceNumber && r.billingCycleStatus && PRE_SEND_CYCLE_STATUSES.includes(r.billingCycleStatus)) return "BATCH_WAIT";
   if (r.status === "processed" && !r.invoiceNumber) return "JON_INVOICE";
   if (r.status === "invoiced" && !r.paymentDate) return "ME_PAY";
   return "JON_CONFIRM";
 }
 
-function classifyDomain(r: OpenDomainRequest): "JON_PROCESS" | "JON_INVOICE" | "ME_PAY" | "JON_CONFIRM" {
+function classifyDomain(r: OpenDomainRequest): Bucket {
   if (r.status === "pending") return "JON_PROCESS";
   if (r.status === "done" && !r.invoiceNumber) return "JON_INVOICE";
   if (r.status === "invoiced" && !r.paymentDate) return "ME_PAY";
@@ -278,8 +297,9 @@ export default function AdminDashboard() {
     reqType: string; applicantType: string; emailCount: number;
     amount: number; amountText: string;
     paymentLink: string | null; invoiceNumber: string | null; invoiceDueDate: string | null;
-    status: string; bucket: "JON_PROCESS" | "JON_INVOICE" | "ME_PAY" | "JON_CONFIRM";
+    status: string; bucket: Bucket;
     updatedAt: string; ageDays: number;
+    cycleCode: string | null; cyclePeriodEnd: string | null;
   };
   const items: BillingItem[] = [];
   for (const r of (openAccountRequests || [])) {
@@ -290,7 +310,9 @@ export default function AdminDashboard() {
       amount: parseAmount(r.invoiceAmount), amountText: r.invoiceAmount || "",
       paymentLink: r.paymentLink, invoiceNumber: r.invoiceNumber, invoiceDueDate: r.invoiceDueDate,
       status: r.status, bucket: classifyAccount(r),
-      updatedAt: r.updatedAt, ageDays: daysSince(r.updatedAt) ?? 0,
+      // 청구 메일이 나간 묶음은 발송 시점부터 Cailie 대기일을 센다.
+      updatedAt: r.updatedAt, ageDays: daysSince(r.billingCycleSentAt || r.updatedAt) ?? 0,
+      cycleCode: r.billingCycleCode ?? null, cyclePeriodEnd: r.billingCyclePeriodEnd ?? null,
     });
   }
   for (const r of (openDomainRequests || [])) {
@@ -301,11 +323,13 @@ export default function AdminDashboard() {
       paymentLink: r.paymentLink, invoiceNumber: r.invoiceNumber, invoiceDueDate: r.invoiceDueDate,
       status: r.status, bucket: classifyDomain(r),
       updatedAt: r.updatedAt, ageDays: daysSince(r.updatedAt) ?? 0,
+      cycleCode: null, cyclePeriodEnd: null,
     });
   }
   const buckets = {
     JON_PROCESS: items.filter((i) => i.bucket === "JON_PROCESS"),
     JON_INVOICE: items.filter((i) => i.bucket === "JON_INVOICE"),
+    BATCH_WAIT: items.filter((i) => i.bucket === "BATCH_WAIT"),
     ME_PAY: items.filter((i) => i.bucket === "ME_PAY"),
     JON_CONFIRM: items.filter((i) => i.bucket === "JON_CONFIRM"),
   };
@@ -325,6 +349,13 @@ export default function AdminDashboard() {
 
   const myTurnCount = myDrafts.length + mePay.length;
   const jonTurnItems = [...jonWaiting, ...jonInvoice, ...jonConfirm];
+  // 마감 전 묶음은 누구의 할 일도 아니다 — 개수와 마감 시각만 알려준다.
+  const batchWaitCycles = Object.values(buckets.BATCH_WAIT.reduce<Record<string, { code: string; periodEnd: string | null; count: number }>>((acc, i) => {
+    const code = i.cycleCode || "-";
+    acc[code] ??= { code, periodEnd: i.cyclePeriodEnd, count: 0 };
+    acc[code].count++;
+    return acc;
+  }, {})).sort((a, b) => a.code.localeCompare(b.code));
   const todoCount = myTurnCount + jonTurnItems.length + approvalQueue.length;
 
   // KPI 계산
@@ -409,7 +440,7 @@ export default function AdminDashboard() {
         ? `⬆️ ${i.emailCount}명`
         : `${REQ_TYPE_CHIP[i.reqType] || "📚"} ${i.reqType === "email_change" ? "이메일 변경" : i.reqType === "type_change" ? "타입 변경" : i.reqType === "extension" ? "연장" : "계정 요청"}`;
     const jonChip = i.bucket === "JON_PROCESS" ? { label: "처리 대기", cls: "bg-purple-50 text-purple-700" }
-      : i.bucket === "JON_INVOICE" ? { label: "인보이스 대기", cls: "bg-amber-50 text-amber-700" }
+      : i.bucket === "JON_INVOICE" ? { label: "Cailie 인보이스 대기", cls: "bg-amber-50 text-amber-700" }
         : { label: "확인 대기", cls: "bg-blue-50 text-blue-700" };
     const detail = group === "MY_DRAFT"
       ? `draft — Jon에게 아직 발송 안 됨`
@@ -418,7 +449,7 @@ export default function AdminDashboard() {
         : i.bucket === "JON_PROCESS"
           ? `${i.status === "sent" ? "Jon에게 발송됨" : "처리 요청됨"} — 처리 대기 중`
           : i.bucket === "JON_INVOICE"
-            ? "처리 완료 · 인보이스 아직"
+            ? (i.cycleCode ? `${i.cycleCode} 청구 메일 발송 · 인보이스 아직` : "처리 완료 · 인보이스 아직")
             : "결제 완료 · Jon confirm 대기";
     return (
       <div key={i.id} className="flex items-center gap-3 px-4 md:px-5 py-2.5 border-t hover:bg-slate-50/70">
@@ -486,9 +517,12 @@ export default function AdminDashboard() {
           <p className="text-[11px] text-slate-500">발송 대기 {myDrafts.length} · 결제 {mePay.length}</p>
         </Link>
         <Link href="/admin/accounts?filter=sent" className="block bg-white rounded-xl border p-3.5 transition-shadow hover:shadow-md hover:ring-1 hover:ring-slate-200">
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Jon 차례</p>
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">본사 차례</p>
           <p className="text-2xl font-extrabold tabular-nums text-slate-900 leading-tight mt-0.5">{jonWaiting.length + jonInvoice.length}</p>
-          <p className="text-[11px] text-slate-500">처리 대기 {jonWaiting.length} · 인보이스 {jonInvoice.length}</p>
+          <p className="text-[11px] text-slate-500">Jon 처리 {jonWaiting.length} · Cailie 인보이스 {jonInvoice.length}</p>
+          {buckets.BATCH_WAIT.length > 0 && (
+            <p className="text-[11px] text-slate-400">청구 묶음 대기 {buckets.BATCH_WAIT.length}건은 제외</p>
+          )}
         </Link>
         <Link href="/admin/accounts?filter=invoiced" className="block bg-white rounded-xl border p-3.5 transition-shadow hover:shadow-md hover:ring-1 hover:ring-slate-200">
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">결제 예정 금액</p>
@@ -539,11 +573,12 @@ export default function AdminDashboard() {
 
                 {jonTurnItems.length > 0 && (
                   <div className="flex items-center gap-1.5 px-4 md:px-5 pt-3 pb-1 text-[10px] font-extrabold uppercase tracking-widest text-purple-700">
-                    <span className="w-1.5 h-1.5 rounded-full bg-purple-700" />Jon 차례
+                    <span className="w-1.5 h-1.5 rounded-full bg-purple-700" />본사 차례
                     <span className="font-medium normal-case tracking-normal text-slate-400">— 3일 넘으면 🔥</span>
                   </div>
                 )}
                 {jonTurnItems.map((i) => renderBillingRow(i, "JON"))}
+
 
                 {approvalQueue.length > 0 && (
                   <div className="flex flex-wrap items-center gap-2 px-4 md:px-5 pt-3 pb-1">
@@ -631,6 +666,20 @@ export default function AdminDashboard() {
                 })}
               </>
             )}
+            {batchWaitCycles.map((cycle) => (
+              <Link
+                key={cycle.code}
+                href="/admin/accounts"
+                className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-4 md:px-5 py-2.5 border-t bg-slate-50/60 hover:bg-slate-100/70 text-[12px] text-slate-600"
+              >
+                <span className="whitespace-nowrap text-[10px] font-extrabold uppercase tracking-widest text-slate-500">청구 묶음 대기</span>
+                <span className="whitespace-nowrap font-mono font-semibold text-slate-700">{cycle.code}</span>
+                <span className="whitespace-nowrap tabular-nums">{cycle.count}건</span>
+                <span className="ml-auto whitespace-nowrap text-slate-400">
+                  {formatCycleDeadline(cycle.periodEnd)} 마감 후 Cailie에게 발송
+                </span>
+              </Link>
+            ))}
           </details>
 
           {/* Jon 발송 대기 큐 (교사 업그레이드) — 기존 기능 유지 */}

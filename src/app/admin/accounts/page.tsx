@@ -178,6 +178,8 @@ function AccountsPageContent() {
 
   const [certificateRequest, setCertificateRequest] = useState<AccountRequest | null>(null);
   const [requests, setRequests] = useState<AccountRequest[]>([]);
+  // 첫 응답 전에는 "요청 없음"이 아니라 "불러오는 중"이다.
+  const [loaded, setLoaded] = useState(false);
   const [filter, setFilter] = useState(
     filterParam && STATUSES.some((s) => s.value === filterParam) ? filterParam : "all"
   );
@@ -246,14 +248,18 @@ function AccountsPageContent() {
   const [fPayMethod, setFPayMethod] = useState("");
 
   async function load() {
-    const res = await fetch("/api/account-requests");
-    const data = await res.json();
-    if (!res.ok) {
-      setRequests([]);
-      setSendMsg(data.error || "목록을 불러오지 못했습니다");
-      return;
+    try {
+      const res = await fetch("/api/account-requests");
+      const data = await res.json();
+      if (!res.ok) {
+        setRequests([]);
+        setSendMsg(data.error || "목록을 불러오지 못했습니다");
+        return;
+      }
+      setRequests(Array.isArray(data) ? data : []);
+    } finally {
+      setLoaded(true);
     }
-    setRequests(Array.isArray(data) ? data : []);
   }
   useEffect(() => { load(); }, []);
 
@@ -959,6 +965,14 @@ function AccountsPageContent() {
     groups.set(request.partnerRequestId, rows);
     return groups;
   }, new Map<string, AccountRequest[]>()).entries());
+  // 지금 손댈 게 있는 묶음만 펼친다. 나머지는 접힌 요약 한 줄씩.
+  const partnerGroupNeedsAction = (rows: AccountRequest[]) => rows.some((row) => (
+    getAccountEmailDeliveryState(row) === "ready"
+    || needsDeliveryReview(row)
+    || (Boolean(row.confirmedAt) && !row.partnerNotificationSentAt)
+  ));
+  const activePartnerGroups = partnerGroups.filter(([, rows]) => partnerGroupNeedsAction(rows));
+  const settledPartnerGroups = partnerGroups.filter(([, rows]) => !partnerGroupNeedsAction(rows));
 
   return (
     <div className="space-y-3 pb-20 md:pb-0">
@@ -975,31 +989,35 @@ function AccountsPageContent() {
         <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:ml-auto w-full sm:w-auto">
           <Input placeholder="검색..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full sm:w-36 h-7 text-xs" />
           <div className="flex items-center gap-1.5">
-            <Select value={filterApplicant} onValueChange={(v) => setFilterApplicant(v ?? "all")}>
-              <SelectTrigger className="w-24 h-7 text-[11px]"><SelectValue /></SelectTrigger>
+            <Select value={filterApplicant} onValueChange={(v) => setFilterApplicant(v ?? "all")}
+              items={{ all: "신청주체 전체", ...Object.fromEntries(APPLICANT_TYPES.map((a) => [a.value, `${a.icon} ${a.label}`])) }}>
+              <SelectTrigger className="w-28 h-7 text-[11px]"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">신청주체</SelectItem>
+                <SelectItem value="all">신청주체 전체</SelectItem>
                 {APPLICANT_TYPES.map((a) => <SelectItem key={a.value} value={a.value}>{a.icon} {a.label}</SelectItem>)}
               </SelectContent>
             </Select>
-            <Select value={filterChannel} onValueChange={(v) => setFilterChannel(v ?? "all")}>
-              <SelectTrigger className="w-24 h-7 text-[11px]"><SelectValue /></SelectTrigger>
+            <Select value={filterChannel} onValueChange={(v) => setFilterChannel(v ?? "all")}
+              items={{ all: "구매처 전체", ...Object.fromEntries(CHANNELS.map((c) => [c.value, `${c.icon} ${c.label}`])) }}>
+              <SelectTrigger className="w-28 h-7 text-[11px]"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">구매처</SelectItem>
+                <SelectItem value="all">구매처 전체</SelectItem>
                 {CHANNELS.map((c) => <SelectItem key={c.value} value={c.value}>{c.icon} {c.label}</SelectItem>)}
               </SelectContent>
             </Select>
-            <Select value={filterType} onValueChange={(v) => setFilterType(v ?? "all")}>
-              <SelectTrigger className="w-24 h-7 text-[11px]"><SelectValue /></SelectTrigger>
+            <Select value={filterType} onValueChange={(v) => setFilterType(v ?? "all")}
+              items={{ all: "유형 전체", ...Object.fromEntries(TYPES.map((t) => [t.value, `${t.icon} ${t.label}`])) }}>
+              <SelectTrigger className="w-28 h-7 text-[11px]"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">유형</SelectItem>
+                <SelectItem value="all">유형 전체</SelectItem>
                 {TYPES.map((t) => <SelectItem key={t.value} value={t.value}>{t.icon} {t.label}</SelectItem>)}
               </SelectContent>
             </Select>
-            <Select value={filterInvoice} onValueChange={(v) => setFilterInvoice(v ?? "all")}>
-              <SelectTrigger className="w-24 h-7 text-[11px]"><SelectValue /></SelectTrigger>
+            <Select value={filterInvoice} onValueChange={(v) => setFilterInvoice(v ?? "all")}
+              items={{ all: "인보이스 전체", 필요: "💳 필요", 불필요: "— 불필요" }}>
+              <SelectTrigger className="w-28 h-7 text-[11px]"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">인보이스</SelectItem>
+                <SelectItem value="all">인보이스 전체</SelectItem>
                 <SelectItem value="필요">💳 필요</SelectItem>
                 <SelectItem value="불필요">— 불필요</SelectItem>
               </SelectContent>
@@ -1347,10 +1365,12 @@ function AccountsPageContent() {
       {partnerGroups.length > 0 && (
         <section className="rounded-xl border border-cyan-200 bg-cyan-50/50 p-3 space-y-2" aria-labelledby="partner-request-groups">
           <div>
-            <h2 id="partner-request-groups" className="text-sm font-semibold text-cyan-950">협력사 신청 묶음</h2>
+            <h2 id="partner-request-groups" className="text-sm font-semibold text-cyan-950">
+              협력사 신청 묶음 <span className="font-normal text-cyan-800">· 할 일 {activePartnerGroups.length}</span>
+            </h2>
             <p className="text-[11px] text-cyan-800">같은 신청의 교사를 함께 확인한 뒤 본사로 발송합니다.</p>
           </div>
-          {partnerGroups.map(([requestId, rows]) => {
+          {activePartnerGroups.map(([requestId, rows]) => {
             const readyRows = rows.filter((row) => getAccountEmailDeliveryState(row) === "ready");
             const unknown = rows.some(needsDeliveryReview);
             const notificationCandidates = rows.filter((row) => (
@@ -1425,6 +1445,25 @@ function AccountsPageContent() {
               </div>
             );
           })}
+          {settledPartnerGroups.length > 0 && (
+            <details className="rounded-lg border border-cyan-100 bg-white/70">
+              <summary className="cursor-pointer px-3 py-2 text-[11px] text-cyan-900 select-none">
+                처리 끝난 묶음 {settledPartnerGroups.length}개 보기
+              </summary>
+              <ul className="divide-y divide-cyan-50 border-t border-cyan-100">
+                {settledPartnerGroups.map(([requestId, rows]) => (
+                  <li key={requestId} className="flex items-center gap-2 px-3 py-1.5 text-[11px] text-slate-600">
+                    <span className="font-medium text-slate-800">{rows[0]?.schoolName}</span>
+                    <span className="text-slate-400">{rows[0]?.schoolNameEn}</span>
+                    <span>· {rows.length}명</span>
+                    <span className="ml-auto text-slate-400">
+                      {rows.every((row) => row.confirmedAt) ? "본사 처리·안내 완료" : "본사 처리 대기"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
         </section>
       )}
 
@@ -1584,7 +1623,7 @@ function AccountsPageContent() {
                     >서버 발송</button>
                   ) : (
                     <>
-                      <button onClick={() => setEmailPreview(r)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-blue-50 text-slate-400 hover:text-blue-600" title="미리보기">📧</button>
+                      <button onClick={() => setEmailPreview(r)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-blue-50 text-slate-400 hover:text-blue-600" title="미리보기" aria-label={`${r.schoolName} 메일 미리보기`}>📧</button>
                       <button
                         onClick={() => openGmail(r)}
                         disabled={deliveryState !== "ready"}
@@ -1595,12 +1634,12 @@ function AccountsPageContent() {
                             ? "Jon 처리 메일 발송 완료/확인 필요 — 중복 발송 차단"
                             : "Gmail"}
                       >📨</button>
-                      <button onClick={() => copyEmail(r)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-slate-100 text-slate-400 hover:text-slate-600" title="복사">📋</button>
+                      <button onClick={() => copyEmail(r)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-slate-100 text-slate-400 hover:text-slate-600" title="복사" aria-label={`${r.schoolName} 메일 복사`}>📋</button>
                     </>
                   )}
                   <button onClick={() => setCertificateRequest(r)} disabled={marketVoidFenced || legacyMarketAudit} className="w-7 h-7 rounded flex items-center justify-center text-slate-500 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-30 disabled:cursor-not-allowed" title="라이선스 확인서 발급" aria-label={`${r.schoolName} 라이선스 확인서 발급`}><FileText className="w-4 h-4" /></button>
                   <button onClick={() => openEdit(r)} disabled={marketVoidFenced || legacyMarketAudit} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-slate-100 text-slate-400 hover:text-slate-600 disabled:opacity-30 disabled:cursor-not-allowed" title={legacyMarketAudit ? "구 Market 감사 원본 수정 금지" : "수정"}>✎</button>
-                  {!marketManaged && !legacyMarketAudit && <button onClick={() => deleteRequest(r.id)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-red-50 text-slate-300 hover:text-red-500" title="삭제">✕</button>}
+                  {!marketManaged && !legacyMarketAudit && <button onClick={() => deleteRequest(r.id)} className="w-7 h-7 rounded flex items-center justify-center text-sm hover:bg-red-50 text-slate-300 hover:text-red-500" title="삭제" aria-label={`${r.schoolName} 요청 삭제`}>✕</button>}
                 </div>
               </div>
 
@@ -1675,7 +1714,7 @@ function AccountsPageContent() {
 
         {filtered.length === 0 && (
           <div className="py-8 text-center text-slate-400 text-sm">
-            {requests.length === 0 ? "계정 요청이 없습니다" : "검색 결과 없음"}
+            {!loaded ? "불러오는 중…" : requests.length === 0 ? "계정 요청이 없습니다" : "검색 결과 없음"}
           </div>
         )}
       </div>
