@@ -8,6 +8,10 @@ export interface ProcessingReply {
   authenticated: boolean; text: string; parentText: string;
   snapshots: SentRequestSnapshot[]; sourceVerified: boolean;
   gmailId?: string; incomplete?: boolean;
+  /** 직접 부모는 우리 메일이지만 원래 요청 메일까지 Jon 메일을 건너 올라간 경우. 자동 반영하지 않는다. */
+  indirect?: boolean;
+  /** 답장이 아닌 메일(본문 없는 자동·홍보 메일 등). 재수집하지 않고 사유만 남긴다. */
+  ignoredReason?: string;
 }
 export interface CompletionPlan {
   selected: number[]; related: number[]; reason: string; evidence: string;
@@ -44,7 +48,10 @@ export function planProcessingReply(reply: ProcessingReply): CompletionPlan {
   const related = [...new Set(reply.snapshots.map(s => s.id))];
   const reject = (reason: string): CompletionPlan => ({ selected: [], related, reason, evidence: own.slice(0, 1200) });
   if (!reply.authenticated || reply.sender.toLowerCase() !== 'jon@snorkl.app') return reject('발신 인증 실패');
+  if (reply.ignoredReason) return reject(reply.ignoredReason);
   if (!reply.sourceVerified || reply.incomplete) return reject('실제 보낸메일 또는 답장 연결 확인 필요');
+  // 우리 후속 메일에 단 답장은 어느 요청을 말하는지 사람이 확인한다.
+  if (reply.indirect) return reject('후속 메일에 대한 답장: 요청 확인 필요');
   // Only complete, recognized statements qualify. Unknown prose (including negations,
   // future tense and qualifications) stays in review rather than being keyword-matched.
   const statement = own.replace(/^Hi [^,\n]+,?\s*/i, '')
