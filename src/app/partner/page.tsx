@@ -38,6 +38,10 @@ interface BillingAccount {
   invoiceAmount: string | null;
   createdAt: string;
   updatedAt: string;
+  billingCycleCode?: string | null;
+  billingCycleStatus?: string | null;
+  billingCyclePeriodEnd?: string | null;
+  billingCycleSentAt?: string | null;
 }
 
 interface BillingDomain {
@@ -54,6 +58,15 @@ interface BillingDomain {
 }
 
 type Tab = "action" | "schools" | "recent" | "billing";
+
+/** Cailie 에게 청구 요청이 아직 나가지 않은 통합 청구 묶음 상태. */
+const PRE_SEND_CYCLE_STATUSES = ["collecting", "ready"];
+
+/** "Oct 16" — 묶음 마감·발송일은 KST 기준. */
+function shortDate(iso: string | null | undefined): string {
+  if (!iso) return "";
+  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "Asia/Seoul" });
+}
 
 /** 갱신 후 경과 일수. 파싱 실패 시 0으로 표시. */
 function daysAgo(iso: string): number {
@@ -182,12 +195,22 @@ export default function PartnerDashboard() {
     // 청구 대기 판정은 Cailie 에게 나가는 인보이스 메일·확인 페이지와 같은 조건이어야 한다.
     // (1) needsInvoice=false 인 계정 정보 변경 건은 애초에 청구 대상이 아니고,
     // (2) 인보이스 메일은 발송 즉시(sent) 나가므로 processed 를 기다리면 화면이 메일보다 늦다.
-    const acctInvoice = billingAccounts.filter(
+    const awaitingInvoice = billingAccounts.filter(
       (r) => r.needsInvoice && !r.invoiceNumber && (r.status === "sent" || r.status === "processed")
     );
+    // 마감 전 묶음에 들어간 건은 아직 누구의 할 일도 아니다 — 배지·경과일에서 뺀다.
+    const inNextBatch = (r: BillingAccount) => Boolean(r.billingCycleStatus && PRE_SEND_CYCLE_STATUSES.includes(r.billingCycleStatus));
+    const acctInvoice = awaitingInvoice.filter((r) => !inNextBatch(r));
+    const acctNextBatch = awaitingInvoice.filter(inNextBatch);
+    const nextBatches = Object.values(acctNextBatch.reduce<Record<string, { code: string; periodEnd: string | null; rows: BillingAccount[] }>>((acc, r) => {
+      const code = r.billingCycleCode || "-";
+      acc[code] ??= { code, periodEnd: r.billingCyclePeriodEnd ?? null, rows: [] };
+      acc[code].rows.push(r);
+      return acc;
+    }, {})).sort((a, b) => a.code.localeCompare(b.code));
     const domProcess = billingDomains.filter((r) => r.status === "pending");
     const domInvoice = billingDomains.filter((r) => r.status === "done" && !r.invoiceNumber);
-    return { acctProcess, acctInvoice, domProcess, domInvoice, total: acctProcess.length + acctInvoice.length + domProcess.length + domInvoice.length };
+    return { acctProcess, acctInvoice, nextBatches, domProcess, domInvoice, total: acctProcess.length + acctInvoice.length + domProcess.length + domInvoice.length };
   }, [billingAccounts, billingDomains]);
 
   function toggle(id: number) {
@@ -585,7 +608,7 @@ export default function PartnerDashboard() {
       {/* ===== Billing Tab ===== */}
       {tab === "billing" && (
         <div className="space-y-4">
-          {jonTodo.total === 0 ? (
+          {jonTodo.total === 0 && jonTodo.nextBatches.length === 0 ? (
             <div className="bg-white rounded-xl border p-10 text-center">
               <div className="text-3xl mb-2">✅</div>
               <p className="text-sm font-medium text-gray-700">All caught up — nothing waiting on you.</p>
@@ -621,7 +644,7 @@ export default function PartnerDashboard() {
               {(jonTodo.acctInvoice.length > 0 || jonTodo.domInvoice.length > 0) && (
                 <div className="bg-white rounded-xl border overflow-hidden">
                   <div className="px-4 py-2.5 bg-orange-50 border-b border-orange-100 flex items-center gap-2">
-                    <span>🧾</span><span className="text-sm font-bold text-orange-900">Invoice needed</span>
+                    <span>🧾</span><span className="text-sm font-bold text-orange-900">Invoice requested</span>
                     <span className="text-xs text-orange-600">{jonTodo.acctInvoice.length + jonTodo.domInvoice.length}</span>
                   </div>
                   <div className="divide-y">
@@ -629,8 +652,14 @@ export default function PartnerDashboard() {
                       <div key={`ai${r.id}`} className="px-4 py-2.5 flex items-center gap-2 text-sm">
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 shrink-0">📚 account</span>
                         <span className="text-gray-800 truncate flex-1">{r.schoolNameEn || r.schoolName}</span>
-                        <span className="text-[10px] text-orange-600 shrink-0">upgraded, awaiting invoice</span>
-                        <span className={`text-[11px] shrink-0 ${daysAgo(r.updatedAt) >= 5 ? "text-red-600 font-bold" : "text-gray-400"}`}>{daysAgo(r.updatedAt)}d</span>
+                        <span className="text-[10px] text-orange-600 shrink-0">
+                          {r.billingCycleCode ? `Batch ${r.billingCycleCode} · requested ${shortDate(r.billingCycleSentAt)}` : "upgraded, awaiting invoice"}
+                        </span>
+                        {(() => {
+                          // 청구 메일이 나간 묶음은 발송일부터 센다.
+                          const age = daysAgo(r.billingCycleSentAt || r.updatedAt);
+                          return <span className={`text-[11px] shrink-0 ${age >= 5 ? "text-red-600 font-bold" : "text-gray-400"}`}>{age}d</span>;
+                        })()}
                       </div>
                     ))}
                     {jonTodo.domInvoice.map((r) => (
@@ -644,8 +673,27 @@ export default function PartnerDashboard() {
                   </div>
                 </div>
               )}
+              {jonTodo.nextBatches.map((batch) => (
+                <div key={batch.code} className="bg-gray-50 rounded-xl border border-gray-200 overflow-hidden">
+                  <div className="px-4 py-2.5 border-b border-gray-200 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                    <span>🗓</span><span className="text-sm font-bold text-gray-700">Next invoice batch</span>
+                    <span className="text-xs text-gray-500">{batch.rows.length}</span>
+                    <span className="ml-auto text-xs text-gray-500">
+                      {batch.code}{batch.periodEnd ? ` · closes ${shortDate(batch.periodEnd)}` : ""}
+                    </span>
+                  </div>
+                  <div className="divide-y divide-gray-200">
+                    {batch.rows.map((r) => (
+                      <div key={`nb${r.id}`} className="px-4 py-2 flex items-center gap-2 text-sm">
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-white text-gray-500 shrink-0">📚 account</span>
+                        <span className="text-gray-600 truncate flex-1">{r.schoolNameEn || r.schoolName}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
               <p className="text-[11px] text-gray-400 text-center px-4">
-                읽기 전용 체크리스트입니다. 처리 후 받으신 확인 메일의 버튼을 눌러 완료 표시해주세요.
+                Read-only checklist. After processing, please use the button in the confirmation email to mark it done.
               </p>
             </>
           )}
