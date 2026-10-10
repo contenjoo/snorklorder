@@ -45,3 +45,13 @@ test('display-name and authentication forgery fail independently of completion w
  assert.equal(authenticateBillingMail({from:{value:[{address:'jon@snorkl.app'}]},headerLines:headers.slice(1)},'invoice'),false);
 });
 test('authored body excludes English and Korean quote markers',()=>{assert.equal(authoredText('Done.\n\n2026년 9월 9일 작성:\n> earlier'),'Done.');});
+test('indirect thread replies and ignored mails never auto-select a request', () => {
+  const indirect = { ...replyFixture(), indirect: true };
+  const p = planProcessingReply(indirect);
+  assert.deepEqual(p.selected, []);
+  assert.equal(p.reason, '후속 메일에 대한 답장: 요청 확인 필요');
+  assert.deepEqual(p.related, [222, 223, 196]);
+  const ignored = planProcessingReply({ ...replyFixture(), ignoredReason: '본문 없는 자동 메일(답장 아님)' });
+  assert.deepEqual(ignored.selected, []);
+  assert.equal(ignored.reason, '본문 없는 자동 메일(답장 아님)');
+});

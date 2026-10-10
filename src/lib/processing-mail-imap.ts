@@ -3,7 +3,7 @@ import { simpleParser, type ParsedMail } from 'mailparser';
 import { sql } from 'drizzle-orm';
 import { db } from '@/db';
 import { authenticateBillingMail } from './billing-mail-auth';
-import { historicalSnapshots, type ProcessingReply, type SentRequestSnapshot } from './processing-mail';
+import { authoredText, historicalSnapshots, type ProcessingReply, type SentRequestSnapshot } from './processing-mail';
 
 const singleId = (value: unknown): string => typeof value === 'string' && /^<[^<>\s]+>$/.test(value.trim()) ? value.trim() : '';
 const parentId = (mail: ParsedMail) => singleId(mail.inReplyTo) || singleId(Array.isArray(mail.references) ? mail.references.at(-1) : mail.references);
@@ -68,7 +68,9 @@ export async function fetchProcessingReplies(options: { newerThanDays?: number; 
         const pId = parentId(m);
         const reply: ProcessingReply = { messageId: id, parentId: pId, sender, authenticated, receivedAt: item.receivedAt,
           text: m.text || '', parentText: '', snapshots: [], sourceVerified: false, incomplete: false };
-        if (authenticated && pId) {
+        // Snorkl 이 jon@snorkl.app 명의로 보내는 자동·홍보 메일은 답장이 아니다. 재수집 대상에서 뺀다.
+        if (authenticated && !authoredText(m.text || '')) reply.ignoredReason = '본문 없는 자동 메일(답장 아님)';
+        if (authenticated && pId && !reply.ignoredReason) {
           let next = pId; const visited = new Set<string>(); const snapshots = new Map<number, SentRequestSnapshot>();
           for (let depth = 0; next && depth < 8; depth++) {
             if(Date.now()-started>90000) {reply.incomplete=true;budgetExceeded=true;break;}
@@ -78,9 +80,12 @@ export async function fetchProcessingReplies(options: { newerThanDays?: number; 
             if (!ancestor) { reply.incomplete = true; break; }
             const a = ancestor.mail;
             const to = (Array.isArray(a.to) ? a.to : a.to ? [a.to] : []).flatMap(v => v.value);
-            if (!ancestor.sent || a.from?.value.length !== 1 || a.from.value[0].address?.toLowerCase() !== user.toLowerCase() || !to.some(v => v.address?.toLowerCase() === 'jon@snorkl.app')) {
-              reply.incomplete = true; break;
-            }
+            const ours = ancestor.sent && a.from?.value.length === 1 && a.from.value[0].address?.toLowerCase() === user.toLowerCase() && to.some(v => v.address?.toLowerCase() === 'jon@snorkl.app');
+            // 우리 후속 메일 → Jon 답장 → 원래 요청 메일 순서의 스레드. 직접 부모가 아닌 Jon 메일은 건너뛰되
+            // 요청 정보는 우리 메일에서만 읽고, 이렇게 연결된 답장은 자동 반영하지 않는다.
+            const jonInThread = depth > 0 && a.from?.value.length === 1 && a.from.value[0].address?.toLowerCase() === 'jon@snorkl.app';
+            if (!ours && jonInThread) { reply.indirect = true; next = parentId(a); if (depth === 7 && next) reply.incomplete = true; continue; }
+            if (!ours) { reply.incomplete = true; break; }
             if (depth === 0) { reply.parentText = a.text || ''; reply.sourceVerified = true; }
             const saved = await db.execute(sql`SELECT snapshots FROM processing_mail_outbox WHERE message_id=${next} AND state='sent'`);
             const mapped = saved.rows[0]?.snapshots as SentRequestSnapshot[] | undefined;
@@ -91,6 +96,8 @@ export async function fetchProcessingReplies(options: { newerThanDays?: number; 
             }
             // A real generated request mail anchors the conversation. Never traverse its old quoted history.
             if (snapshots.size) { next = ''; break; }
+            // 우리 메일인데 요청 정보가 없으면(손으로 쓴 후속 메일) 원래 요청 메일까지 더 올라간다.
+            if (depth > 0) reply.indirect = true;
             next = parentId(a);
             if (depth === 7 && next) reply.incomplete = true;
           }

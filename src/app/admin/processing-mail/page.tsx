@@ -3,13 +3,14 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
 type Item = { message_id: string; request_id: number | null; school_name: string | null; sender: string; received_at: string; excerpt: string; reason: string | null; evidence_reason: string; outcome: string | null; authenticated: boolean; source_verified: boolean; incomplete: boolean };
-type View = 'review' | 'resolved' | 'unlinked';
+type View = 'review' | 'resolved' | 'unlinked' | 'ignored';
 type Counts = Record<View, number>;
 
 const VIEWS: { value: View; label: string; hint: string }[] = [
   { value: 'review', label: '검토 필요', hint: '요청과 연결됐지만 자동 반영 조건이 부족해 사람이 판단해야 하는 답장' },
   { value: 'resolved', label: '처리됨', hint: '자동 반영됐거나 이미 완료였거나 검토에서 제외한 답장' },
-  { value: 'unlinked', label: '연결 안 된 메일', hint: '보낸 요청 메일과 연결되지 않아 아무것도 반영하지 않은 메일. 대부분 감사 인사 등' },
+  { value: 'unlinked', label: '연결 실패', hint: '우리 메일에 단 Jon 답장인데 어느 요청인지 찾지 못해 반영하지 않은 메일. Gmail에서 열어 확인해 주세요' },
+  { value: 'ignored', label: '답장 아님', hint: 'Snorkl 자동·홍보 메일처럼 우리 메일에 대한 답장이 아닌 메일. 아무것도 반영하지 않습니다' },
 ];
 const OUTCOME: Record<string, { label: string; cls: string }> = {
   review: { label: '검토 필요', cls: 'bg-amber-100 text-amber-800' },
@@ -54,7 +55,7 @@ export default function ProcessingMailPage() {
   }
 
   const current = VIEWS.find((v) => v.value === view)!;
-  const emptyText = view === 'review' ? '검토할 답장이 없습니다 ✓' : view === 'resolved' ? '처리된 답장이 없습니다' : '연결 안 된 메일이 없습니다';
+  const emptyText = view === 'review' ? '검토할 답장이 없습니다 ✓' : view === 'resolved' ? '처리된 답장이 없습니다' : view === 'unlinked' ? '연결 실패한 답장이 없습니다 ✓' : '답장이 아닌 메일이 없습니다';
 
   return (
     <div className="space-y-3 pb-20 md:pb-0">

@@ -4,13 +4,15 @@ import { db } from '@/db';
 import { checkAuth } from '@/lib/auth';
 import { reviewProcessingMail } from '@/lib/processing-mail-sync';
 export const dynamic = 'force-dynamic';
-const VIEWS = ['review','resolved','unlinked'] as const;
+const VIEWS = ['review','resolved','unlinked','ignored'] as const;
 type View = (typeof VIEWS)[number];
-// review=사람 판단이 필요한 건, resolved=자동·수동으로 끝난 건, unlinked=보낸 요청 메일과 연결되지 않아 반영하지 않은 메일
+// review=사람 판단이 필요한 건, resolved=자동·수동으로 끝난 건,
+// unlinked=우리 메일에 단 Jon 답장인데 요청과 연결 못 한 메일, ignored=우리 메일에 대한 답장이 아닌 메일
 function viewCondition(view: View) {
   if (view === 'review') return sql`d.outcome='review'`;
   if (view === 'resolved') return sql`d.outcome IN ('applied','already_confirmed','excluded')`;
-  return sql`d.message_id IS NULL`;
+  if (view === 'unlinked') return sql`d.message_id IS NULL AND e.source_verified`;
+  return sql`d.message_id IS NULL AND NOT e.source_verified`;
 }
 export async function GET(req: NextRequest) {
   if (!await checkAuth()) return NextResponse.json({error:'Unauthorized'},{status:401});
@@ -29,7 +31,8 @@ export async function GET(req: NextRequest) {
     db.execute(sql`SELECT
       count(*) FILTER (WHERE d.outcome='review')::int AS review,
       count(*) FILTER (WHERE d.outcome IN ('applied','already_confirmed','excluded'))::int AS resolved,
-      count(*) FILTER (WHERE d.message_id IS NULL)::int AS unlinked
+      count(*) FILTER (WHERE d.message_id IS NULL AND e.source_verified)::int AS unlinked,
+      count(*) FILTER (WHERE d.message_id IS NULL AND NOT e.source_verified)::int AS ignored
       FROM processing_mail_evidence e LEFT JOIN processing_mail_decisions d ON d.message_id=e.message_id`),
   ]);
   return NextResponse.json({items:result.rows.slice(0,50),hasMore:result.rows.length>50,counts:counts.rows[0]},{headers:{'Cache-Control':'no-store'}});
