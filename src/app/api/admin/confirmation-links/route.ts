@@ -13,7 +13,9 @@ export async function GET(){
      coalesce((SELECT string_agg(DISTINCT s.name,', ') FROM teachers t JOIN schools s ON s.id=t.school_id
        WHERE t.id IN (SELECT value::int FROM jsonb_array_elements_text(b.teacher_ids::jsonb))),'교사 묶음') AS label,
      jsonb_array_length(b.teacher_ids::jsonb) AS size,
-     b.token_expires_at,(b.status='confirmed' OR b.confirmed_at IS NOT NULL) AS done
+     b.token_expires_at,(b.status='confirmed' OR b.confirmed_at IS NOT NULL
+       -- 같은 교사가 나중 묶음으로 다시 나가 이미 업그레이드됐다면 이 링크로 할 일은 없다.
+       OR NOT EXISTS (SELECT 1 FROM teachers t WHERE t.id IN (SELECT value::int FROM jsonb_array_elements_text(b.teacher_ids::jsonb)) AND t.status<>'upgraded')) AS done
    FROM upgrade_batches b
    UNION ALL SELECT 'account',id,school_name,quantity,token_expires_at,(confirmed_at IS NOT NULL OR status NOT IN ('draft','sent'))
    FROM account_requests WHERE confirm_token IS NOT NULL
