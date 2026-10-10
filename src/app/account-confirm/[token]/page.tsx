@@ -173,7 +173,7 @@ export default function AccountConfirmPage({ params }: { params: Promise<{ token
           <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 space-y-2">
             <div className="flex items-center gap-2">
               <span className="text-amber-600">📦</span>
-              <div className="text-sm font-semibold text-amber-900">{siblings.length}건의 다른 처리 대기 요청 ({displayName})</div>
+              <div className="text-sm font-semibold text-amber-900">{siblings.length} other pending request{siblings.length === 1 ? "" : "s"} for {displayName}</div>
             </div>
             <p className="text-xs text-amber-800">Select only requests whose accounts have all been processed. Billing status is preserved.</p>
             <div className="space-y-1.5">
@@ -192,7 +192,7 @@ export default function AccountConfirmPage({ params }: { params: Promise<{ token
                     className="mt-0.5 accent-amber-600"
                   />
                   <div className="flex-1 min-w-0">
-                    <div className="text-xs font-medium text-gray-700">{TYPE_LABELS[s.type] || s.type} · {s.applicantType === "individual" ? "개인" : "학교"} · {s.status}</div>
+                    <div className="text-xs font-medium text-gray-700">{TYPE_LABELS[s.type] || s.type} · {s.applicantType === "individual" ? "Individual" : "School"} · {s.status}</div>
                     <div className="text-[11px] font-mono text-gray-500 truncate">{s.emails}</div>
                     {req.channel === 'partner' && (
                       <div className="text-[11px] text-gray-500">{s.teacherName || '—'} · {s.subject || '—'}</div>
