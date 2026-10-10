@@ -1,3 +1,8 @@
+import type { Metadata } from "next";
+
+// 본사(Jon·Cailie)가 보는 화면 — 브라우저 탭 제목도 영어로.
+export const metadata: Metadata = { title: "Snorkl Partner Portal" };
+
 export default function PartnerLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-slate-50">

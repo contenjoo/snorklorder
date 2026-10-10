@@ -3,8 +3,8 @@ import { cookies } from "next/headers";
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { schools, teachers, accountRequests, domainRequests } from "@/db/schema";
-import { and, desc, inArray, notInArray } from "drizzle-orm";
+import { schools, teachers, accountRequests, billingCycles, billingCycleItems, domainRequests } from "@/db/schema";
+import { and, desc, eq, inArray, notInArray } from "drizzle-orm";
 import { canConfirmUpgrades } from "@/lib/partner-roles";
 import { PARTNER_SESSION_COOKIE_NAME, verifyPartnerSessionToken } from "@/lib/signed-session";
 
@@ -48,8 +48,15 @@ export async function GET() {
         invoiceAmount: accountRequests.invoiceAmount,
         createdAt: accountRequests.createdAt,
         updatedAt: accountRequests.updatedAt,
+        // 통합 청구 묶음 — 마감 전 묶음은 아직 Cailie 에게 청구 요청이 나가지 않았다.
+        billingCycleCode: billingCycles.code,
+        billingCycleStatus: billingCycles.status,
+        billingCyclePeriodEnd: billingCycles.periodEnd,
+        billingCycleSentAt: billingCycles.sentAt,
       })
       .from(accountRequests)
+      .leftJoin(billingCycleItems, eq(billingCycleItems.accountRequestId, accountRequests.id))
+      .leftJoin(billingCycles, eq(billingCycles.id, billingCycleItems.cycleId))
       .where(and(
         inArray(accountRequests.status, ["sent", "processed", "invoiced"]),
         notInArray(accountRequests.marketVoidState, ["prepared", "voided"]),
