@@ -36,6 +36,9 @@ test("approval queue offers a payment-required checkbox only before the school i
   assert.match(summary, /schoolBillingAccountRequestId: schools\.billingAccountRequestId/);
   assert.match(page, /결제 필요/);
   assert.match(page, /paymentRequiredIds/);
-  assert.match(page, /teacher\.schoolBillingAccountRequestId \?/);
-  assert.match(page, /\/admin\/accounts\?focus=\$\{teacher\.schoolBillingAccountRequestId\}/);
+  // 결제 필요는 교사 줄이 아니라 학교 묶음 머리에 한 번만 나온다.
+  assert.match(page, /approvalSchools\.map\(\(group\)/);
+  assert.match(page, /school\.schoolBillingAccountRequestId \?/);
+  assert.doesNotMatch(page, /teacher\.schoolBillingAccountRequestId \?/);
+  assert.match(page, /\/admin\/accounts\?focus=\$\{school\.schoolBillingAccountRequestId\}/);
 });
