@@ -1,6 +1,6 @@
 import { confirmationExpired } from "@/lib/confirmation-token";
 export const dynamic = "force-dynamic";
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { db } from "@/db";
 import { domainRequests } from "@/db/schema";
 import { eq, and, isNull, gt } from "drizzle-orm";
@@ -38,7 +38,8 @@ export async function POST(
     .returning({id:domainRequests.id});
   if (!changed.length) return NextResponse.json({success:true});
 
-  void (async () => {
+  // 응답 후에도 끝까지 실행 — void 로 띄우면 Vercel 이 응답 직후 끊을 수 있다.
+  after(async () => {
     try {
       await sendDomainConfirmedNotification({
         schoolName: r.schoolName,
@@ -50,7 +51,7 @@ export async function POST(
     } catch (err) {
       console.warn("[domain-confirm] admin notification failed:", err);
     }
-  })();
+  });
 
   return NextResponse.json({ success: true });
 }

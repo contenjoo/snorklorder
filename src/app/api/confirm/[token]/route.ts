@@ -1,5 +1,5 @@
 export const dynamic = "force-dynamic";
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { db } from "@/db";
 import { upgradeBatches, teachers, schools } from "@/db/schema";
 import { eq, inArray, and, notInArray, sql } from "drizzle-orm";
@@ -126,7 +126,8 @@ export async function POST(
   const confirmedAt = new Date();
   if (normalizedConfirmedIds.length > 0) {
     // Notifications run after the response — Jon shouldn't wait on Gmail I/O
-    void (async () => {
+    // 응답 후에도 끝까지 실행 — void 로 띄우면 Vercel 이 응답 직후 끊을 수 있다.
+    after(async () => {
       try {
         const confirmedRows = await db
           .select({
@@ -180,7 +181,7 @@ export async function POST(
       } catch (err) {
         console.warn("[confirm] notification email failed:", err);
       }
-    })();
+    });
   }
 
   return NextResponse.json({ success: true, count: normalizedConfirmedIds.length });
