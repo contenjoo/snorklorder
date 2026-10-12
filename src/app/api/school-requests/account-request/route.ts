@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { and, eq, isNull } from "drizzle-orm";
 import { checkAuth } from "@/lib/auth";
-import { db } from "@/db";
+import { withBillingTransaction } from "@/db/billing-transaction";
 import { accountRequests, schoolRequests, schools } from "@/db/schema";
 import { isValidEmail } from "@/lib/security";
 
@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const result = await db.transaction(async (tx) => {
+    const result = await withBillingTransaction(async (tx) => {
       const [schoolRequest] = await tx
         .select()
         .from(schoolRequests)
