@@ -4,7 +4,7 @@ function publicRequest(r: Record<string, unknown>) {
 }
 import { confirmationExpired } from "@/lib/confirmation-token";
 export const dynamic = "force-dynamic";
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { db } from "@/db";
 import { accountRequests, teachers } from "@/db/schema";
 import { and, eq, inArray, isNull, ne, notInArray, sql } from "drizzle-orm";
@@ -199,7 +199,8 @@ export async function POST(
   // 이미 완료 확인됐거나 다른 완료 writer가 먼저 선점한
   // 행은 transitionedRequests에 없으므로 완료 메일도 재발송하지 않는다.
   if (emails.length > 0 && transitionedRequests.length > 0) {
-    void (async () => {
+    // 응답 후에도 끝까지 실행 — void 로 띄우면 Vercel 이 응답 직후 끊을 수 있다.
+    after(async () => {
       try {
         const { schools: schoolsTable } = await import("@/db/schema");
         const { and } = await import("drizzle-orm");
@@ -249,7 +250,7 @@ export async function POST(
       } catch (err) {
         console.warn("[account-confirm] notification email failed:", err);
       }
-    })();
+    });
   }
 
   return NextResponse.json({ success: true, processedIds: [...transitionedIds] });

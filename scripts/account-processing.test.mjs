@@ -81,7 +81,8 @@ function harness(initial, options = {}) {
     },
   };
   const mocks = {
-    "next/server": { NextResponse: Response, NextRequest: Request },
+    // after(): 응답 뒤 실행 — 테스트에선 다음 마이크로태스크로 돌린다.
+    "next/server": { NextResponse: Response, NextRequest: Request, after: (fn) => { void Promise.resolve().then(fn); } },
     "@/db": { db }, "@/db/schema": tables, "drizzle-orm": orm,
     "@/lib/auth": { checkAuth: async () => authenticated },
     "@/lib/market-account-request": {}, "@/lib/market-status": {},
