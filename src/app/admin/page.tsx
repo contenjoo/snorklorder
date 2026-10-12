@@ -161,6 +161,7 @@ interface ApprovalQueueTeacher {
   schoolName: string;
   schoolNameEn: string | null;
   schoolTeam: string | null;
+  schoolBillingAccountRequestId: number | null;
 }
 
 interface DashboardData {
@@ -243,6 +244,8 @@ export default function AdminDashboard() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [approvalSelected, setApprovalSelected] = useState<Set<number>>(new Set());
   const [approving, setApproving] = useState(false);
+  // 결제 필요(신규 학교)로 체크한 학교 — 승인 시 학교 계정·청구 요청을 학교당 최초 1회 만든다.
+  const [paymentRequiredSchools, setPaymentRequiredSchools] = useState<Set<number>>(new Set());
 
   function toggleId(id: number) {
     setSelectedIds((prev) => {
@@ -386,17 +389,37 @@ export default function AdminDashboard() {
     });
   }
 
+  function togglePaymentRequired(schoolId: number) {
+    setPaymentRequiredSchools((prev) => {
+      const next = new Set(prev);
+      if (next.has(schoolId)) next.delete(schoolId); else next.add(schoolId);
+      return next;
+    });
+  }
+
   async function reviewHqTeacher(ids: number[], action: "approve" | "reject") {
     if (ids.length === 0) return;
     let reason: string | undefined;
     if (action === "reject") { const r = prompt(`거절 사유 (선택) — ${ids.length}명`); reason = r || undefined; }
+    const paymentRequiredIds = action === "approve"
+      ? (data?.approvalQueue ?? [])
+          .filter((t) => ids.includes(t.id) && paymentRequiredSchools.has(t.schoolId) && !t.schoolBillingAccountRequestId)
+          .map((t) => t.id)
+      : [];
+    if (paymentRequiredIds.length > 0) {
+      const schoolNames = [...new Set((data?.approvalQueue ?? []).filter((t) => paymentRequiredIds.includes(t.id)).map((t) => t.schoolName))];
+      if (!confirm(`결제 필요(신규 학교): ${schoolNames.join(", ")}\n\n학교 계정 청구 요청(작성 중)을 만들고, 이 교사 ${paymentRequiredIds.length}명은 그 요청으로 Jon에게 갑니다.\nJon 메일에 'New school' 안내가 붙고 통합 청구에 편입됩니다. 진행할까요?`)) return;
+    }
     setApproving(true);
     setMessage("");
     try {
-      const res = await fetch("/api/admin/verify-teacher", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids, action, reason }) });
+      const res = await fetch("/api/admin/verify-teacher", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids, action, reason, paymentRequiredIds }) });
       if (res.ok) {
-        setMessage(`${ids.length}명 ${action === "approve" ? "승인" : "거절"} 완료`);
+        const d = await res.json().catch(() => ({}));
+        const created: { schoolName: string; accountRequestId: number }[] = d.created ?? [];
+        setMessage(`${ids.length}명 ${action === "approve" ? "승인" : "거절"} 완료${created.length > 0 ? ` · 학교 청구 요청 ${created.map((c) => `${c.schoolName} #${c.accountRequestId}`).join(", ")} 생성 — 내 차례에서 Jon에게 보내세요` : ""}`);
         setApprovalSelected(new Set());
+        setPaymentRequiredSchools(new Set());
         await load();
       } else {
         const d = await res.json().catch(() => ({}));
@@ -643,6 +666,28 @@ export default function AdminDashboard() {
                         </div>
                       </div>
                       <span className={`text-[11px] shrink-0 tabular-nums ${regDays >= 3 ? "text-red-600 font-bold" : "text-slate-400"}`}>{ageText(regDays)}</span>
+                      {teacher.schoolBillingAccountRequestId ? (
+                        <Link
+                          href={`/admin/accounts?focus=${teacher.schoolBillingAccountRequestId}`}
+                          className="shrink-0 text-[11px] font-medium text-blue-600 hover:underline"
+                          title="이 학교는 이미 학교 청구 요청이 있습니다 — 일반 승인으로 처리됩니다"
+                        >
+                          학교 청구 #{teacher.schoolBillingAccountRequestId}
+                        </Link>
+                      ) : (
+                        <label
+                          className="shrink-0 flex items-center gap-1 text-[11px] font-medium text-amber-700 cursor-pointer select-none"
+                          title="신규 학교: 승인 시 학교 계정 청구 요청을 만들어 통합 청구로 보냅니다 (학교당 최초 1회)"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={paymentRequiredSchools.has(teacher.schoolId)}
+                            onChange={() => togglePaymentRequired(teacher.schoolId)}
+                            className="w-3.5 h-3.5 accent-amber-600 cursor-pointer"
+                          />
+                          결제 필요
+                        </label>
+                      )}
                       <div className="flex items-center gap-1.5 shrink-0">
                         <button
                           type="button"
