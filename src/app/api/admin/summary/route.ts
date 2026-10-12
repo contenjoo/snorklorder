@@ -180,6 +180,7 @@ export async function GET() {
         schoolName: schools.name,
         schoolNameEn: schools.nameEn,
         schoolTeam: schools.team,
+        schoolBillingAccountRequestId: schools.billingAccountRequestId,
       })
       .from(teachers)
       .innerJoin(schools, eq(teachers.schoolId, schools.id))

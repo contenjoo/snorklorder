@@ -10,10 +10,15 @@ export const schools = pgTable("schools", {
   allowedDomains: text("allowed_domains"), // 콤마 구분 다중 도메인 (domain 보강) — 자동 승인 판정용
   region: text("region"),
   team: text("team"),
+  // 신규 학교(결제 필요) 첫 승인 때 만든 학교 계정·청구 요청. 학교당 1회 — 값이 있으면 이후 교사는 일반 발송.
+  billingAccountRequestId: integer("billing_account_request_id").references(() => accountRequests.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => [
   index("schools_team_idx").on(table.team),
   index("schools_region_idx").on(table.region),
+  uniqueIndex("schools_billing_account_request_unique_idx")
+    .on(table.billingAccountRequestId)
+    .where(sql`${table.billingAccountRequestId} is not null`),
 ]);
 
 export const teachers = pgTable("teachers", {
