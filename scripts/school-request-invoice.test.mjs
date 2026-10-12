@@ -16,6 +16,8 @@ test("school billing request creation is authenticated, same-origin, explicit, a
   assert.match(route, /schoolRequest\.status !== "approved"/);
   assert.match(route, /schoolRequest\.accountRequestId/);
   assert.match(route, /\.for\("update"\)/);
+  assert.match(route, /withBillingTransaction\(async \(tx\)/);
+  assert.doesNotMatch(route, /\bdb\.transaction\(/);
   assert.match(route, /accountType: "school"/);
   assert.match(route, /needsInvoice: true/);
   assert.match(route, /status: "draft"/);
