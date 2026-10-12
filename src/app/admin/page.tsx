@@ -360,6 +360,11 @@ export default function AdminDashboard() {
     return acc;
   }, {})).sort((a, b) => a.code.localeCompare(b.code));
   const todoCount = myTurnCount + jonTurnItems.length + approvalQueue.length;
+  // 승인 대기를 학교별로 묶는다 — 결제 필요(신규 학교)는 학교 단위 판단.
+  const approvalSchools = [...approvalQueue.reduce((acc, t) => {
+    acc.set(t.schoolId, { teachers: [...(acc.get(t.schoolId)?.teachers ?? []), t] });
+    return acc;
+  }, new Map<number, { teachers: ApprovalQueueTeacher[] }>()).values()];
 
   // KPI 계산
   const outstanding = buckets.ME_PAY.reduce((s, i) => s + i.amount, 0);
@@ -642,70 +647,83 @@ export default function AdminDashboard() {
                     </div>
                   </div>
                 )}
-                {approvalQueue.map((teacher) => {
-                  const tc = teamColorMap[teacher.schoolTeam || ""] || { bg: "bg-slate-50", text: "text-slate-600", dot: "bg-slate-400", border: "border-slate-200" };
-                  const regDays = daysSince(teacher.createdAt) ?? 0;
+                {approvalSchools.map((group) => {
+                  const school = group.teachers[0];
+                  const tc = teamColorMap[school.schoolTeam || ""] || { bg: "bg-slate-50", text: "text-slate-600", dot: "bg-slate-400", border: "border-slate-200" };
                   return (
-                    <div key={teacher.id} className="flex items-center gap-2.5 px-4 md:px-5 py-2.5 border-t hover:bg-slate-50/70">
-                      <input
-                        type="checkbox"
-                        checked={approvalSelected.has(teacher.id)}
-                        onChange={() => toggleApproval(teacher.id)}
-                        className="w-4 h-4 accent-emerald-600 cursor-pointer shrink-0"
-                        aria-label={`${teacher.email} 선택`}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="text-[13px] font-bold text-slate-900 truncate">{teacher.schoolName} · {teacher.name}</span>
-                          <span className="text-[11px] text-slate-400 truncate hidden sm:inline">{teacher.email}</span>
-                          {teacher.schoolTeam && <span className={`text-[10px] px-2 py-0.5 rounded-full ${tc.bg} ${tc.text} border ${tc.border}`}>{teacher.schoolTeam}</span>}
-                        </div>
-                        <div className="text-[11px] text-slate-500 truncate mt-0.5">
-                          {teacher.emailVerifiedAt ? "이메일 인증됨" : "미인증(레거시)"}
-                          {teacher.escalatedAt ? " · 학교 관리자 무응답 → 본사 이관" : ""}
+                    <div key={school.schoolId}>
+                      <div className="flex flex-wrap items-center gap-2 px-4 md:px-5 py-2 border-t bg-slate-50/60">
+                        <span className="text-[13px] font-extrabold text-slate-900">{school.schoolName}</span>
+                        {school.schoolTeam && <span className={`text-[10px] px-2 py-0.5 rounded-full ${tc.bg} ${tc.text} border ${tc.border}`}>{school.schoolTeam}</span>}
+                        <span className="text-[11px] text-slate-400">{group.teachers.length}명</span>
+                        <div className="ml-auto flex items-center">
+                          {school.schoolBillingAccountRequestId ? (
+                            <Link
+                              href={`/admin/accounts?focus=${school.schoolBillingAccountRequestId}`}
+                              className="shrink-0 text-[11px] font-medium text-blue-600 hover:underline"
+                              title="이 학교는 이미 학교 청구 요청이 있습니다 — 일반 승인으로 처리됩니다"
+                            >
+                              학교 청구 #{school.schoolBillingAccountRequestId}
+                            </Link>
+                          ) : (
+                            <label
+                              className="shrink-0 flex items-center gap-1 text-[11px] font-medium text-amber-700 cursor-pointer select-none"
+                              title="신규 학교: 승인 시 학교 계정 청구 요청을 만들어 통합 청구로 보냅니다 (학교당 최초 1회)"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={paymentRequiredSchools.has(school.schoolId)}
+                                onChange={() => togglePaymentRequired(school.schoolId)}
+                                className="w-3.5 h-3.5 accent-amber-600 cursor-pointer"
+                              />
+                              결제 필요
+                            </label>
+                          )}
                         </div>
                       </div>
-                      <span className={`text-[11px] shrink-0 tabular-nums ${regDays >= 3 ? "text-red-600 font-bold" : "text-slate-400"}`}>{ageText(regDays)}</span>
-                      {teacher.schoolBillingAccountRequestId ? (
-                        <Link
-                          href={`/admin/accounts?focus=${teacher.schoolBillingAccountRequestId}`}
-                          className="shrink-0 text-[11px] font-medium text-blue-600 hover:underline"
-                          title="이 학교는 이미 학교 청구 요청이 있습니다 — 일반 승인으로 처리됩니다"
-                        >
-                          학교 청구 #{teacher.schoolBillingAccountRequestId}
-                        </Link>
-                      ) : (
-                        <label
-                          className="shrink-0 flex items-center gap-1 text-[11px] font-medium text-amber-700 cursor-pointer select-none"
-                          title="신규 학교: 승인 시 학교 계정 청구 요청을 만들어 통합 청구로 보냅니다 (학교당 최초 1회)"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={paymentRequiredSchools.has(teacher.schoolId)}
-                            onChange={() => togglePaymentRequired(teacher.schoolId)}
-                            className="w-3.5 h-3.5 accent-amber-600 cursor-pointer"
-                          />
-                          결제 필요
-                        </label>
-                      )}
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <button
-                          type="button"
-                          disabled={approving}
-                          onClick={() => reviewHqTeacher([teacher.id], "approve")}
-                          className="text-xs font-semibold bg-emerald-600 text-white px-3 py-1.5 rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors"
-                        >
-                          ✓ 승인
-                        </button>
-                        <button
-                          type="button"
-                          disabled={approving}
-                          onClick={() => reviewHqTeacher([teacher.id], "reject")}
-                          className="text-xs font-semibold bg-red-50 text-red-700 border border-red-200 px-3 py-1.5 rounded-lg hover:bg-red-100 disabled:opacity-50 transition-colors"
-                        >
-                          거절
-                        </button>
-                      </div>
+                      {group.teachers.map((teacher) => {
+                        const regDays = daysSince(teacher.createdAt) ?? 0;
+                        return (
+                          <div key={teacher.id} className="flex items-center gap-2.5 pl-8 pr-4 md:pl-10 md:pr-5 py-2.5 border-t hover:bg-slate-50/70">
+                            <input
+                              type="checkbox"
+                              checked={approvalSelected.has(teacher.id)}
+                              onChange={() => toggleApproval(teacher.id)}
+                              className="w-4 h-4 accent-emerald-600 cursor-pointer shrink-0"
+                              aria-label={`${teacher.email} 선택`}
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="text-[13px] font-bold text-slate-900 truncate">{teacher.name}</span>
+                                <span className="text-[11px] text-slate-400 truncate hidden sm:inline">{teacher.email}</span>
+                              </div>
+                              <div className="text-[11px] text-slate-500 truncate mt-0.5">
+                                {teacher.emailVerifiedAt ? "이메일 인증됨" : "미인증(레거시)"}
+                                {teacher.escalatedAt ? " · 학교 관리자 무응답 → 본사 이관" : ""}
+                              </div>
+                            </div>
+                            <span className={`text-[11px] shrink-0 tabular-nums ${regDays >= 3 ? "text-red-600 font-bold" : "text-slate-400"}`}>{ageText(regDays)}</span>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                type="button"
+                                disabled={approving}
+                                onClick={() => reviewHqTeacher([teacher.id], "approve")}
+                                className="text-xs font-semibold bg-emerald-600 text-white px-3 py-1.5 rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+                              >
+                                ✓ 승인
+                              </button>
+                              <button
+                                type="button"
+                                disabled={approving}
+                                onClick={() => reviewHqTeacher([teacher.id], "reject")}
+                                className="text-xs font-semibold bg-red-50 text-red-700 border border-red-200 px-3 py-1.5 rounded-lg hover:bg-red-100 disabled:opacity-50 transition-colors"
+                              >
+                                거절
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   );
                 })}
