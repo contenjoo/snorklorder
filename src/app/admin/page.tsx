@@ -208,6 +208,7 @@ const EMAIL_KIND_LABEL: Record<string, string> = {
   daily_digest: "다이제스트",
   school_code: "학교 코드",
   admin_request: "관리자 알림",
+  hq_daily_nudge: "Jon 하루 알림",
 };
 
 const PIPE_STAGES = [
@@ -449,7 +450,7 @@ export default function AdminDashboard() {
         body: JSON.stringify({ teacherIds: targetIds }),
       });
       const body = await res.json();
-      setMessage(body.success ? `${targetIds.length}명 Jon에게 발송 완료` : "발송 실패");
+      setMessage(body.success ? `${targetIds.length}명 Jon 화면에 등록 (메일은 하루 1통 알림으로)` : "발송 실패");
       if (body.success) { setSelectedIds(new Set()); await load(); }
     } catch {
       setMessage("연결 오류");

@@ -40,7 +40,8 @@ export function useProcessingEmailPreview(key: string) {
 export function ProcessingPreviewNotes({ data }: { data?: ProcessingEmailPreview }) {
   if (!data) return null;
   return <div className="text-xs space-y-2 text-slate-600 mb-3">
-    <p>신규 {data.newCount}건 · 완료 확인 대기 {data.pendingCount}건. 발송 직전에 목록을 다시 확인합니다.</p>
+    <p className="rounded border border-blue-200 bg-blue-50 p-2 text-blue-800">보내기를 누르면 Jon에게 메일은 가지 않고 Jon 화면(Billing 탭)에 바로 올라갑니다. Jon에게는 하루 1통 알림만 나갑니다. 아래는 요청 내용 확인용입니다.</p>
+    <p>신규 {data.newCount}건 · 완료 확인 대기 {data.pendingCount}건.</p>
     {data.manualReview.length > 0 && <div className="rounded border border-amber-200 bg-amber-50 p-2 text-amber-800">
       <p>다음 요청은 확인이 필요해 리마인드에서 제외했어요.</p>
       {data.manualReview.map((r) => <div key={r.requestId}><a className="underline" href={`/admin/accounts?focus=${r.requestId}`} target="_blank" rel="noreferrer">#{r.requestId}</a> — {r.reason}</div>)}

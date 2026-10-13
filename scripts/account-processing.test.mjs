@@ -147,16 +147,15 @@ test("A/B → C → confirm A → D keeps B/C and request identity even with the
   const h = harness([fresh(1), fresh(2), fresh(3), fresh(4)]);
   assert.equal((await send(h, [1, 2], true)).status, 200);
   assert.equal((await send(h, [3])).status, 200);
-  assert.match(h.mails[1].subject, /1 new, 2 awaiting/);
-  for (const id of [1, 2, 3]) assert.match(h.mails[1].text, new RegExp(`\\[#${id}\\]`));
+  // Jon 에게 메일은 가지 않고 본사 화면에 게시된다(processingEmailSentAt = 게시 시각).
+  assert.equal(h.mails.length, 0);
+  for (const id of [1, 2, 3]) { assert.ok(h.rows[id - 1].processingEmailSentAt); assert.equal(h.rows[id - 1].status, "sent"); }
   const originalSentAt = h.rows[0].processingEmailSentAt;
   const originalToken = h.rows[0].confirmToken;
   const confirm = h.load("@/app/api/account-confirm/[token]/route");
   assert.equal((await confirm.POST(post({}), { params: Promise.resolve({ token: originalToken }) })).status, 200);
   assert.equal((await send(h, [4])).status, 200);
-  const last = h.mails.at(-1).text;
-  assert.doesNotMatch(last, /\[#1\]/);
-  assert.match(last, /\[#2\]/); assert.match(last, /\[#3\]/); assert.match(last, /\[#4\]/);
+  assert.equal(h.mails.length, 0);
   assert.equal(h.rows[0].processingEmailSentAt, originalSentAt);
   assert.equal(h.rows[0].confirmToken, originalToken);
   const sameEmail = buildProcessingEmail([fresh(3)], [row(1), row(2, { emails: row(1).emails }), row(1)], { baseUrl: "https://example.test" });
@@ -165,7 +164,7 @@ test("A/B → C → confirm A → D keeps B/C and request identity even with the
 });
 
 for (const batch of [false, true]) {
-  test(`${batch ? "batch" : "single"} preview is read-only and matches SMTP except a new token placeholder`, async () => {
+  test(`${batch ? "batch" : "single"} preview is read-only and posting sends no Jon email`, async () => {
     const h = harness([row(1), row(2, { status: "paid" }), fresh(3), fresh(4, { type: "extension" })]);
     const ids = batch ? [3, 4] : [3];
     const previewRoute = h.load("@/app/api/account-email/preview/route");
@@ -174,38 +173,32 @@ for (const batch of [false, true]) {
     h.setAuth(true);
     const preview = await (await previewRoute.POST(post({ requestIds: ids, batch }))).json();
     assert.equal(h.updates, 0); assert.equal(h.events.length, 0); assert.equal(h.mails.length, 0);
+    assert.ok(preview.subject);
     assert.equal((await send(h, ids, batch)).status, 200);
-    assert.equal(h.mails[0].subject, preview.subject);
-    let expected = preview.body;
-    for (const id of ids) expected = expected.replace("(The confirmation link will be added when this request is sent.)", `Once done, confirm: https://example.test/account-confirm/${h.rows.find((r) => r.id === id).confirmToken}`);
-    assert.equal(h.mails[0].text, expected);
-    assert.deepEqual(h.events[0].slice(1), [...ids, 1, 2]);
+    assert.equal(h.mails.length, 0);
+    for (const id of ids) assert.ok(h.rows.find((r) => r.id === id).confirmToken);
+    assert.deepEqual(h.events[0].slice(1), ids);
   });
-  test(`${batch ? "batch" : "single"} list failure and cancellation race never reach SMTP or a delivery claim`, async () => {
-    for (const options of [{ failList: true }, { onFence: (rows) => { rows[0].marketVoidState = "prepared"; } }]) {
+  test(`${batch ? "batch" : "single"} cancellation race never reaches a delivery claim`, async () => {
+    for (const options of [{ onFence: (rows) => { rows[1].marketVoidState = "prepared"; } }]) {
       const h = harness([row(1), fresh(3)], options);
       const response = await send(h, [3], batch);
-      assert.ok([503, 409].includes(response.status));
+      assert.equal(response.status, 409);
       assert.equal(h.mails.length, 0); assert.equal(h.updates, 0);
       assert.equal(h.rows[1].processingEmailSendStartedAt, null);
     }
   });
   test(`${batch ? "batch" : "single"} consolidated billing replaces per-request invoice delivery`, async () => {
-    const h = harness([row(1), fresh(3, { needsInvoice: true })], { failSmtp: 2 });
+    const h = harness([row(1), fresh(3, { needsInvoice: true })], { failSmtp: 1 });
     assert.equal((await send(h, [3], batch)).status, 200);
-    assert.equal(h.mails.length, 1);
-    assert.match(h.mails[0].text, /\[#1\]/);
+    assert.equal(h.mails.length, 0);
     assert.equal((await send(h, [3], batch)).status, 409);
     assert.equal((await send(h, [3], batch, "invoice_only")).status, 409);
-    assert.equal(h.mails.length, 1);
+    assert.equal(h.mails.length, 0);
     // Only an explicit legacy delivery failure remains eligible for invoice-only recovery.
     h.rows[1].invoiceEmailLastError = "legacy delivery failed";
     assert.equal((await send(h, [3], batch, "invoice_only")).status, 502);
-    assert.equal(h.mails.length, 2); assert.equal(h.mails[1].to, "cailie@example.test");
-    const unknown = harness([row(1), fresh(3)], { failSmtp: 1 });
-    assert.equal((await send(unknown, [3], batch)).status, 502);
-    assert.equal((await send(unknown, [3], batch)).status, 409);
-    assert.equal(unknown.mails.length, 1);
+    assert.equal(h.mails.length, 1); assert.equal(h.mails[0].to, "cailie@example.test");
   });
 }
 
@@ -224,7 +217,7 @@ test("confirmation preserves financial state at UPDATE time and sends notificati
 test("only new individual upgrades trigger the cumulative list; Market reminders disable manual copies", async () => {
   const h = harness([row(1, { externalSource: "market" }), fresh(3, { accountType: "school" })]);
   assert.equal((await send(h, [3])).status, 200);
-  assert.doesNotMatch(h.mails[0].text, /\[#1\]/);
+  assert.equal(h.mails.length, 0);
   h.rows.push(fresh(4));
   const preview = await (await h.load("@/app/api/account-email/preview/route").POST(post({ requestIds: [4] }))).json();
   assert.equal(preview.copyAllowed, false); assert.equal(preview.pendingCount, 1);
@@ -257,13 +250,14 @@ test("send finalization cannot undo concurrent processing completion", async () 
   }
 });
 
-test("concurrent requests share one durable confirmation token and one SMTP send", async () => {
+test("concurrent requests share one durable confirmation token and post once", async () => {
   for (const batch of [false, true]) {
     const h = harness([fresh(3)]);
     const results = await Promise.all([send(h, [3], batch), send(h, [3], batch)]);
     assert.deepEqual(results.map((r) => r.status).sort(), [200, 409]);
-    assert.equal(h.mails.length, 1);
-    assert.ok(h.mails[0].text.includes(`/account-confirm/${h.rows[0].confirmToken}`));
+    assert.equal(h.mails.length, 0);
+    assert.ok(h.rows[0].confirmToken);
+    assert.ok(h.rows[0].processingEmailSentAt);
   }
 });
 

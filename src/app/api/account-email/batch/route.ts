@@ -1,4 +1,3 @@
-import { sendTrackedProcessingMail } from "@/lib/processing-mail-outbox";
 import { checkAuth } from "@/lib/auth";
 import { confirmationExpiry } from "@/lib/confirmation-token";
 export const dynamic = "force-dynamic";
@@ -22,8 +21,7 @@ import {
 import { invoiceViewUrl, loadOpenInvoiceItemsForEmail } from "@/lib/invoice-ledger";
 import { claimAccountRequestSideEffects } from "@/lib/market-void-db";
 import { getReceiverFulfillmentPausedResponse } from "@/lib/receiver-fulfillment-pause";
-import { buildProcessingEmail } from "@/lib/account-processing";
-import { loadProcessingReminders, processingListUnavailableResponse } from "@/lib/processing-ledger";
+import { processingListUnavailableResponse } from "@/lib/processing-ledger";
 import { isMarketLegacyAuditRequest } from "@/lib/market-legacy-audit";
 import { assignRequestsToCurrentBillingCycle } from "@/lib/billing-cycle-db";
 
@@ -244,15 +242,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    let pending: Awaited<ReturnType<typeof loadProcessingReminders>> = { reminders: [], manualReview: [] };
-    if (mode === "send_all") {
-      try { pending = await loadProcessingReminders(rows); }
-      catch { return processingListUnavailableResponse(); }
-    }
-
     // 여러 주문의 fence를 DB 함수 한 번에서 all-or-none 선점한다. 한 건이라도 취소
     // prepare/commit 상태면 token 생성과 SMTP를 포함한 묶음 전체를 시작하지 않는다.
-    if (!(await claimAccountRequestSideEffects([...uniqueRequestIds, ...pending.reminders.map((r) => r.id)]))) {
+    if (!(await claimAccountRequestSideEffects(uniqueRequestIds))) {
       return NextResponse.json({
         success: false,
         code: "MARKET_VOID_FENCED",
@@ -340,30 +332,9 @@ export async function POST(req: NextRequest) {
       }
       for (const row of rows) row.processingEmailSendStartedAt = processingClaimedAt;
 
-      const { subject, body } = buildProcessingEmail(
-        requestIds.map((id) => ({ ...rows.find((r) => r.id === id)!, confirmToken: tokenMap.get(id) })),
-        pending.reminders, { baseUrl: BASE_URL, batch: true },
-      );
-      const logTo = formatLogRecipients(HQ_EMAIL);
-
-      try {
-        await sendTrackedProcessingMail(transporter, { from, to: HQ_EMAIL, subject, text: body }, [...requestIds.map(id => rows.find(r => r.id === id)!), ...pending.reminders]);
-      } catch {
-        try {
-          await logEmail({ to: logTo, subject, kind: "account_email", status: "failed", error: "Jon processing email delivery outcome unknown; check Gmail Sent", relatedType: "account_request" });
-        } catch {
-          console.error("[batch-account-email] failed to persist processing email failure log");
-        }
-        // sendMail throw 뒤에는 수신 여부를 단정할 수 없으므로 모든 claim을 UNKNOWN으로 보존한다.
-        return deliveryUnknownResponse("processing", requestIds, 502);
-      }
-      try {
-        await logEmail({ to: logTo, subject, kind: "account_email", status: "success", relatedType: "account_request" });
-      } catch {
-        console.error("[batch-account-email] failed to persist processing email success log");
-      }
-
-      // SMTP 성공 뒤 sentAt+claim 해제를 CAS로 확정한다. 실패하면 claim을 남겨 unknown으로 차단한다.
+      // Jon 에게 처리 메일을 보내지 않는다 — 본사 화면(/partner Billing 탭)에 올리고,
+      // 하루 1통 알림(cron/hq-daily-nudge)으로 새 건을 알린다. processingEmailSentAt = 본사 화면 게시 시각.
+      // 게시 확정: sentAt+claim 해제를 CAS로 확정한다. 실패하면 claim을 남겨 unknown으로 차단한다.
       const processingSentAt = new Date();
       try {
         const finalized = await db

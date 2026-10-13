@@ -29,7 +29,8 @@ export type EmailKind =
   | "admin_request"
   | "email_verify" // 레거시(OTP/매직링크) — 발송 코드는 제거됨, admin/summary 필터 + 과거 로그용으로 유지
   | "school_login" // 학교 관리자 매직링크 로그인
-  | "verification_reminder"; // 승인 대기 교사 리마인더 (학교 관리자/본사)
+  | "verification_reminder" // 승인 대기 교사 리마인더 (학교 관리자/본사)
+  | "hq_daily_nudge"; // Jon 하루 1통 알림 — 본사 화면에 새로 올라온 건 수 + 링크
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -610,4 +611,51 @@ export async function sendStaleSentReminder(items: { email: string; name: string
   } catch (err) {
     return { success: false, error: String(err) };
   }
+}
+
+/**
+ * Jon 하루 1통 알림. 건별 처리 메일 대신 본사 화면(/partner)에 올리고, 새 건이 생긴 날만 이 한 통을 보낸다.
+ * 내용은 건수와 링크뿐 — 실제 처리 내용은 화면에서 본다.
+ */
+export async function sendHqDailyNudge(counts: {
+  newTeachers: number;
+  newAccounts: number;
+  openTeachers: number;
+  openAccounts: number;
+}): Promise<EmailResult> {
+  const t = getTransporter();
+  if (!t) return { success: false, skipped: true };
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  const newParts = [
+    counts.newTeachers > 0 ? plural(counts.newTeachers, "teacher upgrade") : null,
+    counts.newAccounts > 0 ? plural(counts.newAccounts, "account request") : null,
+  ].filter(Boolean).join(", ");
+  const url = `${BASE_URL}/partner`;
+  return sendAndLog(t, {
+    from: ADMIN_EMAIL,
+    to: HQ_EMAIL,
+    subject: `[Snorkl] New on your dashboard — ${newParts}`,
+    text: [
+      hqGreeting(),
+      "",
+      `New since the last update: ${newParts}.`,
+      `Waiting in total: ${plural(counts.openTeachers, "teacher")}, ${plural(counts.openAccounts, "account request")}.`,
+      "",
+      `Open the dashboard: ${url}`,
+      "Teachers: Action Needed tab → Mark as Upgraded.",
+      "Account requests: Billing tab → Mark as done.",
+      "",
+      "Thank you,",
+      "Banghyun",
+    ].join("\n"),
+    html: `
+      <div style="max-width:560px;margin:0 auto;font-family:-apple-system,sans-serif;color:#1f2937;font-size:14px;line-height:1.6">
+        <p style="margin:0 0 12px">${escapeHtml(hqGreeting())}</p>
+        <p style="margin:0 0 4px"><strong>New since the last update:</strong> ${escapeHtml(newParts)}</p>
+        <p style="margin:0 0 20px;color:#6b7280">Waiting in total: ${escapeHtml(plural(counts.openTeachers, "teacher"))}, ${escapeHtml(plural(counts.openAccounts, "account request"))}</p>
+        <a href="${safe(url)}" style="display:inline-block;background:#2563eb;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold">Open dashboard</a>
+        <p style="margin:20px 0 0;color:#6b7280;font-size:12px">Teachers: Action Needed tab → Mark as Upgraded.<br>Account requests: Billing tab → Mark as done.</p>
+        <p style="margin:16px 0 0">Thank you,<br>Banghyun</p>
+      </div>`,
+  }, { kind: "hq_daily_nudge" });
 }

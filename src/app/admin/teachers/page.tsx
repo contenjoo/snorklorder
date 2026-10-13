@@ -156,7 +156,7 @@ export default function TeachersPage() {
     try {
       const res = await fetch("/api/send-email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teacherIds: Array.from(selected) }) });
       const data = await res.json();
-      setMessage(data.success ? `${selected.size}명 발송 완료` : "발송 실패");
+      setMessage(data.success ? `${selected.size}명 Jon 화면에 등록` : "발송 실패");
       if (data.success) { setSelected(new Set()); load(); }
     } catch { setMessage("오류"); } finally { setSending(false); }
   }
