@@ -460,8 +460,8 @@ function AccountsPageContent() {
       const data = await res.json();
       if (res.ok && data.success) {
         setSendMsg(data.billingQueued
-          ? `✓ Jon 발송 완료 · ${data.billingCycleCode} 통합 청구에 편입`
-          : "✓ Jon 발송 완료");
+          ? `✓ Jon 화면에 등록 · ${data.billingCycleCode} 통합 청구에 편입`
+          : "✓ Jon 화면에 등록");
         setEmailPreview(null);
         load();
       } else if (data.deliveryUnknown) {
@@ -510,7 +510,7 @@ function AccountsPageContent() {
       });
       const result = await response.json().catch(() => ({}));
       if (response.ok && result.success) {
-        setSendMsg(`✓ 협력사 신청 ${partnerHqPreview.requestId}의 ${rows.length}명 본사 발송 완료`);
+        setSendMsg(`✓ 협력사 신청 ${partnerHqPreview.requestId}의 ${rows.length}명 Jon 화면에 등록`);
         setPartnerHqPreview(null);
         await load();
       } else if (result.deliveryUnknown) {
@@ -869,8 +869,8 @@ function AccountsPageContent() {
         setSendMsg(retryOnly
           ? `✓ ${data.count}건 Cailie 인보이스 재전송 완료 — Jon 재발송 없음`
           : data.billingQueued
-            ? `✓ ${data.count}건 Jon 발송 완료 · ${data.billingCycleCode} 통합 청구에 편입`
-            : `✓ ${data.count}건 묶음 발송 완료`);
+            ? `✓ ${data.count}건 Jon 화면에 등록 · ${data.billingCycleCode} 통합 청구에 편입`
+            : `✓ ${data.count}건 Jon 화면에 등록`);
         setBatchPreviewOpen(false);
         clearSelection();
         load();

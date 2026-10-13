@@ -4,7 +4,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { teachers, schools, upgradeBatches } from "@/db/schema";
 import { eq, inArray, and } from "drizzle-orm";
-import { sendBatchNotification } from "@/lib/email";
 import { randomBytes } from "crypto";
 
 export async function POST(req: NextRequest) {
@@ -41,51 +40,21 @@ export async function POST(req: NextRequest) {
   // 실제 발송 대상 = 승인된 교사만 (미승인 id는 무시)
   const approvedIds = selected.map((t) => t.id);
 
-  // Group by school
-  const grouped = new Map<number, { schoolName: string; schoolNameEn?: string; team?: string; teachers: typeof selected }>();
-  for (const t of selected) {
-    if (!grouped.has(t.schoolId)) {
-      grouped.set(t.schoolId, { schoolName: t.schoolName, schoolNameEn: t.schoolNameEn || undefined, team: t.schoolTeam || undefined, teachers: [] });
-    }
-    grouped.get(t.schoolId)!.teachers.push(t);
-  }
-
-  const groups = Array.from(grouped.values());
-
-  // Fetch all schools in the same teams (for team summary in email)
-  const teamNames = [...new Set(groups.map(g => g.team).filter(Boolean))] as string[];
-  const teamSchoolsMap: Record<string, string[]> = {};
-  if (teamNames.length > 0) {
-    const allTeamSchools = await db
-      .select({ name: schools.name, nameEn: schools.nameEn, team: schools.team })
-      .from(schools)
-      .where(inArray(schools.team, teamNames));
-    for (const s of allTeamSchools) {
-      if (!s.team) continue;
-      if (!teamSchoolsMap[s.team]) teamSchoolsMap[s.team] = [];
-      teamSchoolsMap[s.team].push(s.nameEn || s.name);
-    }
-  }
-
-  // 배치 토큰 생성 (승인된 교사만 대상)
+  // 배치 기록 (관리자 대시보드 이력용, 승인된 교사만 대상)
   const token = randomBytes(16).toString("hex");
   await db.insert(upgradeBatches).values({
     token,
     teacherIds: JSON.stringify(approvedIds),
   });
 
-  // Send batch email to Jon (with confirm link + team school map)
-  const result = await sendBatchNotification(groups, token, teamSchoolsMap);
+  // Jon 에게 메일을 보내지 않는다 — sent 로 바꾸면 본사 화면(/partner Action Needed)에 올라가고,
+  // 하루 1통 알림(cron/hq-daily-nudge)으로 새 건을 알린다.
+  await db
+    .update(teachers)
+    .set({ status: "sent", notifiedAt: new Date() })
+    .where(and(inArray(teachers.id, approvedIds), eq(teachers.status, "pending")));
 
-  if (result.success) {
-    // Update status to 'sent'
-    await db
-      .update(teachers)
-      .set({ status: "sent", notifiedAt: new Date() })
-      .where(inArray(teachers.id, approvedIds));
-  }
-
-  return NextResponse.json({ ...result, token });
+  return NextResponse.json({ success: true, posted: approvedIds.length, token });
   } catch (err) {
     console.error("[/api/send-email] failed:", err);
     return NextResponse.json({ success: false, error: "Request failed" }, { status: 500 });

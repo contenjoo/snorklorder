@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo } from "react";
 import { teamLabelEn as teamLabel, isGroupPurchaseTeam } from "@/lib/teams";
 import { canConfirmUpgrades } from "@/lib/partner-roles";
 import { SUBJECT_EN, daysSince, copyEmails as copyEmailsTo } from "@/lib/ui-format";
+import { generateAccountEmail } from "@/lib/account-email-template";
 
 interface Teacher {
   id: number;
@@ -12,8 +13,12 @@ interface Teacher {
   email: string;
   subject: string | null;
   status: string;
+  notifiedAt: string | null; // 본사 화면에 올린 시각. 신규 학교 청구로 묶인 교사는 null.
   createdAt: string;
 }
+
+// Jon 이 처리할 교사 = 관리자가 본사 화면에 올린(sent) 교사. 미승인 등록·신규 학교 청구 건은 제외.
+const isActionable = (t: Teacher) => t.status === "sent" && !!t.notifiedAt;
 
 interface School {
   id: number;
@@ -31,6 +36,15 @@ interface BillingAccount {
   schoolName: string;
   schoolNameEn: string | null;
   type: string;
+  applicantType?: string | null;
+  accountType?: string | null;
+  quantity?: number | null;
+  oldEmail?: string | null;
+  fromType?: string | null;
+  extensionDate?: string | null;
+  termYears?: number | null;
+  notes?: string | null;
+  confirmToken?: string | null; // 처리 대기(sent) 건 + 확정 권한(Jon·Cailie)일 때만
   emails: string;
   status: string; // sent | processed | invoiced
   needsInvoice: boolean;
@@ -86,6 +100,7 @@ export default function PartnerDashboard() {
   const [expandedTeams, setExpandedTeams] = useState<Set<string>>(new Set());
   const [expandedSchools, setExpandedSchools] = useState<Set<number>>(new Set());
   const [copied, setCopied] = useState("");
+  const [doneBusy, setDoneBusy] = useState<number | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -119,14 +134,14 @@ export default function PartnerDashboard() {
     };
   }, [schools]);
 
-  const needAction = stats.pending + stats.sent;
+  const needAction = schools.reduce((n, s) => n + s.teachers.filter(isActionable).length, 0);
 
   // Group schools by team for action view
   const actionByTeam = useMemo(() => {
     const teamMap = new Map<string, { teamKey: string; label: string; isGroup: boolean; schools: School[] }>();
 
     for (const s of schools) {
-      const actionTeachers = s.teachers.filter(t => t.status === "pending" || t.status === "sent");
+      const actionTeachers = s.teachers.filter(isActionable);
       if (actionTeachers.length === 0) continue;
 
       const isGroup = isGroupPurchaseTeam(s.team);
@@ -223,7 +238,7 @@ export default function PartnerDashboard() {
   }
 
   function selectTeamAction(teamSchools: School[]) {
-    const ids = teamSchools.flatMap(s => s.teachers.filter(t => t.status === "pending" || t.status === "sent").map(t => t.id));
+    const ids = teamSchools.flatMap(s => s.teachers.filter(isActionable).map(t => t.id));
     const allSelected = ids.every(id => selected.has(id));
     setSelected(prev => {
       const next = new Set(prev);
@@ -233,7 +248,7 @@ export default function PartnerDashboard() {
   }
 
   function selectAllAction() {
-    const allIds = actionByTeam.flatMap(g => g.schools.flatMap(s => s.teachers.filter(t => t.status === "pending" || t.status === "sent").map(t => t.id)));
+    const allIds = actionByTeam.flatMap(g => g.schools.flatMap(s => s.teachers.filter(isActionable).map(t => t.id)));
     if (allIds.every(id => selected.has(id))) {
       setSelected(new Set());
     } else {
@@ -261,6 +276,39 @@ export default function PartnerDashboard() {
       else next.add(id);
       return next;
     });
+  }
+
+  async function reloadDashboard() {
+    const fresh = await fetch("/api/partner").then((r) => r.json());
+    setSchools(Array.isArray(fresh?.schools) ? fresh.schools : []);
+    if (Array.isArray(fresh?.accountRequests)) setBillingAccounts(fresh.accountRequests);
+    if (Array.isArray(fresh?.domainRequests)) setBillingDomains(fresh.domainRequests);
+  }
+
+  // 계정 요청 완료 처리 — 이메일 확인 링크와 같은 API 를 쓴다(교사 완료 메일·청구 반영 동일).
+  async function markAccountDone(r: BillingAccount) {
+    if (!r.confirmToken || doneBusy) return;
+    if (!confirm(`Mark #${r.id} (${r.schoolNameEn || r.schoolName}) as done?`)) return;
+    setDoneBusy(r.id);
+    setMsg("");
+    try {
+      const res = await fetch(`/api/account-confirm/${r.confirmToken}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setMsg(`#${r.id} marked as done`);
+        await reloadDashboard();
+      } else {
+        setMsg("Failed: " + (data.error || "Unknown error"));
+      }
+    } catch {
+      setMsg("Connection error");
+    } finally {
+      setDoneBusy(null);
+    }
   }
 
   async function confirmUpgrades() {
@@ -395,11 +443,11 @@ export default function PartnerDashboard() {
               <div className="flex items-center justify-between px-1 flex-wrap gap-2">
                 <div className="flex items-center gap-3">
                   <button onClick={selectAllAction} className="text-sm font-medium text-blue-600 hover:text-blue-800">
-                    {actionByTeam.flatMap(g => g.schools.flatMap(s => s.teachers.filter(t => t.status === "pending" || t.status === "sent"))).every(t => selected.has(t.id))
+                    {actionByTeam.flatMap(g => g.schools.flatMap(s => s.teachers.filter(isActionable))).every(t => selected.has(t.id))
                       ? "Deselect All" : "Select All"}
                   </button>
                   <button onClick={() => {
-                    const emails = actionByTeam.flatMap(g => g.schools.flatMap(s => s.teachers.filter(t => t.status === "pending" || t.status === "sent").map(t => t.email)));
+                    const emails = actionByTeam.flatMap(g => g.schools.flatMap(s => s.teachers.filter(isActionable).map(t => t.email)));
                     copyEmails(emails, `${emails.length} emails copied`);
                   }} className="text-sm font-medium text-slate-500 hover:text-slate-700 flex items-center gap-1">
                     📋 Copy All Emails
@@ -410,7 +458,7 @@ export default function PartnerDashboard() {
 
               {/* Team groups */}
               {actionByTeam.map((group) => {
-                const teamTeachers = group.schools.flatMap(s => s.teachers.filter(t => t.status === "pending" || t.status === "sent"));
+                const teamTeachers = group.schools.flatMap(s => s.teachers.filter(isActionable));
                 const teamPending = teamTeachers.filter(t => t.status === "pending").length;
                 const teamSent = teamTeachers.filter(t => t.status === "sent").length;
                 const allTeamSelected = teamTeachers.every(t => selected.has(t.id));
@@ -439,7 +487,7 @@ export default function PartnerDashboard() {
 
                     {/* Schools in this team */}
                     {group.schools.map((school) => {
-                      const needTeachers = school.teachers.filter((t) => t.status === "pending" || t.status === "sent");
+                      const needTeachers = school.teachers.filter(isActionable);
                       return (
                         <div key={school.id} className="bg-white rounded-xl border overflow-hidden">
                           <div className="px-4 py-2.5 bg-slate-50/80 border-b flex items-center gap-2 flex-wrap">
@@ -622,14 +670,33 @@ export default function PartnerDashboard() {
                     <span className="text-xs text-amber-600">{jonTodo.acctProcess.length + jonTodo.domProcess.length}</span>
                   </div>
                   <div className="divide-y">
-                    {jonTodo.acctProcess.map((r) => (
-                      <div key={`a${r.id}`} className="px-4 py-2.5 flex items-center gap-2 text-sm">
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 shrink-0">📚 account</span>
-                        <span className="text-gray-800 truncate flex-1">{r.schoolNameEn || r.schoolName}</span>
-                        <span className="text-[11px] font-mono text-gray-400 truncate max-w-[160px] hidden sm:inline">{r.emails}</span>
-                        <span className={`text-[11px] shrink-0 ${daysAgo(r.updatedAt) >= 3 ? "text-red-600 font-bold" : "text-gray-400"}`}>{daysAgo(r.updatedAt)}d</span>
-                      </div>
-                    ))}
+                    {jonTodo.acctProcess.map((r) => {
+                      const request = generateAccountEmail(r);
+                      // 메일 인사·서명을 뺀 요청 본문 — 무엇을 해야 하는지(이메일 목록·Note 포함).
+                      const detail = request.body.replace(/^Hi Jon,\s*/, "").replace(/\n*Please let me know[\s\S]*$/, "").replace(/\n*Thank you\.[\s\S]*$/, "").replace(/\n*Thanks,[\s\S]*$/, "").trim();
+                      return (
+                        <div key={`a${r.id}`} className="px-4 py-3 text-sm">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 shrink-0">📚 #{r.id}</span>
+                            <span className="text-gray-900 font-medium truncate flex-1">{request.subject}</span>
+                            <span className={`text-[11px] shrink-0 ${daysAgo(r.updatedAt) >= 3 ? "text-red-600 font-bold" : "text-gray-400"}`}>{daysAgo(r.updatedAt)}d</span>
+                          </div>
+                          <pre className="mt-2 whitespace-pre-wrap break-words font-sans text-[12px] leading-relaxed text-gray-600 bg-gray-50 rounded-lg px-3 py-2">{detail}</pre>
+                          {isJon && r.confirmToken && (
+                            <div className="mt-2 flex justify-end">
+                              <button
+                                type="button"
+                                onClick={() => markAccountDone(r)}
+                                disabled={doneBusy !== null}
+                                className="text-xs font-semibold bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                              >
+                                {doneBusy === r.id ? "Saving..." : "✅ Mark as done"}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                     {jonTodo.domProcess.map((r) => (
                       <div key={`d${r.id}`} className="px-4 py-2.5 flex items-center gap-2 text-sm">
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 shrink-0">🌐 domain</span>
@@ -693,7 +760,7 @@ export default function PartnerDashboard() {
                 </div>
               ))}
               <p className="text-[11px] text-gray-400 text-center px-4">
-                Read-only checklist. After processing, please use the button in the confirmation email to mark it done.
+                New requests appear here as soon as they are sent. Use “Mark as done” after processing each one.
               </p>
             </>
           )}

@@ -239,7 +239,7 @@ export default function SchoolsPage() {
       const res = await fetch("/api/send-email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teacherIds: ids }) });
       const data = await res.json();
       if (data.success) {
-        setMessage(`${label ? label + " " : ""}${ids.length}명 이메일 발송 완료`);
+        setMessage(`${label ? label + " " : ""}${ids.length}명 Jon 화면에 등록`);
         setSelected(new Set());
         load();
       } else {
@@ -255,7 +255,7 @@ export default function SchoolsPage() {
     ts.filter(t => t.status !== "upgraded" && t.status !== "individual").map(t => t.id);
   async function confirmSend(label: string, ids: number[]) {
     if (ids.length === 0) { setMessage(`${label}: 발송할 대기 교사 없음`); return; }
-    if (!confirm(`${label}: ${ids.length}명에게 Jon 발송 메일을 보낼까요?`)) return;
+    if (!confirm(`${label}: ${ids.length}명을 Jon 화면에 올릴까요? (메일은 하루 1통 알림으로)`)) return;
     await sendTeachers(ids, label);
   }
   async function markUpgraded() {

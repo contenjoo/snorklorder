@@ -1,7 +1,8 @@
 import { checkAuth } from "@/lib/auth";
 import { cookies } from "next/headers";
 export const dynamic = "force-dynamic";
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
+import { notifyTeacherUpgrades } from "@/lib/teacher-upgrade-notify";
 import { db } from "@/db";
 import { schools, teachers, accountRequests, billingCycles, billingCycleItems, domainRequests } from "@/db/schema";
 import { and, desc, eq, inArray, notInArray } from "drizzle-orm";
@@ -10,7 +11,10 @@ import { PARTNER_SESSION_COOKIE_NAME, verifyPartnerSessionToken } from "@/lib/si
 
 // GET: partner dashboard data
 export async function GET() {
-  if (!(await checkAuth()) && !(await verifyPartnerSessionToken((await cookies()).get(PARTNER_SESSION_COOKIE_NAME)?.value))) return NextResponse.json({error:"Unauthorized"},{status:401});
+  const partnerRole = await verifyPartnerSessionToken((await cookies()).get(PARTNER_SESSION_COOKIE_NAME)?.value);
+  if (!partnerRole && !(await checkAuth())) return NextResponse.json({error:"Unauthorized"},{status:401});
+  // 완료 처리 링크(토큰)는 업그레이드 확정 권한(Jon·Cailie)에게만 내려준다.
+  const canConfirm = canConfirmUpgrades(partnerRole);
   const [schoolRows, teacherRows, acctRows, domRows] = await Promise.all([
     db
       .select({
@@ -31,6 +35,7 @@ export async function GET() {
         email: teachers.email,
         subject: teachers.subject,
         status: teachers.status,
+        notifiedAt: teachers.notifiedAt,
         createdAt: teachers.createdAt,
       })
       .from(teachers)
@@ -41,6 +46,15 @@ export async function GET() {
         schoolName: accountRequests.schoolName,
         schoolNameEn: accountRequests.schoolNameEn,
         type: accountRequests.type,
+        applicantType: accountRequests.applicantType,
+        accountType: accountRequests.accountType,
+        quantity: accountRequests.quantity,
+        oldEmail: accountRequests.oldEmail,
+        fromType: accountRequests.fromType,
+        extensionDate: accountRequests.extensionDate,
+        termYears: accountRequests.termYears,
+        notes: accountRequests.notes,
+        confirmToken: accountRequests.confirmToken,
         emails: accountRequests.emails,
         status: accountRequests.status,
         needsInvoice: accountRequests.needsInvoice,
@@ -100,7 +114,12 @@ export async function GET() {
     };
   });
 
-  return NextResponse.json({ schools: result, accountRequests: acctRows, domainRequests: domRows });
+  const accountRows = acctRows.map(({ confirmToken, ...row }) => ({
+    ...row,
+    // 처리 대기(sent) 건만 화면에서 완료 처리할 수 있다.
+    confirmToken: canConfirm && row.status === "sent" ? confirmToken : null,
+  }));
+  return NextResponse.json({ schools: result, accountRequests: accountRows, domainRequests: domRows });
 }
 
 // PATCH: Jon/Cailie marks teachers as upgraded
@@ -120,10 +139,16 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Teacher IDs required" }, { status: 400 });
   }
 
-  await db
+  // 본사 화면에 올린(sent) 승인 교사만 — 미승인·이미 완료된 교사는 건드리지 않는다.
+  const upgraded = await db
     .update(teachers)
     .set({ status: "upgraded" })
-    .where(inArray(teachers.id, ids));
+    .where(and(inArray(teachers.id, ids), eq(teachers.status, "sent"), eq(teachers.verificationStatus, "approved")))
+    .returning({ id: teachers.id });
+  const upgradedIds = upgraded.map((t) => t.id);
+  const confirmedAt = new Date();
+  // 이메일 확인 링크와 같은 알림(관리자 알림 + 교사 완료 메일)을 응답 뒤 끝까지 보낸다.
+  after(() => notifyTeacherUpgrades(upgradedIds, confirmedAt));
 
-  return NextResponse.json({ success: true, upgraded: ids.length });
+  return NextResponse.json({ success: true, upgraded: upgradedIds.length });
 }

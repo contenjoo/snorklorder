@@ -1,4 +1,3 @@
-import { sendTrackedProcessingMail } from "@/lib/processing-mail-outbox";
 import { checkAuth } from "@/lib/auth";
 import { confirmationExpiry } from "@/lib/confirmation-token";
 export const dynamic = "force-dynamic";
@@ -7,7 +6,7 @@ import { randomBytes } from "crypto";
 import { db } from "@/db";
 import { accountRequests } from "@/db/schema";
 import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
-import { getTransporter, logEmail, escapeHtml, formatLogRecipients, BASE_URL, HQ_EMAIL, HQ_INVOICE_TO } from "@/lib/email";
+import { getTransporter, logEmail, formatLogRecipients, BASE_URL, HQ_EMAIL, HQ_INVOICE_TO } from "@/lib/email";
 import { defaultNeedsInvoice, buildInvoiceEmail } from "@/lib/account-email-template";
 import {
   hydrateAccountRequestSchoolNames,
@@ -22,8 +21,7 @@ import {
 import { invoiceViewUrl, loadOpenInvoiceItemsForEmail } from "@/lib/invoice-ledger";
 import { claimAccountRequestSideEffects } from "@/lib/market-void-db";
 import { getReceiverFulfillmentPausedResponse } from "@/lib/receiver-fulfillment-pause";
-import { buildProcessingEmail } from "@/lib/account-processing";
-import { loadProcessingReminders, processingListUnavailableResponse } from "@/lib/processing-ledger";
+import { processingListUnavailableResponse } from "@/lib/processing-ledger";
 import { isMarketLegacyAuditRequest } from "@/lib/market-legacy-audit";
 import { assignRequestsToCurrentBillingCycle } from "@/lib/billing-cycle-db";
 
@@ -92,7 +90,6 @@ export async function POST(req: NextRequest) {
     const from = process.env.GMAIL_USER || "";
 
     let confirmLink = "";
-    let pending: Awaited<ReturnType<typeof loadProcessingReminders>> = { reminders: [], manualReview: [] };
     let existing: {
       id: number;
       channel: string | null;
@@ -228,14 +225,9 @@ export async function POST(req: NextRequest) {
         }, { status: 409 });
       }
 
-      if (mode === "send_all") {
-        try { pending = await loadProcessingReminders([existing]); }
-        catch { return processingListUnavailableResponse(); }
-      }
-
       // 토큰 생성이나 SMTP보다 먼저 order fence를 선점한다. prepare가 먼저 이겼다면
       // false이며, 이 요청에서는 어떤 외부 side effect도 시작하지 않는다.
-      if (!(await claimAccountRequestSideEffects([existing.id, ...pending.reminders.map((r) => r.id)]))) {
+      if (!(await claimAccountRequestSideEffects([existing.id]))) {
         return NextResponse.json({
           success: false,
           code: "MARKET_VOID_FENCED",
@@ -287,38 +279,9 @@ export async function POST(req: NextRequest) {
         existing.processingEmailSendStartedAt = processingClaimedAt;
       }
 
-      // 미리보기와 같은 renderer. 목록 조회는 SMTP claim 전에 끝났으며 실패 시 발송하지 않는다.
-      const generated = buildProcessingEmail([existing!], pending.reminders, { baseUrl: BASE_URL });
-      const finalSubject = generated.subject;
-      const finalBody = generated.body;
-      const bodyHtml = escapeHtml(finalBody).replace(/(https?:\/\/[^\s<]+\/account-confirm\/[a-f0-9]+)/g, '<a href="$1">$1</a>').replace(/\n/g, "<br>");
-      const logTo = formatLogRecipients(HQ_EMAIL);
-
-      try {
-        await sendTrackedProcessingMail(transporter, {
-          from,
-          to: HQ_EMAIL,
-          subject: finalSubject,
-          text: finalBody,
-          html: `<div style="max-width:640px;margin:0 auto;font-family:-apple-system,sans-serif;color:#1f2937;font-size:14px;line-height:1.6">${bodyHtml}</div>`,
-        }, [existing!, ...pending.reminders]);
-      } catch {
-        try {
-          await logEmail({ to: logTo, subject: finalSubject, kind: "account_email", status: "failed", error: "Jon processing email delivery outcome unknown; check Gmail Sent", relatedType: "account_request", relatedId: requestId || null });
-        } catch {
-          console.error("[account-email] failed to persist processing email failure log");
-        }
-        // sendMail throw는 SMTP 미시도 증거가 아니다. claim을 UNKNOWN으로 보존해
-        // 운영자가 Gmail Sent를 확인하기 전 자동 중복 발송을 막는다.
-        return deliveryUnknownResponse("processing", 502);
-      }
-      try {
-        await logEmail({ to: logTo, subject: finalSubject, kind: "account_email", status: "success", relatedType: "account_request", relatedId: requestId || null });
-      } catch {
-        console.error("[account-email] failed to persist processing email success log");
-      }
-
-      // SMTP 성공 뒤 sentAt+claim 해제를 한 CAS로 확정한다. 실패하면 claim을 남겨 unknown으로 차단한다.
+      // Jon 에게 처리 메일을 보내지 않는다 — 본사 화면(/partner Billing 탭)에 올리고,
+      // 하루 1통 알림(cron/hq-daily-nudge)으로 새 건을 알린다. processingEmailSentAt = 본사 화면 게시 시각.
+      // 게시 확정: sentAt+claim 해제를 한 CAS로 확정한다. 실패하면 claim을 남겨 unknown으로 차단한다.
       if (existing) {
         const sentAt = new Date();
         if (!processingClaimedAt) return deliveryUnknownResponse("processing", 500);
