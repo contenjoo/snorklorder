@@ -1,0 +1,811 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { isGroupPurchaseTeam } from "@/lib/teams";
+
+type Step = "choose" | "schoolFind" | "schoolForm" | "batchForm" | "success" | "batchSuccess" | "request" | "requestSent" | "purchaseForm";
+type FindMode = "search" | "code";
+
+interface SchoolResult { id: number; name: string; nameEn: string | null;  team?: string | null; }
+
+interface Props {
+  // 학교별 등록 링크(/j/[code])로 들어온 경우 학교가 미리 선택된다.
+  initialSchool?: { id: number; name: string; nameEn: string | null };
+  // 링크의 학교를 쓸 수 없을 때 안내 문구 (검색 화면에서 시작)
+  linkNotice?: string;
+}
+
+export default function TeacherRegistration({ initialSchool, linkNotice }: Props = {}) {
+  const [step, setStep] = useState<Step>(initialSchool ? "schoolForm" : linkNotice ? "schoolFind" : "choose");
+  const [findMode, setFindMode] = useState<FindMode>("search");
+  const [schoolId, setSchoolId] = useState<number | null>(initialSchool?.id ?? null);
+  const [mailStatus, setMailStatus] = useState("");
+  const [schoolCode, setSchoolCode] = useState("");
+  const [schoolName, setSchoolName] = useState(initialSchool?.name ?? "");
+  const [schoolNameEn, setSchoolNameEn] = useState(initialSchool?.nameEn ?? "");
+  const [notice, setNotice] = useState(linkNotice ?? "");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<SchoolResult[]>([]);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [subject, setSubject] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [searchTimer, setSearchTimer] = useState<NodeJS.Timeout | null>(null);
+  const [reqName, setReqName] = useState("");
+  const [reqNameEn, setReqNameEn] = useState("");
+  const [reqRegion, setReqRegion] = useState("");
+  const [reqDomain, setReqDomain] = useState("");
+  const [reqContactName, setReqContactName] = useState("");
+  const [reqContactEmail, setReqContactEmail] = useState("");
+  const [batchEmails, setBatchEmails] = useState("");
+  const [batchResult, setBatchResult] = useState<{ registered: number; duplicates: number; results?: {email:string;mailStatus:string}[] } | null>(null);
+  const [purchaseSchoolName, setPurchaseSchoolName] = useState("");
+  const [purchaseTeachers, setPurchaseTeachers] = useState<{ name: string; email: string; subject: string }[]>([{ name: "", email: "", subject: "" }]);
+  const [purchaseMode, setPurchaseMode] = useState<"individual" | "bulk">("individual");
+  const [purchaseBulkEmails, setPurchaseBulkEmails] = useState("");
+  const [matchedSchool, setMatchedSchool] = useState<SchoolResult | null>(null);
+  const [approvalStatus, setApprovalStatus] = useState<"approved" | "email_verified" | "unverified" | null>(null);
+
+  useEffect(() => {
+    if (step !== "purchaseForm") { setMatchedSchool(null); return; }
+    const q = purchaseSchoolName.trim();
+    if (q.length < 2) { setMatchedSchool(null); return; }
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/schools/search?q=${encodeURIComponent(q)}`);
+        const list = (await res.json()) as SchoolResult[];
+        const exact = list.find((s) => s.name === q || s.nameEn === q);
+        const groupHit = (exact ?? list[0]);
+        setMatchedSchool(groupHit && isGroupPurchaseTeam(groupHit.team) ? groupHit : null);
+      } catch { /* ignore */ }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [purchaseSchoolName, step]);
+
+  useEffect(() => {
+    const trimmedQuery = searchQuery.trim();
+    if (trimmedQuery.length < 2) { setSearchResults([]); return; }
+    if (searchTimer) clearTimeout(searchTimer);
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/schools/search?q=${encodeURIComponent(trimmedQuery)}`);
+        setSearchResults(await res.json());
+      } catch { /* ignore */ }
+    }, 300);
+    setSearchTimer(t);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery]);
+
+  function selectSchool(s: SchoolResult) {
+    setSchoolId(s.id); setSchoolCode(""); setSchoolName(s.name); setSchoolNameEn(s.nameEn || "");
+    setSearchQuery(""); setSearchResults([]); setError(""); setNotice(""); setStep("schoolForm");
+  }
+
+  async function lookupCode() {
+    if (!schoolCode.trim()) return;
+    setLoading(true); setError("");
+    try {
+      const res = await fetch(`/api/schools/lookup?code=${encodeURIComponent(schoolCode.trim())}`);
+      if (!res.ok) { setError("학교 코드를 찾을 수 없습니다."); return; }
+      const data = await res.json();
+      if (data.team === "취소") { setError("취소된 학교입니다. 학교 단체구매 신청이 종료되었어요."); return; }
+      setSchoolId(data.id); setSchoolName(data.name); setNotice(""); setStep("schoolForm");
+    } catch { setError("연결 오류입니다."); } finally { setLoading(false); }
+  }
+
+  async function submitSchoolTeacher() {
+    if (!name.trim() || !email.trim()) { setError("이름과 이메일은 필수입니다."); return; }
+    setLoading(true); setError("");
+    try {
+      const res = await fetch("/api/register", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ schoolId, schoolCode: schoolCode.trim(), name: name.trim(), email: email.trim(), subject: subject.trim() || null }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error?.includes("already registered") ? "이미 등록된 이메일입니다." : (data.error || "등록 실패")); return; }
+      setApprovalStatus("unverified"); setMailStatus(data.mailStatus);
+      setStep("success");
+    } catch { setError("연결 오류입니다."); } finally { setLoading(false); }
+  }
+
+  async function submitBatch() {
+    const emails = batchEmails.split(/[\n,;]+/).map((e) => e.trim()).filter((e) => e && e.includes("@"));
+    if (emails.length === 0) { setError("유효한 이메일을 입력해주세요."); return; }
+    setLoading(true); setError("");
+    try {
+      const res = await fetch("/api/register/batch", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ schoolId, schoolCode: schoolCode.trim(), emails }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || "등록 실패"); return; }
+      setBatchResult({ registered: data.registered, duplicates: data.duplicates, results: data.results });
+      setStep("batchSuccess");
+    } catch { setError("연결 오류입니다."); } finally { setLoading(false); }
+  }
+
+  async function submitSchoolRequest() {
+    if (!reqName.trim() || !reqContactName.trim() || !reqContactEmail.trim()) { setError("학교명, 담당자 이름, 이메일은 필수입니다."); return; }
+    setLoading(true); setError("");
+    try {
+      const res = await fetch("/api/school-requests", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: reqName.trim(), nameEn: reqNameEn.trim() || null, region: reqRegion || null, domain: reqDomain.trim() || null, contactName: reqContactName.trim(), contactEmail: reqContactEmail.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || "요청 실패"); return; }
+      setStep("requestSent");
+    } catch { setError("연결 오류입니다."); } finally { setLoading(false); }
+  }
+
+  function reset() {
+    setNotice(""); setSchoolId(null); setApprovalStatus(null); setMailStatus(""); setStep("choose"); setSchoolCode(""); setSchoolName(""); setSchoolNameEn("");
+    setSearchQuery(""); setSearchResults([]); setName(""); setEmail("");
+    setSubject(""); setError(""); setBatchEmails(""); setBatchResult(null);
+    setReqName(""); setReqNameEn(""); setReqRegion(""); setReqDomain(""); setReqContactName(""); setReqContactEmail("");
+    setPurchaseSchoolName(""); setPurchaseTeachers([{ name: "", email: "", subject: "" }]);
+    setPurchaseMode("individual"); setPurchaseBulkEmails("");
+  }
+
+  async function submitPurchase() {
+    if (!purchaseSchoolName.trim()) { setError("소속 학교/기관을 입력해주세요."); return; }
+    const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    let emails: string[];
+    let notesLines: string[];
+
+    if (purchaseMode === "bulk") {
+      const parsed = purchaseBulkEmails
+        .split(/[\n,;\s]+/).map((e) => e.trim().toLowerCase()).filter(Boolean);
+      const valid = parsed.filter((e) => emailRe.test(e));
+      const invalid = parsed.filter((e) => !emailRe.test(e));
+      if (invalid.length > 0) { setError(`유효하지 않은 이메일: ${invalid.slice(0,3).join(", ")}${invalid.length>3?" 외":""}`); return; }
+      const unique = [...new Set(valid)];
+      if (unique.length === 0) { setError("이메일을 1개 이상 입력해주세요."); return; }
+      if (unique.length > 10) { setError(`최대 10개까지 가능합니다 (현재 ${unique.length}개).`); return; }
+      emails = unique;
+      notesLines = ["[INDIVIDUAL_PURCHASE_BULK]", ...unique.map((e, i) => `Teacher ${i + 1}: <${e}>`)];
+    } else {
+      const filled = purchaseTeachers.filter((t) => t.name.trim() || t.email.trim());
+      if (filled.length === 0) { setError("최소 1명 이상의 교사 정보를 입력해주세요."); return; }
+      for (const t of filled) {
+        if (!t.name.trim() || !t.email.trim()) { setError("이름과 이메일을 모두 입력해주세요."); return; }
+        if (!emailRe.test(t.email.trim())) { setError(`유효하지 않은 이메일: ${t.email}`); return; }
+      }
+      emails = filled.map((t) => t.email.trim().toLowerCase());
+      if (new Set(emails).size !== emails.length) { setError("중복된 이메일이 있습니다."); return; }
+      notesLines = ["[INDIVIDUAL_PURCHASE]", ...filled.map((t, i) => `Teacher ${i + 1}: ${t.name.trim()} <${t.email.trim()}>${t.subject.trim() ? ` · ${t.subject.trim()}` : ""}`)];
+    }
+
+    setLoading(true); setError("");
+    try {
+      // 학교명 영문 자동 번역 (실패해도 등록은 계속 진행)
+      let schoolNameEn: string | null = null;
+      try {
+        const tres = await fetch("/api/translate", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: purchaseSchoolName.trim() }),
+        });
+        if (tres.ok) {
+          const tdata = await tres.json();
+          if (tdata.translated && typeof tdata.translated === "string") {
+            schoolNameEn = tdata.translated.trim() || null;
+          }
+        }
+      } catch { /* 번역 실패는 무시 */ }
+
+      const notes = notesLines.join("\n");
+      const res = await fetch("/api/account-requests", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "create",
+          type: "upgrade",
+          schoolName: purchaseSchoolName.trim(),
+          schoolNameEn,
+          emails: emails.join(", "),
+          accountType: "teacher",
+          quantity: emails.length,
+          notes,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || "등록에 실패했습니다."); return; }
+      setStep("success");
+    } catch { setError("연결 오류입니다."); } finally { setLoading(false); }
+  }
+
+  // Shared input class
+  const inputCls = "bg-white border-2 border-gray-200 text-gray-900 placeholder:text-gray-400 text-base h-12 rounded-xl focus:border-blue-500 focus:ring-blue-500";
+  const labelCls = "text-gray-700 font-semibold text-sm";
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex items-center justify-center p-4">
+      {/* 담당 과목 자동완성 — 자유 입력은 유지하되 표준 과목명으로 유도해 데이터 정규화 */}
+      <datalist id="subject-options">
+        {["국어", "영어", "수학", "과학", "사회", "역사", "도덕", "정보", "체육", "음악", "미술", "기술가정", "제2외국어", "진로", "특수", "보건", "사서", "상담", "초등 담임"].map((s) => (
+          <option key={s} value={s} />
+        ))}
+      </datalist>
+      <div className="w-full max-w-lg">
+        {/* Header */}
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center gap-2 bg-white rounded-full px-4 py-2 shadow-sm border border-gray-100 mb-4">
+            <div className="w-6 h-6 bg-blue-600 rounded-md flex items-center justify-center">
+              <span className="text-white text-xs font-black">S</span>
+            </div>
+            <span className="font-bold text-gray-800">Snorkl</span>
+          </div>
+          <h1 className="text-2xl font-bold text-gray-900">프리미엄 교사 등록</h1>
+          <p className="text-gray-500 mt-1">Snorkl 프리미엄 업그레이드 요청</p>
+        </div>
+
+        {notice && (
+          <p role="status" className="mb-4 rounded-xl bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800 font-medium">{notice}</p>
+        )}
+
+        {/* Card */}
+        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
+
+          {step === "choose" && (
+            <div className="p-6 space-y-5">
+              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider">
+                <span className="text-blue-600">1. 구매 유형</span>
+                <span className="text-gray-300">›</span>
+                <span className="text-gray-400">2. 정보 입력</span>
+                <span className="text-gray-300">›</span>
+                <span className="text-gray-400">3. 완료</span>
+              </div>              <div>
+                <h2 className="text-xl font-bold text-gray-900">어떻게 구매하셨나요?</h2>
+                <p className="text-sm text-gray-500 mt-1">구매 방식에 맞는 등록 안내를 도와드릴게요.</p>
+              </div>              <div className="flex items-start gap-3 rounded-xl bg-blue-50 border border-blue-100 p-3.5">
+                <span className="text-base mt-0.5">💡</span>
+                <p className="text-xs text-blue-800 leading-relaxed">
+                  먼저 <a href="https://snorkl.app" target="_blank" rel="noopener noreferrer" className="underline font-bold">snorkl.app</a>에서 가입해주세요.
+                  여기서 등록하실 때 <b>동일한 이메일</b>을 사용해야 업그레이드가 적용됩니다.
+                </p>
+              </div>              <button
+                onClick={() => { setStep("schoolFind"); setError(""); }}
+                className="w-full rounded-2xl border-2 border-gray-100 p-5 text-left hover:border-blue-300 hover:bg-blue-50/40 hover:shadow-md transition-all group"
+              >
+                <div className="flex items-start gap-3 mb-3">
+                  <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center text-2xl shrink-0 group-hover:scale-105 transition-transform">🏫</div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-gray-900">학교 단체구매</p>
+                    <p className="text-xs text-gray-500 mt-0.5">학교 차원의 일괄 구매로 함께 등록된 선생님</p>
+                  </div>
+                  <svg className="w-5 h-5 text-gray-300 group-hover:text-blue-500 group-hover:translate-x-0.5 transition-all shrink-0 mt-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
+                <ul className="space-y-1 text-xs text-gray-600 pl-[60px]">
+                  <li className="flex items-center gap-1.5">
+                    <span className="text-blue-500">✓</span>
+                    학교 전체구매로 함께 신청한 경우
+                  </li>
+                  <li className="flex items-center gap-1.5">
+                    <span className="text-blue-500">✓</span>
+                    지역 공동구매팀 (서울/경기 N팀)
+                  </li>
+                  <li className="flex items-center gap-1.5">
+                    <span className="text-blue-500">✓</span>
+                    학교 코드를 받으셨다면 여기로
+                  </li>
+                </ul>
+              </button>              <button
+                onClick={() => { setStep("purchaseForm"); setError(""); }}
+                className="w-full rounded-2xl border-2 border-gray-100 p-5 text-left hover:border-emerald-300 hover:bg-emerald-50/40 hover:shadow-md transition-all group"
+              >
+                <div className="flex items-start gap-3 mb-3">
+                  <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center text-2xl shrink-0 group-hover:scale-105 transition-transform">👤</div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-gray-900">교사 개인구매</p>
+                    <p className="text-xs text-gray-500 mt-0.5">개인 또는 소수 인원이 직접 구매한 경우</p>
+                  </div>
+                  <svg className="w-5 h-5 text-gray-300 group-hover:text-emerald-500 group-hover:translate-x-0.5 transition-all shrink-0 mt-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
+                <ul className="space-y-1 text-xs text-gray-600 pl-[60px]">
+                  <li className="flex items-center gap-1.5">
+                    <span className="text-emerald-500">✓</span>
+                    학교 단체구매가 <b>아닌</b> 일반 구매
+                  </li>
+                  <li className="flex items-center gap-1.5">
+                    <span className="text-emerald-500">✓</span>
+                    혼자 또는 소수 인원으로 구매
+                  </li>
+                  <li className="flex items-center gap-1.5">
+                    <span className="text-emerald-500">✓</span>
+                    한 번에 1~10명까지 등록 가능
+                  </li>
+                </ul>
+              </button>              <div className="text-center pt-1">
+                <p className="text-[11px] text-gray-400">
+                  잘 모르시겠다면? 학교에서 받은 <b className="text-gray-500">학교 코드</b>가 있으면 학교 단체구매를 선택하세요.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* ===== 학교 찾기 (검색 / 코드) ===== */}
+          {step === "schoolFind" && (
+            <div className="p-6 space-y-5">
+              <div className="flex items-center gap-3 rounded-xl bg-blue-50 border border-blue-100 p-4">
+                <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center text-xl">🏫</div>
+                <div>
+                  <p className="font-bold text-gray-900">학교 단체구매</p>
+                  <p className="text-sm text-blue-700">학교를 검색하거나 코드를 입력하세요</p>
+                </div>
+              </div>
+
+              <div className="flex rounded-xl bg-gray-100 p-1">
+                <button
+                  onClick={() => { setFindMode("search"); setError(""); }}
+                  className={`flex-1 text-sm py-2.5 rounded-lg font-medium transition-all ${findMode === "search" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+                >학교 검색</button>
+                <button
+                  onClick={() => { setFindMode("code"); setError(""); }}
+                  className={`flex-1 text-sm py-2.5 rounded-lg font-medium transition-all ${findMode === "code" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+                >코드 입력</button>
+              </div>
+
+              {findMode === "search" ? (
+                <div className="space-y-2">
+                  <Input placeholder="학교 이름을 입력하세요" value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)} autoFocus className={inputCls} />
+                  {searchResults.length > 0 && (
+                    <div className="rounded-xl border-2 border-gray-100 divide-y divide-gray-100 max-h-48 overflow-y-auto">
+                      {searchResults.map((s) => {
+                        const cancelled = s.team === "취소";
+                        return (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => { if (!cancelled) selectSchool(s); }}
+                            disabled={cancelled}
+                            aria-disabled={cancelled}
+                            className={`w-full text-left px-4 py-3 transition-colors ${cancelled ? "bg-gray-50 cursor-not-allowed opacity-60" : "hover:bg-blue-50"}`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <p className={`font-semibold ${cancelled ? "text-gray-400 line-through" : "text-gray-900"}`}>{s.name}</p>
+                              {cancelled && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200">취소학교</span>}
+                            </div>
+                            {s.nameEn && <p className={`text-xs ${cancelled ? "text-gray-300" : "text-gray-400"}`}>{s.nameEn}</p>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {searchQuery.length >= 2 && searchResults.length === 0 && (
+                    <div className="text-center py-4 bg-gray-50 rounded-xl">
+                      <p className="text-sm text-gray-500 font-medium">검색 결과가 없습니다</p>
+                      <button onClick={() => { setReqName(searchQuery); setStep("request"); setError(""); }}
+                        className="text-sm text-blue-600 font-bold underline mt-1">학교 등록 요청하기 →</button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <Input id="school-code" aria-label="학교 코드" placeholder="예: HYOMYEONG" value={schoolCode}
+                    onChange={(e) => setSchoolCode(e.target.value.toUpperCase())}
+                    onKeyDown={(e) => e.key === "Enter" && lookupCode()}
+                    autoFocus
+                    className={inputCls + " font-mono tracking-widest"} />
+                  {error && <p role="alert" aria-live="polite" className="text-sm text-red-600 font-medium">{error}</p>}
+                  <Button onClick={lookupCode} disabled={loading} className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-base font-bold rounded-xl">
+                    {loading ? "확인 중..." : "다음 →"}
+                  </Button>
+                </div>
+              )}
+
+              <button onClick={reset} className="w-full text-sm text-gray-400 font-medium hover:text-gray-600 transition-colors py-1">← 돌아가기</button>
+            </div>
+          )}
+
+          {/* ===== 학교 소속 교사 폼 (1명) ===== */}
+          {step === "schoolForm" && (
+            <form onSubmit={(e) => { e.preventDefault(); submitSchoolTeacher(); }} className="p-6 space-y-5">
+              <div className="text-center rounded-xl bg-blue-50 border border-blue-100 p-5">
+                <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center text-2xl mx-auto mb-2">🏫</div>
+                <p className="text-xl font-bold text-gray-900">{schoolName}</p>
+                {schoolNameEn && <p className="text-sm text-blue-600">{schoolNameEn}</p>}
+                <div className="flex items-center justify-center gap-3 mt-2">
+                  <button type="button" onClick={reset} className="text-sm text-blue-600 font-semibold underline">학교 변경</button>
+                  <span className="text-gray-300">|</span>
+                  <button type="button" onClick={() => { setStep("batchForm"); setError(""); }} className="text-sm text-blue-600 font-semibold underline">일괄 등록으로 전환</button>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-2 rounded-xl bg-amber-50 border border-amber-200 p-3">
+                <span className="text-base">⚡</span>
+                <p className="text-sm text-amber-800 font-medium">
+                  <a href="https://snorkl.app" target="_blank" rel="noopener noreferrer" className="underline font-bold">snorkl.app</a>
+                  에서 가입한 이메일과 동일한 이메일을 입력해주세요.
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="school-name" className={labelCls}>이름 *</Label>
+                <Input id="school-name" autoComplete="name" placeholder="홍길동" value={name} onChange={(e) => setName(e.target.value)} autoFocus className={inputCls} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="school-email" className={labelCls}>이메일 * <span className="text-gray-500 font-normal">(Snorkl 가입 이메일)</span></Label>
+                <Input id="school-email" type="email" autoComplete="email" placeholder="example@school.kr" value={email} onChange={(e) => setEmail(e.target.value)} className={inputCls} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="school-subject" className={labelCls}>담당 과목 <span className="text-gray-500 font-normal">(선택)</span></Label>
+                <Input id="school-subject" list="subject-options" placeholder="예: 수학 (초등은 '초등 담임')" value={subject} onChange={(e) => setSubject(e.target.value)} className={inputCls} />
+              </div>
+              {error && <p role="alert" aria-live="polite" className="text-sm text-red-600 font-medium bg-red-50 p-3 rounded-xl">{error}</p>}
+              <Button type="submit" disabled={loading} className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-base font-bold rounded-xl">
+                {loading ? "등록 중..." : "등록하기"}
+              </Button>
+            </form>
+          )}
+
+          {/* ===== 학교 일괄 등록 폼 ===== */}
+          {step === "batchForm" && (
+            <form onSubmit={(e) => { e.preventDefault(); submitBatch(); }} className="p-6 space-y-5">
+              <div className="text-center rounded-xl bg-blue-50 border border-blue-100 p-5">
+                <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center text-2xl mx-auto mb-2">🏫</div>
+                <p className="text-xl font-bold text-gray-900">{schoolName}</p>
+                {schoolNameEn && <p className="text-sm text-blue-600">{schoolNameEn}</p>}
+                <div className="flex items-center justify-center gap-3 mt-2">
+                  <button type="button" onClick={reset} className="text-sm text-blue-600 font-semibold underline">학교 변경</button>
+                  <span className="text-gray-300">|</span>
+                  <button type="button" onClick={() => { setStep("schoolForm"); setError(""); }} className="text-sm text-blue-600 font-semibold underline">1명 등록으로 전환</button>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-2 rounded-xl bg-green-50 border border-green-200 p-3">
+                <span className="text-base">📋</span>
+                <p className="text-sm text-green-800 font-medium">
+                  여러 선생님의 이메일을 한번에 등록합니다. <b>Snorkl 가입 이메일</b>을 입력해주세요.
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="batch-emails" className={labelCls}>이메일 목록 *</Label>
+                <textarea
+                  id="batch-emails"
+                  placeholder={"teacher1@school.kr\nteacher2@school.kr\nteacher3@school.kr"}
+                  value={batchEmails}
+                  onChange={(e) => setBatchEmails(e.target.value)}
+                  rows={8}
+                  autoFocus
+                  className="w-full bg-white border-2 border-gray-200 text-gray-900 placeholder:text-gray-400 text-sm font-mono rounded-xl p-4 focus:border-blue-500 focus:ring-blue-500 outline-none resize-y"
+                />
+                <p className="text-xs text-gray-500">한 줄에 하나씩, 또는 쉼표(,)로 구분해서 입력하세요</p>
+              </div>
+
+              {batchEmails.trim() && (
+                <div className="text-sm text-gray-600 bg-gray-50 rounded-xl p-3">
+                  인식된 이메일: <span className="font-bold text-blue-600">
+                    {batchEmails.split(/[\n,;]+/).map((e) => e.trim()).filter((e) => e && e.includes("@")).length}개
+                  </span>
+                </div>
+              )}
+
+              {error && <p role="alert" aria-live="polite" className="text-sm text-red-600 font-medium bg-red-50 p-3 rounded-xl">{error}</p>}
+              <Button type="submit" disabled={loading} className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-base font-bold rounded-xl">
+                {loading ? "등록 중..." : "일괄 등록하기"}
+              </Button>
+              <button type="button" onClick={reset} className="w-full text-sm text-gray-400 font-medium hover:text-gray-600 transition-colors py-1">← 돌아가기</button>
+            </form>
+          )}
+
+          {/* ===== 일괄 등록 완료 ===== */}
+          {step === "batchSuccess" && batchResult && (
+            <div className="p-8 text-center space-y-5">
+              <div className="mx-auto w-20 h-20 rounded-2xl bg-green-50 border-2 border-green-200 flex items-center justify-center">
+                <svg className="w-10 h-10 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-2xl font-bold text-gray-900">일괄 접수 완료</h3>
+                <div className="mt-4 space-y-2">
+                  <div className="inline-flex items-center gap-2 bg-green-50 rounded-lg px-4 py-2">
+                    <span className="text-green-600 font-bold text-lg">{batchResult.registered}명</span>
+                    <span className="text-green-700 text-sm">새로 등록</span>
+                  </div>
+                  {batchResult.duplicates > 0 && (
+                    <div className="block">
+                      <span className="text-sm text-gray-500">이미 등록됨: {batchResult.duplicates}명 (건너뜀)</span>
+                    </div>
+                  )}
+                </div>
+                <p className="text-base text-gray-500 mt-3">
+                  각 이메일로 보낸 확인 링크를 눌러 주세요. 이메일 확인 후 학교 도메인 이메일은 <span className="font-semibold text-gray-700">자동 승인</span>, 그 외는 <span className="font-semibold text-gray-700">학교 관리자 승인</span> 후 업그레이드됩니다.
+                </p>
+                {batchResult?.results?.map(item=><p key={item.email} className="text-sm">{item.email}: {item.mailStatus==='sent'?'확인 메일 발송':item.mailStatus==='already_registered'?'이미 등록됨':'발송 실패 또는 재발송 대기'}</p>)}
+                <Button disabled={loading} onClick={submitBatch}>미확인 이메일 다시 보내기</Button>
+              </div>
+              <Button variant="outline" onClick={reset} className="border-2 border-gray-200 text-gray-700 font-semibold h-11 rounded-xl hover:bg-gray-50">
+                처음으로
+              </Button>
+            </div>
+          )}
+
+          {/* ===== 완료 ===== */}
+          {step === "success" && (
+            <div className="p-8 text-center space-y-5">
+              <div className="mx-auto w-20 h-20 rounded-2xl bg-green-50 border-2 border-green-200 flex items-center justify-center">
+                <svg className="w-10 h-10 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-2xl font-bold text-gray-900">
+                  {approvalStatus === "unverified" ? "이메일 확인이 필요합니다" : "등록 접수 완료"}
+                </h3>
+                {approvalStatus === "unverified" ? (
+                  <div className="mt-3 space-y-3"><p>{mailStatus === "sent" ? "입력한 이메일로 확인 링크를 보냈습니다. 30분 안에 확인해 주세요." : mailStatus === "already_registered" ? "이미 등록된 이메일입니다." : "접수는 완료됐지만 확인 메일을 보내지 못했거나 재발송 대기 중입니다."}</p><Button disabled={loading} onClick={submitSchoolTeacher}>확인 메일 다시 받기</Button></div>
+                ) : approvalStatus === "email_verified" ? (
+                  <p className="text-base text-gray-500 mt-2">
+                    이메일 인증이 완료되었습니다.
+                    <br /><span className="font-semibold text-gray-700">학교 관리자 승인</span> 후 업그레이드가 진행됩니다.
+                  </p>
+                ) : (
+                  <p className="text-base text-gray-500 mt-2">
+                    Snorkl 프리미엄 업그레이드 요청이 접수되었습니다.
+                    <br /><span className="font-semibold text-gray-700">처리까지 1~2 영업일</span> 소요됩니다.
+                  </p>
+                )}
+              </div>
+              <Button variant="outline" onClick={reset} className="border-2 border-gray-200 text-gray-700 font-semibold h-11 rounded-xl hover:bg-gray-50">
+                다른 교사 등록하기
+              </Button>
+            </div>
+          )}
+
+          {/* ===== 학교 등록 요청 ===== */}
+          {step === "request" && (
+            <form onSubmit={(e) => { e.preventDefault(); submitSchoolRequest(); }} className="p-6 space-y-5">
+              <div className="flex items-center gap-3 rounded-xl bg-blue-50 border border-blue-100 p-4">
+                <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center text-xl">🏫</div>
+                <div>
+                  <p className="font-bold text-gray-900">학교 등록 요청</p>
+                  <p className="text-sm text-blue-600">관리자 확인 후 학교 코드가 이메일로 발송됩니다</p>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="req-name" className={labelCls}>학교명 (한국어) *</Label>
+                <Input id="req-name" placeholder="예: 효명고등학교" value={reqName} onChange={(e) => setReqName(e.target.value)} autoFocus className={inputCls} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="req-name-en" className={labelCls}>School Name (English)</Label>
+                <Input id="req-name-en" placeholder="e.g. Hyo-Myeong High School" value={reqNameEn} onChange={(e) => setReqNameEn(e.target.value)} className={inputCls} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="req-region" className={labelCls}>지역</Label>
+                <select id="req-region" value={reqRegion} onChange={(e) => setReqRegion(e.target.value)}
+                  className="w-full rounded-xl bg-white border-2 border-gray-200 text-gray-900 px-4 py-3 text-base focus:border-blue-500 outline-none">
+                  <option value="">선택하세요</option>
+                  {["서울","부산","대구","인천","광주","대전","울산","세종","경기","강원","충북","충남","전북","전남","경북","경남","제주"].map((r) => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="req-domain" className={labelCls}>학교 이메일 도메인 <span className="text-gray-500 font-normal">(선택)</span></Label>
+                <Input id="req-domain" placeholder="예: school.kr" value={reqDomain}
+                  onChange={(e) => setReqDomain(e.target.value.toLowerCase().replace(/^https?:\/\//, "").replace(/^@/, ""))}
+                  className={inputCls + " font-mono"} />
+                <p className="text-xs text-gray-500">학교 공식 이메일 도메인이 있으면 입력해주세요 (동료 교사 자동 인식에 사용됩니다)</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="req-contact-name" className={labelCls}>담당자 이름 *</Label>
+                <Input id="req-contact-name" autoComplete="name" placeholder="홍길동" value={reqContactName} onChange={(e) => setReqContactName(e.target.value)} className={inputCls} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="req-contact-email" className={labelCls}>담당자 이메일 *</Label>
+                <Input id="req-contact-email" type="email" autoComplete="email" placeholder="example@school.kr" value={reqContactEmail}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setReqContactEmail(v);
+                    if (!reqDomain && v.includes("@")) {
+                      const d = v.split("@")[1]?.trim().toLowerCase();
+                      if (d && /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(d)) setReqDomain(d);
+                    }
+                  }} className={inputCls} />
+              </div>
+              {error && <p role="alert" aria-live="polite" className="text-sm text-red-600 font-medium bg-red-50 p-3 rounded-xl">{error}</p>}
+              <Button type="submit" disabled={loading} className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-base font-bold rounded-xl">
+                {loading ? "요청 중..." : "등록 요청하기"}
+              </Button>
+              <button type="button" onClick={reset} className="w-full text-sm text-gray-400 font-medium hover:text-gray-600 transition-colors py-1">← 돌아가기</button>
+            </form>
+          )}
+
+          {/* ===== 교사 개인구매 (최대 10인 직접 입력) ===== */}
+          {step === "purchaseForm" && (
+            <form onSubmit={(e) => { e.preventDefault(); submitPurchase(); }} className="p-6 space-y-5">
+              <div className="flex items-center gap-3 rounded-xl bg-emerald-50 border border-emerald-100 p-4">
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center text-xl">👤</div>
+                <div>
+                  <p className="font-bold text-gray-900">교사 개인구매</p>
+                  <p className="text-sm text-emerald-700">최대 10명까지 한 번에 등록할 수 있습니다</p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-2 rounded-xl bg-amber-50 border border-amber-200 p-3">
+                <span className="text-base">⚡</span>
+                <p className="text-sm text-amber-800 font-medium">
+                  <a href="https://snorkl.app" target="_blank" rel="noopener noreferrer" className="underline font-bold">snorkl.app</a>
+                  에서 가입한 이메일과 동일한 이메일을 입력해주세요.
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="purchase-school-name" className={labelCls}>소속 학교 / 기관 *</Label>
+                <Input id="purchase-school-name" placeholder="예: 서울 OO고등학교" value={purchaseSchoolName} onChange={(e) => setPurchaseSchoolName(e.target.value)} autoFocus className={inputCls} />
+              </div>
+
+              {matchedSchool && (
+                <div className="rounded-xl bg-amber-50 border-2 border-amber-200 p-4 space-y-2.5">
+                  <div className="flex items-start gap-2">
+                    <span className="text-lg">🏫</span>
+                    <div className="flex-1">
+                      <p className="text-sm font-bold text-amber-900">단체구매한 학교입니다</p>
+                      <p className="text-xs text-amber-800 mt-0.5">
+                        <b>{matchedSchool.name}</b>은(는) <b>{matchedSchool.team}</b> 단체구매로 등록된 학교예요.
+                        학교 단체구매로 등록하시면 함께 일괄 처리됩니다.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSchoolId(matchedSchool.id); setSchoolCode("");
+                      setSchoolName(matchedSchool.name);
+                      setSchoolNameEn(matchedSchool.nameEn || "");
+                      setError("");
+                      setStep("schoolForm");
+                    }}
+                    className="w-full h-10 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-sm font-bold transition-colors"
+                  >
+                    학교 단체구매로 등록하기 →
+                  </button>
+                </div>
+              )}
+
+              <div className="flex rounded-xl bg-gray-100 p-1">
+                <button
+                  type="button"
+                  onClick={() => { setPurchaseMode("individual"); setError(""); }}
+                  className={`flex-1 text-sm py-2.5 rounded-lg font-medium transition-all ${purchaseMode === "individual" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+                >개별 입력</button>
+                <button
+                  type="button"
+                  onClick={() => { setPurchaseMode("bulk"); setError(""); }}
+                  className={`flex-1 text-sm py-2.5 rounded-lg font-medium transition-all ${purchaseMode === "bulk" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+                >일괄 붙여넣기</button>
+              </div>
+
+              {purchaseMode === "bulk" ? (
+                <div className="space-y-1.5">
+                  <Label htmlFor="purchase-bulk-emails" className={labelCls}>이메일 목록 *</Label>
+                  <textarea
+                    id="purchase-bulk-emails"
+                    placeholder={"teacher1@school.kr\nteacher2@school.kr\nteacher3@school.kr"}
+                    value={purchaseBulkEmails}
+                    onChange={(e) => setPurchaseBulkEmails(e.target.value)}
+                    rows={8}
+                    className="w-full bg-white border-2 border-gray-200 text-gray-900 placeholder:text-gray-400 text-sm font-mono rounded-xl p-4 focus:border-emerald-500 focus:ring-emerald-500 outline-none resize-y"
+                  />
+                  <p className="text-xs text-gray-500">한 줄에 하나씩, 또는 쉼표(,) 구분. 이름 없이 이메일만으로 등록됩니다. 최대 10명.</p>
+                  {purchaseBulkEmails.trim() && (
+                    <div className="text-sm text-gray-600 bg-gray-50 rounded-xl p-3">
+                      인식된 이메일: <span className="font-bold text-emerald-600">
+                        {purchaseBulkEmails.split(/[\n,;\s]+/).map((e) => e.trim()).filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)).length}개
+                      </span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label className={labelCls}>교사 정보 ({purchaseTeachers.length}명)</Label>
+                  <span className="text-xs text-gray-500">최대 10명</span>
+                </div>
+
+                {purchaseTeachers.map((t, i) => (
+                  <div key={i} className="rounded-2xl border-2 border-gray-100 p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-lg bg-emerald-50 flex items-center justify-center text-sm font-bold text-emerald-600">{i + 1}</div>
+                        <span className="text-sm font-semibold text-gray-700">교사 {i + 1}</span>
+                      </div>
+                      {purchaseTeachers.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => setPurchaseTeachers((prev) => prev.filter((_, idx) => idx !== i))}
+                          className="text-xs text-red-500 hover:text-red-700 font-medium"
+                        >삭제</button>
+                      )}
+                    </div>
+                    <Input
+                      id={`purchase-name-${i}`}
+                      aria-label={`교사 ${i + 1} 이름`}
+                      autoComplete="name"
+                      placeholder="이름 *"
+                      value={t.name}
+                      onChange={(e) => setPurchaseTeachers((prev) => prev.map((row, idx) => idx === i ? { ...row, name: e.target.value } : row))}
+                      className={inputCls}
+                    />
+                    <Input
+                      id={`purchase-email-${i}`}
+                      aria-label={`교사 ${i + 1} 이메일`}
+                      type="email"
+                      autoComplete="email"
+                      placeholder="이메일 * (Snorkl 가입 이메일)"
+                      value={t.email}
+                      onChange={(e) => setPurchaseTeachers((prev) => prev.map((row, idx) => idx === i ? { ...row, email: e.target.value } : row))}
+                      className={inputCls}
+                    />
+                    <Input
+                      id={`purchase-subject-${i}`}
+                      aria-label={`교사 ${i + 1} 담당 과목`}
+                      list="subject-options"
+                      placeholder="담당 과목 (선택) 예: 수학"
+                      value={t.subject}
+                      onChange={(e) => setPurchaseTeachers((prev) => prev.map((row, idx) => idx === i ? { ...row, subject: e.target.value } : row))}
+                      className={inputCls}
+                    />
+                  </div>
+                ))}
+
+                {purchaseTeachers.length < 10 && (
+                  <button
+                    type="button"
+                    onClick={() => setPurchaseTeachers((prev) => [...prev, { name: "", email: "", subject: "" }])}
+                    className="w-full h-12 rounded-xl border-2 border-dashed border-emerald-200 text-emerald-600 font-semibold hover:bg-emerald-50/50 transition-colors"
+                  >
+                    + 교사 추가
+                  </button>
+                )}
+              </div>
+              )}
+
+              {error && <p role="alert" aria-live="polite" className="text-sm text-red-600 font-medium bg-red-50 p-3 rounded-xl">{error}</p>}
+              <Button type="submit" disabled={loading} className="w-full h-12 bg-emerald-600 hover:bg-emerald-700 text-base font-bold rounded-xl">
+                {loading ? "등록 중..." : "등록하기"}
+              </Button>
+              <button type="button" onClick={reset} className="w-full text-sm text-gray-400 font-medium hover:text-gray-600 transition-colors py-1">← 돌아가기</button>
+            </form>
+          )}
+
+          {/* ===== 학교 요청 완료 ===== */}
+          {step === "requestSent" && (
+            <div className="p-8 text-center space-y-5">
+              <div className="mx-auto w-20 h-20 rounded-2xl bg-blue-50 border-2 border-blue-200 flex items-center justify-center">
+                <svg className="w-10 h-10 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-2xl font-bold text-gray-900">요청이 접수되었습니다!</h3>
+                <p className="text-base text-gray-500 mt-2">
+                  관리자 확인 후 학교 코드가 이메일로 발송됩니다.
+                  <br />코드를 받으신 후 동료 선생님들에게 공유해주세요.
+                </p>
+              </div>
+              <Button variant="outline" onClick={reset} className="border-2 border-gray-200 text-gray-700 font-semibold h-11 rounded-xl hover:bg-gray-50">처음으로</Button>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <p className="text-center text-xs text-gray-500 mt-6">
+          Powered by <span className="font-semibold">LearnToday</span> · <a href="https://snorkl.app" className="hover:text-gray-700">snorkl.app</a>
+        </p>
+      </div>
+    </div>
+  );
+}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { schoolJoinUrl } from "@/lib/school-link";
 
 type Teacher = {
   id: number;
@@ -97,6 +98,7 @@ export default function SchoolDashboardPage() {
   const [addInput, setAddInput] = useState("");
   const [addBusy, setAddBusy] = useState(false);
   const [addMsg, setAddMsg] = useState<string | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
   const [search, setSearch] = useState("");
 
   const load = useCallback(async () => {
@@ -248,6 +250,26 @@ export default function SchoolDashboardPage() {
               {school.team}
             </span>
           )}
+        </div>
+        <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50 p-4">
+          <p className="text-sm font-semibold text-slate-900">우리 학교 교사 등록 링크</p>
+          <p className="mt-0.5 text-xs text-slate-600">선생님들께 이 링크를 공유하면 학교가 미리 선택된 상태로 등록할 수 있습니다.</p>
+          <div className="mt-2 flex items-center gap-2">
+            <code className="min-w-0 flex-1 truncate rounded bg-white px-2 py-1.5 text-sm text-slate-800 border border-blue-100">
+              {schoolJoinUrl(school.code)}
+            </code>
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard.writeText(schoolJoinUrl(school.code));
+                setLinkCopied(true);
+                setTimeout(() => setLinkCopied(false), 2000);
+              }}
+              className="shrink-0 rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+            >
+              {linkCopied ? "복사됨" : "링크 복사"}
+            </button>
+          </div>
         </div>
       </header>
 
