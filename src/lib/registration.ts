@@ -15,6 +15,9 @@ export async function findRegistrationSchool(body:Record<string,unknown>) {
  }
  return null;
 }
+// 취소 학교는 화면(검색·코드·/j 링크)뿐 아니라 서버에서도 신규 등록을 받지 않는다.
+export const CANCELLED_SCHOOL_ERROR='취소된 학교입니다. 학교 단체구매 신청이 종료되었어요.';
+export function isCancelledSchool(school:{team:string|null}) { return school.team==='취소'; }
 export async function sendVerification(request:Request, teacher:{id:number;email:string}) {
  const limited=await checkEmailSendLimit(request,teacher.email);
  if(limited) return {status:limited.status===503?'unavailable':'limited'};
