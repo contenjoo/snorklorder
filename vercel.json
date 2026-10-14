@@ -15,10 +15,6 @@
     {
       "path": "/api/cron/prepare-billing-cycles",
       "schedule": "0 0 1,16 * *"
-    },
-    {
-      "path": "/api/cron/hq-daily-nudge",
-      "schedule": "5 9 * * *"
     }
   ]
 }
