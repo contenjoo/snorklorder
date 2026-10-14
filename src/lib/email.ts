@@ -7,6 +7,7 @@ import { emailLogs } from "@/db/schema";
 import { HQ_TO, HQ_INVOICE_TO, hqGreeting, invoiceGreeting } from "@/lib/account-email-template";
 export const HQ_EMAIL = HQ_TO;
 export { HQ_INVOICE_TO };
+import { schoolJoinUrl } from "@/lib/school-link";
 const ADMIN_EMAIL = process.env.GMAIL_USER || "";
 export const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || "https://snorkl-teacher-reg.vercel.app";
 
@@ -366,9 +367,9 @@ export async function sendSchoolCodeEmail(email: string, name: string, schoolNam
             <p style="color:#666;margin:0 0 8px">학교 코드</p>
             <p style="font-size:32px;font-weight:bold;color:#1e3a5f;letter-spacing:4px;margin:0">${safe(code)}</p>
           </div>
-          <p>아래 링크를 동료 선생님들에게 공유해주세요:</p>
-          <p><a href="${BASE_URL}" style="color:#2563eb">${BASE_URL}</a></p>
-          <p style="color:#666;font-size:13px">선생님들이 위 링크에서 학교 코드를 입력하고 Snorkl 프리미엄 등록을 하시면 됩니다.</p>
+          <p>아래 우리 학교 전용 등록 링크를 동료 선생님들에게 공유해주세요:</p>
+          <p><a href="${safe(schoolJoinUrl(code))}" style="color:#2563eb">${safe(schoolJoinUrl(code))}</a></p>
+          <p style="color:#666;font-size:13px">선생님들이 위 링크를 열면 학교가 미리 선택되어 있어, 이름과 Snorkl 가입 이메일만 입력하면 됩니다.</p>
           <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
           <p style="color:#999;font-size:11px">이 메일은 Snorkl 주문관리 시스템에서 자동 발송되었습니다.</p>
         </div>

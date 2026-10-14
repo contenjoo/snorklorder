@@ -6,6 +6,7 @@ import { schoolLevel, levelBadgeCls } from "@/lib/school-level";
 import { STATUS_DOT, STATUS_TEXT } from "@/lib/status";
 import { teamColor } from "@/lib/teams";
 import { copyEmails as copyEmailsTo } from "@/lib/ui-format";
+import { schoolJoinUrl } from "@/lib/school-link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -380,6 +381,14 @@ export default function SchoolsPage() {
             <button onClick={(e) => { e.stopPropagation(); toggleAdminPanel(school.id); }}
               className={`p-1 rounded hover:bg-indigo-50 ${adminPanelSchoolId === school.id ? "text-indigo-600 bg-indigo-50" : "text-slate-300 hover:text-indigo-600"}`} title="관리자 관리">
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /></svg>
+            </button>
+            <button onClick={(e) => { e.stopPropagation(); copyEmails([schoolJoinUrl(school.code)], `link-${school.id}`); }}
+              className="p-1 rounded text-slate-300 hover:text-blue-600 hover:bg-blue-50" title={`등록 링크 복사: ${schoolJoinUrl(school.code)}`}>
+              {copied === `link-${school.id}` ? (
+                <svg className="w-3.5 h-3.5 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.5 12.75l6 6 9-13.5" /></svg>
+              ) : (
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" /></svg>
+              )}
             </button>
             <button onClick={(e) => { e.stopPropagation(); copyEmails(school.teachers.map(t => t.email), `s-${school.id}`); }}
               className="p-1 rounded text-slate-300 hover:text-blue-600 hover:bg-blue-50" title="이메일 복사">
