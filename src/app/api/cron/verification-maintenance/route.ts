@@ -7,6 +7,7 @@ import { sql } from "drizzle-orm";
 import { REMINDER_DAYS, ESCALATE_DAYS } from "@/lib/verification";
 import { sendVerificationReminderEmail } from "@/lib/verification-email";
 import { authorizeCron } from "@/lib/cron-auth";
+import { runHqDailyNudge } from "@/lib/hq-daily-nudge";
 
 type PendingTeacher = {
   id: number;
@@ -165,7 +166,16 @@ async function run() {
     await Promise.allSettled(hqSends);
   }
 
-  return NextResponse.json({ ok: true, escalated, remindersSent });
+  // Jon 하루 1통 알림 — 실패해도 승인 큐 정비 결과는 그대로 돌려준다.
+  let hqNudge: Awaited<ReturnType<typeof runHqDailyNudge>> | { error: string };
+  try {
+    hqNudge = await runHqDailyNudge();
+  } catch (err) {
+    console.error("[verification-maintenance] hq daily nudge failed", err);
+    hqNudge = { error: "hq daily nudge failed" };
+  }
+
+  return NextResponse.json({ ok: true, escalated, remindersSent, hqNudge });
 }
 
 export async function GET(req: NextRequest) {

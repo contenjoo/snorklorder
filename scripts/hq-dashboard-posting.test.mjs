@@ -33,13 +33,16 @@ test("Jon dashboard shows posted work and completes it with the same side effect
 });
 
 test("Jon gets at most one short nudge a day, only when something new was posted", () => {
-  const cron = read("../src/app/api/cron/hq-daily-nudge/route.ts");
+  const nudge = read("../src/lib/hq-daily-nudge.ts");
+  const maintenance = read("../src/app/api/cron/verification-maintenance/route.ts");
   const vercel = JSON.parse(read("../vercel.json"));
-  assert.ok(vercel.crons.some((c) => c.path === "/api/cron/hq-daily-nudge"));
-  assert.match(cron, /authorizeCron/);
-  assert.match(cron, /eq\(emailLogs\.kind, "hq_daily_nudge"\)/);
-  assert.match(cron, /newTeachers \+ counts\.newAccounts === 0/);
-  assert.match(cron, /sendHqDailyNudge/);
+  // 새 크론 경로는 Vercel 에 등록되지 않았다 — 이미 매일 도는 크론이 알림을 보낸다.
+  assert.ok(vercel.crons.some((c) => c.path === "/api/cron/verification-maintenance"));
+  assert.match(maintenance, /await runHqDailyNudge\(\)/);
+  assert.match(nudge, /eq\(emailLogs\.kind, "hq_daily_nudge"\)/);
+  assert.match(nudge, /newTeachers \+ counts\.newAccounts === 0/);
+  assert.match(nudge, /sendHqDailyNudge/);
+  assert.match(read("../src/app/api/cron/hq-daily-nudge/route.ts"), /authorizeCron/);
   const email = read("../src/lib/email.ts");
   assert.match(email, /\{ kind: "hq_daily_nudge" \}/);
   assert.match(email, /\/partner/);
