@@ -40,7 +40,11 @@ test("Jon gets at most one short nudge a day, only when something new was posted
   assert.ok(vercel.crons.some((c) => c.path === "/api/cron/verification-maintenance"));
   assert.match(maintenance, /await runHqDailyNudge\(\)/);
   assert.match(nudge, /eq\(emailLogs\.kind, "hq_daily_nudge"\)/);
-  assert.match(nudge, /newTeachers \+ counts\.newAccounts === 0/);
+  assert.match(nudge, /const hasNew = counts\.newTeachers \+ counts\.newAccounts > 0;/);
+  // 새 건이 없어도 2일 넘게 밀린 건은 다시 알린다 — 하루 1통(20시간 간격) 유지.
+  assert.match(nudge, /STALE_AFTER_MS = 2 \* 24 \* 60 \* 60 \* 1000/);
+  assert.match(nudge, /now - lastNudge\.at\.getTime\(\) >= MIN_GAP_MS/);
+  assert.match(read("../src/lib/email.ts"), /waiting over 2 days/);
   assert.match(nudge, /sendHqDailyNudge/);
   assert.match(read("../src/app/api/cron/hq-daily-nudge/route.ts"), /authorizeCron/);
   const email = read("../src/lib/email.ts");

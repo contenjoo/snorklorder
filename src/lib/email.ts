@@ -623,6 +623,7 @@ export async function sendHqDailyNudge(counts: {
   newAccounts: number;
   openTeachers: number;
   openAccounts: number;
+  staleItems: number; // 2일 넘게 처리 안 된 건
 }): Promise<EmailResult> {
   const t = getTransporter();
   if (!t) return { success: false, skipped: true };
@@ -631,16 +632,22 @@ export async function sendHqDailyNudge(counts: {
     counts.newTeachers > 0 ? plural(counts.newTeachers, "teacher upgrade") : null,
     counts.newAccounts > 0 ? plural(counts.newAccounts, "account request") : null,
   ].filter(Boolean).join(", ");
+  const waiting = `${plural(counts.openTeachers, "teacher")}, ${plural(counts.openAccounts, "account request")}`;
+  const staleLine = counts.staleItems > 0 ? `${plural(counts.staleItems, "item")} waiting over 2 days` : "";
+  const subject = newParts
+    ? `[Snorkl] New on your dashboard — ${newParts}`
+    : `[Snorkl] Waiting on your dashboard — ${staleLine}`;
   const url = `${BASE_URL}/partner`;
   return sendAndLog(t, {
     from: ADMIN_EMAIL,
     to: HQ_EMAIL,
-    subject: `[Snorkl] New on your dashboard — ${newParts}`,
+    subject,
     text: [
       hqGreeting(),
       "",
-      `New since the last update: ${newParts}.`,
-      `Waiting in total: ${plural(counts.openTeachers, "teacher")}, ${plural(counts.openAccounts, "account request")}.`,
+      newParts ? `New since the last update: ${newParts}.` : null,
+      `Waiting in total: ${waiting}.`,
+      staleLine ? `${staleLine.charAt(0).toUpperCase()}${staleLine.slice(1)} — please mark them once processed.` : null,
       "",
       `Open the dashboard: ${url}`,
       "Teachers: Action Needed tab → Mark as Upgraded.",
@@ -648,12 +655,14 @@ export async function sendHqDailyNudge(counts: {
       "",
       "Thank you,",
       "Banghyun",
-    ].join("\n"),
+    ].filter((line) => line !== null).join("\n"),
     html: `
       <div style="max-width:560px;margin:0 auto;font-family:-apple-system,sans-serif;color:#1f2937;font-size:14px;line-height:1.6">
         <p style="margin:0 0 12px">${escapeHtml(hqGreeting())}</p>
-        <p style="margin:0 0 4px"><strong>New since the last update:</strong> ${escapeHtml(newParts)}</p>
-        <p style="margin:0 0 20px;color:#6b7280">Waiting in total: ${escapeHtml(plural(counts.openTeachers, "teacher"))}, ${escapeHtml(plural(counts.openAccounts, "account request"))}</p>
+        ${newParts ? `<p style="margin:0 0 4px"><strong>New since the last update:</strong> ${escapeHtml(newParts)}</p>` : ""}
+        <p style="margin:0 0 4px;color:#6b7280">Waiting in total: ${escapeHtml(waiting)}</p>
+        ${staleLine ? `<p style="margin:0 0 4px;color:#b45309"><strong>${escapeHtml(staleLine)}</strong> — please mark them once processed.</p>` : ""}
+        <p style="margin:0 0 20px"></p>
         <a href="${safe(url)}" style="display:inline-block;background:#2563eb;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold">Open dashboard</a>
         <p style="margin:20px 0 0;color:#6b7280;font-size:12px">Teachers: Action Needed tab → Mark as Upgraded.<br>Account requests: Billing tab → Mark as done.</p>
         <p style="margin:16px 0 0">Thank you,<br>Banghyun</p>
