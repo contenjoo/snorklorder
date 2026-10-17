@@ -167,10 +167,18 @@ export function invoiceWhat(it: InvoiceEmailItem): string {
   return `Upgrade, ${plural}, ${term}`;
 }
 
-/** 인보이스 총액 배분 가중치 — 2년치는 같은 계정 수의 1년치보다 두 배를 차지한다. */
-export function invoiceWeight(it: { quantity?: number | null; termYears?: number | null }): number {
+/**
+ * 인보이스 총액 배분 가중치 = 정가 비율 × 계정 수 × 결제 연수.
+ * 정가는 교사(학생) 계정 $100, 학교 단위 $1,000 — 학교 1곳은 교사 계정 10개 몫이다.
+ * 할인은 총액에 일괄 적용되므로 비율만 맞으면 교사 $80·학교 $800 으로 나뉜다.
+ * 2년치는 같은 계정 수의 1년치보다 두 배를 차지한다.
+ */
+export const INVOICE_WEIGHT_PER_UNIT = { teacher: 1, school: 10 } as const;
+
+export function invoiceWeight(it: { quantity?: number | null; termYears?: number | null; accountType?: string | null }): number {
   const qty = it.quantity && it.quantity > 0 ? it.quantity : 1;
-  return qty * normalizeTermYears(it.termYears);
+  const unit = it.accountType === "school" ? INVOICE_WEIGHT_PER_UNIT.school : INVOICE_WEIGHT_PER_UNIT.teacher;
+  return unit * qty * normalizeTermYears(it.termYears);
 }
 
 /** 인보이스 한 건을 사람이 읽는 한 줄로. 교사 이메일 목록은 청구에 불필요하므로 넣지 않는다. */
@@ -276,7 +284,7 @@ export function formatCentsAsAmount(cents: number): string {
 }
 
 /**
- * 인보이스 총액을 요청별 가중치(계정 수 × 결제 연수, invoiceWeight)에 비례해 나눈다.
+ * 인보이스 총액을 요청별 가중치(정가 비율 × 계정 수 × 결제 연수, invoiceWeight)에 비례해 나눈다.
  *
  * 반올림 잔여 센트는 마지막 건이 흡수해 **합계가 총액과 정확히 일치**하도록 한다.
  * 합이 안 맞으면 나중에 결제 대조가 깨지므로 이 불변식이 핵심이다.

@@ -42,8 +42,9 @@ export interface BillingRow {
   invoiceNumber: string | null;
   invoiceAmount: string | null;
   quantity: number | null;
-  /** 없으면 1년. 금액 배분 가중치 = 계정 수 × 연수. */
+  /** 없으면 1년. 금액 배분 가중치 = 정가 비율(학교 10, 교사 1) × 계정 수 × 연수. */
   termYears?: number | null;
+  accountType?: string | null;
   marketVoidState: string | null;
 }
 

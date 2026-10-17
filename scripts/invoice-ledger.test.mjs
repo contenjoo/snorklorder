@@ -131,6 +131,18 @@ test("결제 기간은 1년·2년만 있고 청구 줄에 항상 밝힌다", () 
 test("인보이스 배분 가중치는 계정 수 × 결제 연수다", () => {
   assert.equal(invoiceWeight({ quantity: 2, termYears: 2 }), 4);
   assert.equal(invoiceWeight({ quantity: null, termYears: null }), 1);
+  // 학교 단위 1곳 = 교사 계정 10개 몫(정가 $1,000 vs $100)
+  assert.equal(invoiceWeight({ quantity: 1, termYears: 1, accountType: "school" }), 10);
+  // Invoice 1195: 교사 34(그중 5계정 1건) + 학교 1, 총 $3,520 → 교사 $80, 5계정 $400, 학교 $800
+  const rows1195 = [
+    ...Array.from({ length: 29 }, () => ({ quantity: 1, termYears: 1, accountType: "teacher" })),
+    { quantity: 5, termYears: 1, accountType: "teacher" },
+    { quantity: 1, termYears: 1, accountType: "school" },
+  ];
+  const alloc1195 = allocateInvoiceAmounts(352000, rows1195.map(invoiceWeight));
+  assert.ok(alloc1195.slice(0, 29).every((cents) => cents === 8000));
+  assert.equal(alloc1195[29], 40000);
+  assert.equal(alloc1195[30], 80000);
   // 1계정 1년 + 1계정 2년 = $240 → $80 / $160
   assert.deepEqual(
     allocateInvoiceAmounts(24000, [{ quantity: 1, termYears: 1 }, { quantity: 1, termYears: 2 }].map(invoiceWeight)),
