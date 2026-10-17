@@ -84,7 +84,7 @@ export async function fetchBillingMails(options: FetchBillingMailsOptions = {}):
         const filename = att.filename || "";
         if (att.contentType !== "application/pdf" || !/invoice/i.test(filename)) continue;
         try {
-          const invoice = parseInvoicePdfText(await pdfText(att.content));
+          const invoice = parseInvoicePdfText(await pdfText(att.content), { subject: mail.subject || "" });
           if (!invoice) {
             warnings.push(`인보이스 번호를 못 읽음: ${filename}`);
             continue;

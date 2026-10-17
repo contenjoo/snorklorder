@@ -95,7 +95,80 @@ export function normalizeInvoiceNumber(raw: string | null | undefined): string {
  * QuickBooks 인보이스 PDF 텍스트(unpdf extractText 결과)를 구조화한다.
  * 번호를 못 찾으면 null — 그 PDF 는 인보이스가 아니다.
  */
-export function parseInvoicePdfText(text: string): ParsedInvoicePdf | null {
+const CYCLE_CODE_RE = /(?:Billing\s+cycle|Invoice\s+Batch|Cycle)\s*:?\s*(BACKLOG-\d{4}-\d{2}-\d{2}(?:-[A-Z0-9]+)*|\d{4}-\d{2}-[AB])\b/i;
+
+function matchCycleCode(text: string): string | null {
+  return text.match(CYCLE_CODE_RE)?.[1]?.toUpperCase() ?? null;
+}
+
+// [#252] / [#269, #270] / [#274–#281] / [#1–#3, #7]
+const REQUEST_GROUP_RE = /\[(#\d+(?:\s*[–-]\s*#\d+)?(?:\s*,\s*#\d+(?:\s*[–-]\s*#\d+)?)*)\]/g;
+const SECTION_HEADER_RE = /^\s*-?\s*(Teacher|Student|School-wide)\s+(upgrades?|extensions?)\b/i;
+
+function expandRequestGroup(inner: string): number[] {
+  const ids: number[] = [];
+  for (const part of inner.split(",")) {
+    const range = part.match(/#(\d+)\s*[–-]\s*#(\d+)/);
+    if (range) {
+      const from = Number(range[1]);
+      const to = Number(range[2]);
+      // 비정상 범위(역순·과대)는 읽지 않는다 — 대조 단계에서 불일치로 드러난다.
+      if (to < from || to - from > 500) return [];
+      for (let id = from; id <= to; id++) ids.push(id);
+    } else {
+      const single = part.match(/#(\d+)/);
+      if (single) ids.push(Number(single[1]));
+    }
+  }
+  return ids;
+}
+
+/**
+ * Note to customer 의 요청번호와 요청별 수량.
+ * - 옛 형식: "[#252] Bumyeong Middle School — Upgrade, 1 teacher account, 1-year license" (수량이 번호 뒤)
+ * - 묶음 형식: "Sejong High School — 5 [#258]", "Unyu Elementary School — 2 [#269, #270]",
+ *   "Isol High School — 8 [#274–#281]", 학교 단위 구간의 "Gyeonggi Creative High School [#264]"
+ * 여러 번호를 묶은 줄은 수량이 번호 수와 같을 때만(요청당 1) 나눌 수 있다. 아니면 null 로 두어 대조에서 걸리게 한다.
+ */
+function parseNoteRequestItems(note: string): { requestId: number; quantity: number | null }[] {
+  const matches = [...note.matchAll(REQUEST_GROUP_RE)];
+  const items: { requestId: number; quantity: number | null }[] = [];
+  matches.forEach((match, index) => {
+    const ids = expandRequestGroup(match[1]);
+    if (ids.length === 0) return;
+    const start = match.index ?? 0;
+    const lineStart = note.lastIndexOf("\n", start - 1) + 1;
+    const before = note.slice(lineStart, start);
+    // 옛 형식은 수량이 번호 뒤에 오고 줄이 접힐 수 있다. 다음 구간 머리("School-wide upgrade — 1 school")는 넘지 않는다.
+    const afterLines = note.slice(start + match[0].length, matches[index + 1]?.index ?? note.length).split("\n");
+    const headerAt = afterLines.findIndex((line, i) => i > 0 && SECTION_HEADER_RE.test(line));
+    const after = (headerAt > 0 ? afterLines.slice(0, headerAt) : afterLines).join("\n");
+    const sectionLines = note.slice(0, lineStart).split("\n").filter((line) => SECTION_HEADER_RE.test(line));
+    const section = sectionLines.at(-1)?.match(SECTION_HEADER_RE)?.[1]?.toLowerCase() ?? null;
+
+    let total: number | null = null;
+    const leading = [...before.matchAll(/(?:^|\s)[—–-]\s*(\d+)\b/g)].at(-1);
+    if (leading) {
+      total = Number(leading[1]);
+    } else if (/\S/.test(before) && section === "school-wide") {
+      total = ids.length; // 학교 단위는 학교당 1
+    } else {
+      const trailing = after.match(/(\d+)\s+(?:teacher|student|school)(?:\s+account)?s?/i);
+      total = /school-wide\s+upgrade/i.test(after) ? 1 : trailing ? Number(trailing[1]) : null;
+    }
+
+    const perId = ids.length === 1 ? total : total === ids.length ? 1 : null;
+    for (const requestId of ids) {
+      items.push({
+        requestId,
+        quantity: perId !== null && Number.isSafeInteger(perId) && perId > 0 ? perId : null,
+      });
+    }
+  });
+  return items.filter((item) => Number.isSafeInteger(item.requestId) && item.requestId > 0);
+}
+
+export function parseInvoicePdfText(text: string, context: { subject?: string } = {}): ParsedInvoicePdf | null {
   const num = text.match(/Invoice\s+no\.?\s*:?\s*#?\s*(\d{3,})/i);
   if (!num) return null;
 
@@ -111,23 +184,14 @@ export function parseInvoicePdfText(text: string): ParsedInvoicePdf | null {
   let note = text;
   if (noteStart >= 0) {
     const rest = text.slice(noteStart);
-    const noteEnd = rest.search(/View\s+and\s+pay|Subtotal/i);
+    // 메모가 길면 금액 칸(Subtotal) 뒤 다음 쪽으로 이어진다 — "View and pay" 를 끝으로 우선 쓴다.
+    const payAt = rest.search(/View\s+and\s+pay/i);
+    const noteEnd = payAt > 0 ? payAt : rest.search(/Subtotal/i);
     note = noteEnd > 0 ? rest.slice(0, noteEnd) : rest;
   }
-  const cycleCode = note.match(/(?:Billing\s+cycle|Invoice\s+Batch|Cycle)\s*:?\s*(BACKLOG-\d{4}-\d{2}-\d{2}(?:-[A-Z0-9]+)*|\d{4}-\d{2}-[AB])\b/i)?.[1]?.toUpperCase() ?? null;
-  const matches = [...note.matchAll(/\[#(\d+)\]/g)];
-  const requestItems = matches.map((match, index) => {
-    const requestId = Number(match[1]);
-    const start = (match.index ?? 0) + match[0].length;
-    const end = matches[index + 1]?.index ?? note.length;
-    const line = note.slice(start, end);
-    const quantityMatch = line.match(/(\d+)\s+(?:teacher|student|school)(?:\s+account)?s?/i);
-    const quantity = /school-wide\s+upgrade/i.test(line) ? 1 : quantityMatch ? Number(quantityMatch[1]) : null;
-    return {
-      requestId,
-      quantity: quantity !== null && Number.isSafeInteger(quantity) && quantity > 0 ? quantity : null,
-    };
-  }).filter((item) => Number.isSafeInteger(item.requestId) && item.requestId > 0);
+  // 주기 코드는 메모에서 먼저 찾고, 없으면 메일 제목("Re: [Snorkl] Invoice Batch 2026-10-A …")에서 찾는다.
+  const cycleCode = matchCycleCode(note) ?? matchCycleCode(context.subject ?? "");
+  const requestItems = parseNoteRequestItems(note);
   const requestIds = [...new Set(requestItems.map((item) => item.requestId))];
 
   return { invoiceNumber: num[1], invoiceDate, dueDate, totalCents, cycleCode, requestItems, requestIds };

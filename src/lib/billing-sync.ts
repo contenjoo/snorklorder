@@ -112,7 +112,8 @@ export async function runBillingSync(options: BillingSyncOptions = {}): Promise<
       if (!mail.invoice.cycleCode) {
         const partialCycles = await findCyclesContainingRequestIds(mail.invoice.requestIds);
         if (partialCycles.length) {
-          const reason = `요청번호 집합이 동결 주기와 정확히 일치하지 않음: ${partialCycles.map((item) => item.code).join(", ")}`;
+          // 주기 코드가 메모·제목 어디에도 없고, 읽은 요청번호가 어느 동결 목록과도 정확히 같지 않을 때다.
+          const reason = `주기 코드 없음 + 읽은 요청번호 ${mail.invoice.requestIds.length}건이 동결 목록과 정확히 일치하지 않음: ${partialCycles.map((item) => item.code).join(", ")}`;
           if (!dryRun) {
             for (const partialCycle of partialCycles) await markCycleMismatch(partialCycle.id, "invoice_mismatch", reason);
           }
