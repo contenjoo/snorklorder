@@ -209,3 +209,74 @@ test("planPaymentSync: 부분 결제·번호 미기록·전부 paid", () => {
   const paid = [row(203, { status: "paid", invoiceNumber: "1116", invoiceAmount: "$80.00" })];
   assert.equal(planPaymentSync(p, paid).kind, "already_synced");
 });
+
+// Invoice 1195 (2026-10-A) 실제 PDF 추출 텍스트 — 묶음형 메모, 주기 코드 없음, 메모가 금액 칸 뒤로 이어짐.
+const INVOICE_1195 = `Invoice no.: 1195
+Terms: Net 30
+Invoice date: 10/16/2026
+Due date: 11/15/2026
+# Date Product or service Description Qty Rate Amount
+1. Snorkl Premium School Access 1 $1,000.00 $1,000.00
+2. Teacher Premium Snorkl Accounts 34 $100.00 $3,400.00
+Ways to pay
+Note to customer
+Summary — 31 requests, all 1-year licenses
+Teacher accounts: 34 (33 new upgrades + 1 extension)
+School-wide license: 1 school
+Teacher upgrades — 33 accounts
+Bumyeong Middle School — 1 [#252]
+Hwaryeong High School — 1 [#253]
+Hakseong Middle School — 1 [#254]
+Galmoe Middle School — 1 [#255]
+Miseong Elementary School — 1 [#257]
+Sejong High School — 5 [#258]
+Gaehyeon Elementary School — 1 [#259]
+Beopseong High School — 1 [#260]
+Yeonyang Elementary School — 1 [#261]
+Yeon-eun Elementary School — 1 [#262]
+Jochiwon Middle School — 1 [#263]
+Geumho Middle School — 1 [#265]
+Onam Middle School — 1 [#266]
+Hyoyang Middle School — 1 [#267]
+Unyang Middle School — 1 [#268]
+Unyu Elementary School — 2 [#269, #270]
+Mokdong Middle School — 1 [#271]
+Chowol Middle School — 2 [#272, #273]
+Isol High School — 8 [#274–#281]
+Seonbu Middle School — 1 [#282]
+Teacher extension — 1 account
+Garam Middle School — 1, through 2027-10-21 [#256]
+School-wide upgrade — 1 school
+Subtotal $4,400.00
+Discount 20% -$880.00
+Total $3,520.00
+Gyeonggi Creative High School [#264]
+View and pay`;
+
+test("parseInvoicePdfText: 묶음형 메모(수량 앞·번호 나열·범위·다음 쪽 학교 단위)를 요청별로 읽는다", () => {
+  const inv = parseInvoicePdfText(INVOICE_1195);
+  assert.equal(inv.invoiceNumber, "1195");
+  assert.equal(inv.totalCents, 352000);
+  assert.equal(inv.cycleCode, null);
+  assert.deepEqual([...inv.requestIds].sort((a, b) => a - b), Array.from({ length: 31 }, (_, i) => 252 + i));
+  const qty = Object.fromEntries(inv.requestItems.map((item) => [item.requestId, item.quantity]));
+  assert.equal(qty[258], 5);
+  assert.equal(qty[269], 1); assert.equal(qty[270], 1);
+  for (let id = 274; id <= 281; id++) assert.equal(qty[id], 1);
+  assert.equal(qty[256], 1); // 연장 — "1, through 2027-10-21"
+  assert.equal(qty[264], 1); // 학교 단위 구간, 수량 표기 없음
+  assert.equal(inv.requestItems.reduce((sum, item) => sum + item.quantity, 0), 35);
+});
+
+test("parseInvoicePdfText: 메모에 주기 코드가 없으면 메일 제목에서 찾는다", () => {
+  assert.equal(parseInvoicePdfText(INVOICE_1195, { subject: "Re: [Snorkl] Invoice Batch 2026-10-A — 31 requests" }).cycleCode, "2026-10-A");
+});
+
+test("parseInvoicePdfText: 묶음 수량이 번호 수와 다르면 나누지 않고 null 로 남긴다", () => {
+  const inv = parseInvoicePdfText(`Invoice no.: 1300
+Note to customer
+Teacher upgrades — 5 accounts
+X School — 5 [#10, #11]
+Total $400.00`);
+  assert.deepEqual(inv.requestItems, [{ requestId: 10, quantity: null }, { requestId: 11, quantity: null }]);
+});
