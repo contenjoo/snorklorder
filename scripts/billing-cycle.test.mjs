@@ -23,10 +23,10 @@ test("통합 메일은 주기 코드와 모든 요청번호·영문 학교명을
     { requestId: 231, schoolNameEn: "Mirae High School", requestType: "extension", accountType: "teacher", quantity: 2, extensionDate: "2027-09-01", termYears: 2 },
   ], "https://example.test/invoice?k=token");
   assert.equal(email.subject, "[Snorkl] Invoice Batch 2026-09-A — 2 requests");
-  assert.match(email.body, /Summary — 2 requests, 1- and 2-year licenses/);
+  assert.match(email.body, /Summary — Billing cycle 2026-09-A, 2 requests, 1- and 2-year licenses/);
   assert.match(email.body, /Teacher upgrades — 30 accounts\n- Asan Elementary School — 30, 1-year \[#230\]/);
   assert.match(email.body, /Teacher extensions — 2 accounts\n- Mirae High School — 2, through 2027-09-01, 2-year \[#231\]/);
-  assert.match(email.body, /Please keep the billing cycle code and each \[#request\] reference/);
+  assert.match(email.body, /including the billing cycle code and each \[#request\] reference, into the invoice note/);
   assert.match(email.body, /https:\/\/example\.test\/invoice\?k=token/);
 });
 
@@ -38,6 +38,9 @@ test("같은 학교는 한 줄로 합치고 3건 이상 연속 번호만 범위�
   const body = buildBillingCycleEmail("2026-10-A", items, null).body;
   assert.match(body, /- Chowol Middle School — 2 \[#272, #273\]/);
   assert.match(body, /all 1-year licenses/);
+  // 요약만 인보이스 메모에 옮겨도 자동 대조가 주기를 찾는다(billing-mail 의 주기 코드 패턴).
+  const summaryFirstLine = body.split("\n").find((line) => line.startsWith("Summary —"));
+  assert.match(summaryFirstLine, /Billing\s+cycle\s*:?\s*2026-10-A\b/);
 });
 
 test("예상 금액은 교사 $100·학교 $1,000 정가에 20% 할인, 2년은 두 배", () => {

@@ -123,8 +123,11 @@ function sectionKey(item: BillingCycleEmailItem) {
 
 const plural = (n: number, unit: string) => `${n} ${unit}${n === 1 ? "" : "s"}`;
 
-/** 요청을 종류별로 묶고, 같은 학교·기간·연장일은 한 줄로 합친다. */
-export function billingCycleSummaryLines(items: BillingCycleEmailItem[]): string[] {
+/**
+ * 요청을 종류별로 묶고, 같은 학교·기간·연장일은 한 줄로 합친다.
+ * 첫 줄에 주기 코드를 넣는다 — Cailie 가 이 요약만 인보이스 메모에 옮겨도 자동 대조가 주기를 찾는다.
+ */
+export function billingCycleSummaryLines(items: BillingCycleEmailItem[], code: string): string[] {
   const allOneYear = items.every((item) => normalizeTermYears(item.termYears) === 1);
   const lines: string[] = [];
   const counts: string[] = [];
@@ -154,7 +157,7 @@ export function billingCycleSummaryLines(items: BillingCycleEmailItem[]): string
     lines.push("");
   }
   const header = [
-    `Summary — ${items.length} requests, ${allOneYear ? "all 1-year licenses" : "1- and 2-year licenses"}`,
+    `Summary — Billing cycle ${code}, ${items.length} requests, ${allOneYear ? "all 1-year licenses" : "1- and 2-year licenses"}`,
     ...counts.map((c) => `- ${c}`),
     "",
   ];
@@ -207,12 +210,10 @@ export function buildBillingCycleEmail(
   const lines = [
     "Hi Cailie,", "",
     `Could you please issue one consolidated invoice for billing cycle ${code}?`, "",
-    `Billing cycle: ${code}`,
-    "",
-    ...billingCycleSummaryLines(items),
+    ...billingCycleSummaryLines(items, code),
     ...expectedAmountLines(items),
     "",
-    "Please keep the billing cycle code and each [#request] reference in the invoice note.",
+    "Please copy the summary above, including the billing cycle code and each [#request] reference, into the invoice note.",
     "Jon is handling the account processing separately (cc'd).",
   ];
   if (viewUrl) lines.push("", "You can check the same read-only ledger here:", viewUrl);
