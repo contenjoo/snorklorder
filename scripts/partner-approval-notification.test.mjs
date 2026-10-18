@@ -42,3 +42,20 @@ test("통보 상태는 기존 0018의 operationId와 sentAt으로 표현해 추�
   assert.match(schema, /partnerNotificationSentAt/);
   assert.doesNotMatch(schema, /partnerNotificationState/);
 });
+
+test("같은 협력사의 여러 신청을 한 번에 미리보기·발송하고 Market 에 groups 로 넘긴다", async () => {
+  const route = await readFile(new URL("../src/app/api/admin/partner-approval-notification/route.ts", import.meta.url), "utf8");
+  assert.match(route, /function parseGroups/);
+  assert.match(route, /rawGroups\.length > 20/);
+  assert.match(route, /allIds\.length > 100/);
+  // 신청마다 로컬 승인·미통보 상태를 다시 확인한다.
+  assert.match(route, /for \(const group of groups\) \{\n\s*const rows = await loadSelection\(group\.partnerRequestId, group\.requestIds\)/);
+  assert.match(route, /callMarketPartnerNotification\(\{ action: "preview", groups: marketGroups \}\)/);
+  assert.match(route, /action: "send",\n\s*groups: marketGroups,/);
+  const page = await readFile(new URL("../src/app/admin/accounts/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /협력사 승인 안내 대기/);
+  assert.match(page, /한 번에 미리보기/);
+  assert.match(page, /메일 1통으로 발송했습니다/);
+  assert.match(page, /서로 다른 협력사의 신청이 섞여 있습니다/);
+  assert.match(page, /previewPartnerNotification\(\[\[requestId, rows\]\]\)/);
+});

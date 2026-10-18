@@ -196,11 +196,14 @@ function AccountsPageContent() {
   const [emailPreview, setEmailPreview] = useState<AccountRequest | null>(null);
   const [partnerHqPreview, setPartnerHqPreview] = useState<{ requestId: string; rows: AccountRequest[] } | null>(null);
   const [partnerNotifySelected, setPartnerNotifySelected] = useState<Set<number>>(new Set());
+  // 같은 협력사의 여러 신청을 메일 한 통으로 묶는다(신청 1건이면 기존과 같다).
   const [partnerNotificationPreview, setPartnerNotificationPreview] = useState<{
-    requestId: string;
     recipientEmail: string;
-    schoolName: string;
-    rows: Array<{ id: number; teacherName: string | null; email: string; subject: string | null }>;
+    groups: Array<{
+      partnerRequestId: string;
+      schoolName: string;
+      rows: Array<{ id: number; teacherName: string | null; email: string; subject: string | null }>;
+    }>;
   } | null>(null);
   const [sending, setSending] = useState(false);
   const [sendMsg, setSendMsg] = useState("");
@@ -539,27 +542,39 @@ function AccountsPageContent() {
     });
   }
 
-  async function previewPartnerNotification(requestId: string, rows: AccountRequest[]) {
-    const selected = rows.filter((row) => partnerNotifySelected.has(row.id));
-    if (selected.length === 0 || sending) return;
+  // 선택한 교사를 신청별로 묶어 미리보기한다. groups 를 하나만 넘기면 그 신청만, 비우면 전체 선택에서.
+  async function previewPartnerNotification(only?: [string, AccountRequest[]][]) {
+    const source = only ?? partnerGroups;
+    const groups = source
+      .map(([partnerRequestId, rows]) => ({ partnerRequestId, rows: rows.filter((row) => partnerNotifySelected.has(row.id)) }))
+      .filter((group) => group.rows.length > 0);
+    if (groups.length === 0 || sending) return;
     setSending(true);
     setSendMsg("");
     try {
       const response = await fetch("/api/admin/partner-approval-notification", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "preview", partnerRequestId: requestId, requestIds: selected.map((row) => row.id) }),
+        body: JSON.stringify({
+          action: "preview",
+          groups: groups.map((group) => ({ partnerRequestId: group.partnerRequestId, requestIds: group.rows.map((row) => row.id) })),
+        }),
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) {
-        setSendMsg("실패: " + (result.error || "승인 안내 미리보기를 만들지 못했습니다."));
+        setSendMsg("실패: " + (result.error === "Selected requests belong to different partners"
+          ? "서로 다른 협력사의 신청이 섞여 있습니다. 협력사별로 나눠 보내 주세요."
+          : result.error || "승인 안내 미리보기를 만들지 못했습니다."));
         return;
       }
+      const schoolByRequest = new Map<string, string>((result.schools ?? []).map((school: { requestId: string; schoolName: string }) => [school.requestId, school.schoolName]));
       setPartnerNotificationPreview({
-        requestId,
         recipientEmail: result.recipientEmail,
-        schoolName: result.schoolName,
-        rows: result.rows,
+        groups: (result.groups ?? []).map((group: { partnerRequestId: string; rows: Array<{ id: number; teacherName: string | null; email: string; subject: string | null }> }) => ({
+          partnerRequestId: group.partnerRequestId,
+          schoolName: schoolByRequest.get(group.partnerRequestId) ?? result.schoolName ?? "",
+          rows: group.rows,
+        })),
       });
     } catch {
       setSendMsg("Market 연결 오류가 발생했습니다.");
@@ -579,17 +594,20 @@ function AccountsPageContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "send",
-          partnerRequestId: partnerNotificationPreview.requestId,
-          requestIds: partnerNotificationPreview.rows.map((row) => row.id),
+          groups: partnerNotificationPreview.groups.map((group) => ({
+            partnerRequestId: group.partnerRequestId,
+            requestIds: group.rows.map((row) => row.id),
+          })),
           operationId,
         }),
       });
       const result = await response.json().catch(() => ({}));
       if (result.status === "sent") {
-        setSendMsg(`✓ ${partnerNotificationPreview.rows.length}명 승인 안내를 협력사에 발송했습니다.`);
+        const sentRows = partnerNotificationPreview.groups.flatMap((group) => group.rows);
+        setSendMsg(`✓ ${partnerNotificationPreview.groups.length}개 신청 · ${sentRows.length}명 승인 안내를 협력사에 메일 1통으로 발송했습니다.`);
         setPartnerNotifySelected((previous) => {
           const next = new Set(previous);
-          partnerNotificationPreview.rows.forEach((row) => next.delete(row.id));
+          sentRows.forEach((row) => next.delete(row.id));
           return next;
         });
         setPartnerNotificationPreview(null);
@@ -1370,6 +1388,41 @@ function AccountsPageContent() {
             </h2>
             <p className="text-[11px] text-cyan-800">같은 신청의 교사를 함께 확인한 뒤 본사로 발송합니다.</p>
           </div>
+          {(() => {
+            // 승인 안내 대기 교사 전체 — 같은 협력사면 여러 신청을 메일 한 통으로 보낸다.
+            const waiting = partnerGroups.flatMap(([, rows]) => rows.filter((row) => (
+              Boolean(row.confirmedAt) && !row.partnerNotificationSentAt && !row.partnerNotificationOperationId
+            )));
+            if (waiting.length === 0) return null;
+            const selectedCount = waiting.filter((row) => partnerNotifySelected.has(row.id)).length;
+            const selectedRequests = new Set(waiting.filter((row) => partnerNotifySelected.has(row.id)).map((row) => row.partnerRequestId)).size;
+            const allSelected = selectedCount === waiting.length;
+            return (
+              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+                <span className="text-[11px] font-semibold text-emerald-900">협력사 승인 안내 대기 {waiting.length}명</span>
+                <button
+                  type="button"
+                  disabled={sending}
+                  onClick={() => setPartnerNotifySelected((previous) => {
+                    const next = new Set(previous);
+                    waiting.forEach((row) => { if (allSelected) next.delete(row.id); else next.add(row.id); });
+                    return next;
+                  })}
+                  className="text-[11px] font-medium text-emerald-800 hover:underline"
+                >
+                  {allSelected ? "전체 해제" : "전체 선택"}
+                </button>
+                <Button
+                  size="sm"
+                  disabled={sending || selectedCount === 0}
+                  onClick={() => previewPartnerNotification()}
+                  className="ml-auto h-7 bg-emerald-700 hover:bg-emerald-800 text-[11px]"
+                >
+                  선택 {selectedRequests}건 · {selectedCount}명 한 번에 미리보기
+                </Button>
+              </div>
+            );
+          })()}
           {activePartnerGroups.map(([requestId, rows]) => {
             const readyRows = rows.filter((row) => getAccountEmailDeliveryState(row) === "ready");
             const unknown = rows.some(needsDeliveryReview);
@@ -1407,7 +1460,7 @@ function AccountsPageContent() {
                       <Button
                         size="sm"
                         disabled={sending || selectedNotificationRows.length === 0}
-                        onClick={() => previewPartnerNotification(requestId, rows)}
+                        onClick={() => previewPartnerNotification([[requestId, rows]])}
                         className="h-7 bg-emerald-700 hover:bg-emerald-800 text-[11px]"
                       >
                         수신자·교사 미리보기 ({selectedNotificationRows.length})
@@ -1776,15 +1829,24 @@ function AccountsPageContent() {
             </div>
             <div className="p-4 space-y-3">
               <div className="text-sm"><b>수신:</b> {partnerNotificationPreview.recipientEmail}</div>
-              <div className="text-sm"><b>학교:</b> {partnerNotificationPreview.schoolName}</div>
-              <ul className="divide-y rounded-lg border">
-                {partnerNotificationPreview.rows.map((row) => (
-                  <li key={row.id} className="p-3 text-sm">
-                    <div className="font-medium">{row.teacherName || "—"}</div>
-                    <div className="mt-0.5 text-xs text-slate-500">관리자 확인용: {row.email} · {row.subject || "—"}</div>
-                  </li>
+              {partnerNotificationPreview.groups.length > 1 && (
+                <div className="text-xs text-emerald-800">신청 {partnerNotificationPreview.groups.length}건을 메일 한 통으로 보냅니다.</div>
+              )}
+              <div className="max-h-[50vh] space-y-3 overflow-y-auto">
+                {partnerNotificationPreview.groups.map((group) => (
+                  <div key={group.partnerRequestId}>
+                    <div className="mb-1 text-sm"><b>학교:</b> {group.schoolName} <span className="text-xs text-slate-500">({group.rows.length}명)</span></div>
+                    <ul className="divide-y rounded-lg border">
+                      {group.rows.map((row) => (
+                        <li key={row.id} className="p-3 text-sm">
+                          <div className="font-medium">{row.teacherName || "—"}</div>
+                          <div className="mt-0.5 text-xs text-slate-500">관리자 확인용: {row.email} · {row.subject || "—"}</div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 ))}
-              </ul>
+              </div>
               <p className="rounded-md bg-slate-50 p-2 text-xs text-slate-600">협력사 이메일 본문에는 교사명만 포함되며, 계정 이메일과 과목은 포함되지 않습니다.</p>
             </div>
             <div className="flex items-center gap-2 border-t bg-slate-50 p-4 rounded-b-xl">
