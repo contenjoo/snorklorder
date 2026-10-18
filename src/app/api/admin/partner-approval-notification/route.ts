@@ -14,6 +14,29 @@ function json(body: Record<string, unknown>, status = 200) {
   return NextResponse.json(body, { status, headers: { "Cache-Control": "private, no-store, max-age=0" } });
 }
 
+type SelectionGroup = { partnerRequestId: string; requestIds: number[] };
+
+/** 단건({partnerRequestId, requestIds})과 묶음({groups: [...]}) 모두 받는다. 신청 20건·교사 100명까지. */
+function parseGroups(raw: Record<string, unknown>): SelectionGroup[] | null {
+  const rawGroups = Array.isArray(raw.groups)
+    ? raw.groups
+    : [{ partnerRequestId: raw.partnerRequestId, requestIds: raw.requestIds }];
+  if (rawGroups.length === 0 || rawGroups.length > 20) return null;
+  const groups: SelectionGroup[] = [];
+  for (const item of rawGroups) {
+    if (!item || typeof item !== "object") return null;
+    const group = item as Record<string, unknown>;
+    const partnerRequestId = typeof group.partnerRequestId === "string" ? group.partnerRequestId.trim() : "";
+    const requestIds = parseIds(group.requestIds);
+    if (!PARTNER_REQUEST_ID_PATTERN.test(partnerRequestId) || !requestIds) return null;
+    groups.push({ partnerRequestId, requestIds });
+  }
+  const allIds = groups.flatMap((group) => group.requestIds);
+  if (new Set(groups.map((group) => group.partnerRequestId)).size !== groups.length) return null;
+  if (allIds.length > 100 || new Set(allIds).size !== allIds.length) return null;
+  return groups;
+}
+
 function parseIds(value: unknown): number[] | null {
   if (!Array.isArray(value) || value.length === 0 || value.length > 100) return null;
   const ids = value.filter((item): item is number => Number.isSafeInteger(item) && item > 0);
@@ -105,22 +128,34 @@ export async function POST(request: NextRequest) {
   }
 
   if (raw.action !== "preview" && raw.action !== "send") return json({ error: "Invalid action" }, 400);
-  const partnerRequestId = typeof raw.partnerRequestId === "string" ? raw.partnerRequestId.trim() : "";
-  const requestIds = parseIds(raw.requestIds);
-  if (!PARTNER_REQUEST_ID_PATTERN.test(partnerRequestId) || !requestIds) return json({ error: "Invalid selection" }, 400);
-  const rows = await loadSelection(partnerRequestId, requestIds);
-  if (!rows) return json({ error: "승인 완료·미통보 상태인 같은 협력사 신청의 교사만 선택할 수 있습니다." }, 409);
-  const itemIds = rows.map((row) => row.partnerItemId!);
+  const groups = parseGroups(raw);
+  if (!groups) return json({ error: "Invalid selection" }, 400);
+  const selections = [];
+  for (const group of groups) {
+    const rows = await loadSelection(group.partnerRequestId, group.requestIds);
+    if (!rows) return json({ error: "승인 완료·미통보 상태인 협력사 신청의 교사만 선택할 수 있습니다." }, 409);
+    selections.push({ partnerRequestId: group.partnerRequestId, rows });
+  }
+  const marketGroups = selections.map((selection) => ({
+    requestId: selection.partnerRequestId,
+    itemIds: selection.rows.map((row) => row.partnerItemId!),
+  }));
+  const requestIds = groups.flatMap((group) => group.requestIds);
+  const partnerRequestIds = groups.map((group) => group.partnerRequestId);
 
   if (raw.action === "preview") {
-    const { response, body } = await callMarketPartnerNotification({ action: "preview", requestId: partnerRequestId, itemIds });
+    // 같은 협력사가 아니면 Market 이 409 로 거절한다 — 메일 한 통은 한 수신자에게만 간다.
+    const { response, body } = await callMarketPartnerNotification({ action: "preview", groups: marketGroups });
     return json({
       ...body,
-      rows: response.ok ? rows.map((row) => ({
-        id: row.id,
-        teacherName: row.teacherName,
-        email: row.emails,
-        subject: row.subject,
+      groups: response.ok ? selections.map((selection) => ({
+        partnerRequestId: selection.partnerRequestId,
+        rows: selection.rows.map((row) => ({
+          id: row.id,
+          teacherName: row.teacherName,
+          email: row.emails,
+          subject: row.subject,
+        })),
       })) : undefined,
     }, response.status);
   }
@@ -133,7 +168,8 @@ export async function POST(request: NextRequest) {
     partnerNotificationOperationId: operationId,
     updatedAt: new Date(),
   }).where(and(
-    eq(accountRequests.partnerRequestId, partnerRequestId),
+    // 각 id 가 자기 신청에 속하는지는 loadSelection 이 확인했다.
+    inArray(accountRequests.partnerRequestId, partnerRequestIds),
     inArray(accountRequests.id, requestIds),
     eq(accountRequests.partnerLifecycleState, "active"),
     isNull(accountRequests.partnerNotificationOperationId),
@@ -153,8 +189,7 @@ export async function POST(request: NextRequest) {
   try {
     const { response, body } = await callMarketPartnerNotification({
       action: "send",
-      requestId: partnerRequestId,
-      itemIds,
+      groups: marketGroups,
       operationId,
     });
     if (body.status === "sent" || body.status === "unknown" || body.status === "failed") {

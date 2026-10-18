@@ -1,6 +1,9 @@
+/** Market 이 같은 협력사의 여러 신청을 메일 한 통으로 묶는다(신청 1건이면 기존과 같다). */
+export type MarketPartnerNotificationGroup = { requestId: string; itemIds: string[] };
+
 export type MarketPartnerNotificationAction =
-  | { action: "preview"; requestId: string; itemIds: string[] }
-  | { action: "send"; requestId: string; itemIds: string[]; operationId: string }
+  | { action: "preview"; groups: MarketPartnerNotificationGroup[] }
+  | { action: "send"; groups: MarketPartnerNotificationGroup[]; operationId: string }
   | { action: "status"; operationId: string }
   | { action: "review"; operationId: string; outcome: "sent" | "not_sent"; note: string };
 
@@ -12,6 +15,7 @@ export interface MarketPartnerNotificationResponse {
   recipientEmail?: string;
   schoolName?: string;
   teacherNames?: string[];
+  schools?: { requestId: string; schoolName: string; teacherNames: string[] }[];
   sentAt?: string | null;
   requiresManualReview?: boolean;
   retryAllowed?: boolean;
