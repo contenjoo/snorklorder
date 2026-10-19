@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import { db } from "@/db";
 import { accountRequests } from "@/db/schema";
-import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { getTransporter, logEmail, formatLogRecipients, BASE_URL, HQ_EMAIL, HQ_INVOICE_TO } from "@/lib/email";
 import { buildInvoiceEmail, defaultNeedsInvoice, generateAccountEmail, type BatchEmailItem, type InvoiceEmailItem } from "@/lib/account-email-template";
 import {
@@ -305,6 +305,13 @@ export async function POST(req: NextRequest) {
         .set({ processingEmailSendStartedAt: processingClaimedAt, updatedAt: processingClaimedAt })
         .where(and(
           inArray(accountRequests.id, requestIds),
+          or(...rawRows.map((row) => and(
+            eq(accountRequests.id, row.id),
+            eq(accountRequests.schoolName, row.schoolName),
+            eq(accountRequests.emails, row.emails),
+            row.schoolNameEn == null ? isNull(accountRequests.schoolNameEn) : eq(accountRequests.schoolNameEn, row.schoolNameEn),
+            row.notes == null ? isNull(accountRequests.notes) : eq(accountRequests.notes, row.notes),
+          ))),
           eq(accountRequests.status, "draft"),
           isNull(accountRequests.processingEmailSentAt),
           isNull(accountRequests.processingEmailSendStartedAt),

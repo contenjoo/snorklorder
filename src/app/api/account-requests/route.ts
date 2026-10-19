@@ -460,6 +460,9 @@ export async function POST(req: NextRequest) {
       partnerLifecycleState: accountRequests.partnerLifecycleState,
     }).from(accountRequests).where(eq(accountRequests.id, id));
     if (!prev) return NextResponse.json({ error: "Account request not found" }, { status: 404 });
+    if (prev.externalSource === "market_partner" && ["channel", "applicantType", "type", "schoolName", "schoolNameEn", "emails", "accountType", "quantity", "notes", "teacherName", "subject"].some((field) => data[field] !== undefined)) {
+      return NextResponse.json({ error: "협력사 신청 묶음의 주문 수정·삭제에서 변경해 주세요." }, { status: 409 });
+    }
     const nextChannel = typeof updates.channel === "string" ? updates.channel : prev.channel;
     const nextNotes = updates.notes !== undefined ? updates.notes : prev.notes;
     if (
@@ -567,6 +570,9 @@ export async function POST(req: NextRequest) {
       .from(accountRequests)
       .where(eq(accountRequests.id, id));
     if (!existing) return NextResponse.json({ error: "Account request not found" }, { status: 404 });
+    if (existing.externalSource === "market_partner") {
+      return NextResponse.json({ error: "협력사 신청 묶음의 주문 수정·삭제에서 삭제해 주세요." }, { status: 409 });
+    }
     if (existing.externalSource === "market") {
       return NextResponse.json({
         code: "MARKET_REQUEST_DELETE_BLOCKED",
