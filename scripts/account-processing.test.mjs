@@ -296,3 +296,17 @@ test("legacy records without a delivery ledger stay quiet while genuine delivery
   assert.deepEqual(legacy, before);
   assert.ok(legacy.every((r) => !isProcessingConfirmed(r)));
 });
+
+test('batch does not publish account details edited after its initial read', async () => {
+  let edited = false;
+  const h = harness([fresh(1)], { beforeUpdate(rows, values) {
+    if (values.processingEmailSendStartedAt && !edited) {
+      rows[0].emails = 'corrected@example.test';
+      edited = true;
+    }
+  } });
+  assert.equal((await send(h, [1], true)).status, 409);
+  assert.equal(h.rows[0].status, 'draft');
+  assert.equal(h.rows[0].processingEmailSendStartedAt, null);
+  assert.equal(h.mails.length, 0);
+});

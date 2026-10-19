@@ -39,6 +39,7 @@ import { getAccountEmailDeliveryState } from "@/lib/account-email-delivery";
 import { fetchProcessingEmailPreview, ProcessingPreviewNotes, useProcessingEmailPreview } from "@/components/admin/processing-email-preview";
 import { processingReviewReason } from "@/lib/account-processing";
 import { isMarketLegacyAuditRequest } from "@/lib/market-legacy-audit";
+import PartnerOrderDialog from "@/components/admin/partner-order-dialog";
 import BillingCyclePanel from "@/components/admin/billing-cycle-panel";
 
 const LicenseCertificateDialog = dynamic(() => import("@/components/admin/license-certificate-dialog"), { ssr: false });
@@ -192,6 +193,7 @@ function AccountsPageContent() {
   const [filterInvoice, setFilterInvoice] = useState("all");
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
+  const [partnerEditing, setPartnerEditing] = useState<AccountRequest[] | null>(null);
   const [editing, setEditing] = useState<AccountRequest | null>(null);
   const [emailPreview, setEmailPreview] = useState<AccountRequest | null>(null);
   const [partnerHqPreview, setPartnerHqPreview] = useState<{ requestId: string; rows: AccountRequest[] } | null>(null);
@@ -259,7 +261,7 @@ function AccountsPageContent() {
         setSendMsg(data.error || "목록을 불러오지 못했습니다");
         return;
       }
-      setRequests(Array.isArray(data) ? data : []);
+      setRequests(Array.isArray(data) ? data.filter((row: AccountRequest) => !(row.externalSource === "market_partner" && row.partnerLifecycleState === "cancelled")) : []);
     } finally {
       setLoaded(true);
     }
@@ -326,7 +328,15 @@ function AccountsPageContent() {
     setFNeedsInvoice(defaultNeedsInvoice(value));
   }
 
+  function openPartnerOrder(requestId: string) {
+    setPartnerEditing(requests.filter((row) => row.partnerRequestId === requestId && row.partnerLifecycleState === "active"));
+  }
+
   function openEdit(r: AccountRequest) {
+    if (r.externalSource === "market_partner" && r.partnerRequestId) {
+      openPartnerOrder(r.partnerRequestId);
+      return;
+    }
     if (isLegacyMarketAudit(r)) {
       setSendMsg("⚠️ 구 Market 주문 수동 감사 필요: 감사 원본은 수정할 수 없습니다.");
       return;
@@ -1444,6 +1454,7 @@ function AccountsPageContent() {
                   <div className="mt-1 text-[11px] text-slate-500 truncate">{rows.map((row) => `${row.teacherName || "—"} (${row.subject || "—"})`).join(", ")}</div>
                   <div className="mt-1 font-mono text-[9px] text-slate-400">{requestId}</div>
                 </div>
+                <Button size="sm" variant="outline" disabled={sending} onClick={() => openPartnerOrder(requestId)}>주문 수정·삭제</Button>
                 <Button
                   size="sm"
                   disabled={sending || readyRows.length === 0 || unknown}
@@ -1509,6 +1520,7 @@ function AccountsPageContent() {
                     <span className="font-medium text-slate-800">{rows[0]?.schoolName}</span>
                     <span className="text-slate-400">{rows[0]?.schoolNameEn}</span>
                     <span>· {rows.length}명</span>
+                    <Button size="sm" variant="outline" disabled={sending} onClick={() => openPartnerOrder(requestId)}>주문 수정·삭제</Button>
                     <span className="ml-auto text-slate-400">
                       {rows.every((row) => row.confirmedAt) ? "본사 처리·안내 완료" : "본사 처리 대기"}
                     </span>
@@ -1772,6 +1784,9 @@ function AccountsPageContent() {
         )}
       </div>
 
+      {partnerEditing && <PartnerOrderDialog rows={partnerEditing} onClose={() => setPartnerEditing(null)} onSaved={(message) => {
+        setPartnerEditing(null); setSendMsg(message); setSelectedIds(new Set()); setPartnerNotifySelected(new Set()); load();
+      }} />}
       {certificateRequest && <LicenseCertificateDialog request={certificateRequest} onClose={() => setCertificateRequest(null)} />}
 
       {/* 상태 메시지 */}
