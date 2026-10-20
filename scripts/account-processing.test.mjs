@@ -310,3 +310,18 @@ test('batch does not publish account details edited after its initial read', asy
   assert.equal(h.rows[0].processingEmailSendStartedAt, null);
   assert.equal(h.mails.length, 0);
 });
+
+test('archived requests stay out of processing queues and reject single/batch mail and old confirmations', async () => {
+  const archivedAt = new Date();
+  assert.equal(isOpenProcessingRequest(row(1, { archivedAt })), false);
+  for (const batch of [false, true]) {
+    const h = harness([fresh(1, { archivedAt })]);
+    assert.equal((await send(h, [1], batch)).status, 409);
+    assert.equal(h.mails.length, 0);
+    assert.equal(h.updates, 0);
+  }
+  const h = harness([row(1, { archivedAt })]);
+  const result = await h.load('@/app/api/account-confirm/[token]/route').POST(post({}), { params: Promise.resolve({ token: 'a1' }) });
+  assert.equal(result.status, 404);
+  assert.equal(h.notifications.length, 0);
+});

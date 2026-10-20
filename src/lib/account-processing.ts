@@ -7,6 +7,7 @@ export interface ProcessingRequest extends AccountEmailInput {
 }
 
 export interface ProcessingCandidate extends ProcessingRequest {
+  archivedAt?: Date | string | null;
   partnerLifecycleState?: string | null;
   externalSource?: string | null;
   channel?: string | null;
@@ -35,7 +36,7 @@ export function isProcessingConfirmed(r: { status: string; confirmedAt?: Date | 
 
 /** Billing is independent: an invoiced/paid request may still await Jon's confirmation. */
 export function processingReviewReason(r: ProcessingCandidate): string | null {
-  if (!isIndividualUpgrade(r) || isProcessingConfirmed(r)
+  if (r.archivedAt || !isIndividualUpgrade(r) || isProcessingConfirmed(r)
     || !["sent", "invoiced", "paid"].includes(r.status)
     || ["prepared", "voided"].includes(r.marketVoidState || "")
     || (r.channel === "partner" && r.partnerLifecycleState !== "active")
@@ -53,7 +54,7 @@ export function processingReviewReason(r: ProcessingCandidate): string | null {
 }
 
 export function isOpenProcessingRequest(r: ProcessingCandidate): boolean {
-  return isIndividualUpgrade(r) && !isProcessingConfirmed(r)
+  return !r.archivedAt && isIndividualUpgrade(r) && !isProcessingConfirmed(r)
     && ["sent", "invoiced", "paid"].includes(r.status)
     && !["prepared", "voided"].includes(r.marketVoidState || "")
     && (r.channel !== "partner" || r.partnerLifecycleState === "active")

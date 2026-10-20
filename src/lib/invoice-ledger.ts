@@ -72,6 +72,7 @@ export interface LedgerRow {
  */
 export function openInvoiceCondition() {
   return and(
+    isNull(accountRequests.archivedAt),
     eq(accountRequests.needsInvoice, true),
     isNull(accountRequests.invoiceNumber),
     inArray(accountRequests.status, [...OPEN_INVOICE_STATUSES]),

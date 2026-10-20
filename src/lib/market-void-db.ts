@@ -12,9 +12,13 @@ export async function claimAccountRequestSideEffects(requestIds: number[]): Prom
   if (uniqueIds.length === 0 || uniqueIds.length !== requestIds.length) return false;
 
   const result = await db.execute<ClaimRow>(sql`
-    SELECT "claim_market_request_side_effects"(
+    SELECT CASE WHEN EXISTS (
+      SELECT 1 FROM account_requests
+      WHERE id = ANY(ARRAY[${sql.join(uniqueIds.map((id) => sql`${id}::integer`), sql`, `)}]::integer[])
+        AND archived_at IS NOT NULL
+    ) THEN false ELSE "claim_market_request_side_effects"(
       ARRAY[${sql.join(uniqueIds.map((id) => sql`${id}::integer`), sql`, `)}]::integer[]
-    ) AS claimed
+    ) END AS claimed
   `);
   const claimed = result.rows[0]?.claimed;
   return claimed === true || claimed === "t" || claimed === 1;

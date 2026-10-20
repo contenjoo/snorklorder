@@ -88,6 +88,8 @@ export const accountRequests = pgTable("account_requests", {
   // 결제 기간(년) — 1 또는 2. 연장 날짜만으로는 몇 년치 청구인지 알 수 없다.
   termYears: integer("term_years").notNull().default(1),
   notes: text("notes"),
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+  archiveReason: text("archive_reason"),
   status: text("status").notNull().default("draft"), // draft | sent | processed | invoiced | paid
   // 인보이스가 필요한 요청인지 — true 일 때만 본사 정산 담당(Cailie)을 CC 에 포함한다.
   // 기본값 true: 빠뜨렸을 때 인보이스 누락 손실 > 메일 한 통 더 가는 비용.

@@ -119,12 +119,14 @@ export async function POST(req: NextRequest) {
       invoiceEmailSendStartedAt: Date | null;
       invoiceEmailSentAt: Date | null;
       invoiceEmailLastError: string | null;
+      archivedAt: Date | null;
       partnerLifecycleState: string;
       billingCycleId?: number | null;
     } | null = null;
     if (requestId) {
       [existing] = await db
         .select({
+          archivedAt: accountRequests.archivedAt,
           id: accountRequests.id,
           channel: accountRequests.channel,
           externalSource: accountRequests.externalSource,
@@ -166,6 +168,7 @@ export async function POST(req: NextRequest) {
       if (!existing) {
         return NextResponse.json({ error: "Account request not found" }, { status: 404 });
       }
+      if (existing.archivedAt) return NextResponse.json({ error: "보관된 요청은 발송할 수 없습니다." }, { status: 409 });
       if (existing.channel === 'partner' && existing.partnerLifecycleState !== 'active') {
         return NextResponse.json({ error: 'Cancelled partner request' }, { status: 409 });
       }

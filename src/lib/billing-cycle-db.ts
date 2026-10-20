@@ -23,6 +23,7 @@ const VISIBLE_CYCLE_LIMIT = 24;
 
 function billableCondition() {
   return and(
+    isNull(accountRequests.archivedAt),
     eq(accountRequests.needsInvoice, true),
     isNotNull(accountRequests.processingEmailSentAt),
     isNull(accountRequests.invoiceNumber),

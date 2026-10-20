@@ -108,6 +108,7 @@ export async function POST(req: NextRequest) {
 
     const rawRows = await db
       .select({
+        archivedAt: accountRequests.archivedAt,
         id: accountRequests.id,
         channel: accountRequests.channel,
         partnerRequestId: accountRequests.partnerRequestId,
@@ -146,6 +147,7 @@ export async function POST(req: NextRequest) {
       })
       .from(accountRequests)
       .where(inArray(accountRequests.id, requestIds));
+    if (rawRows.some((row) => row.archivedAt)) return NextResponse.json({ error: "보관된 요청은 발송할 수 없습니다." }, { status: 409 });
     const hydratedRows = await hydrateAccountRequestSchoolNames(rawRows);
     const rows = hydratedRows;
 

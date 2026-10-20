@@ -5,7 +5,7 @@ import { NextRequest, NextResponse, after } from "next/server";
 import { notifyTeacherUpgrades } from "@/lib/teacher-upgrade-notify";
 import { db } from "@/db";
 import { schools, teachers, accountRequests, billingCycles, billingCycleItems, domainRequests } from "@/db/schema";
-import { and, desc, eq, inArray, notInArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, notInArray } from "drizzle-orm";
 import { canConfirmUpgrades } from "@/lib/partner-roles";
 import { PARTNER_SESSION_COOKIE_NAME, verifyPartnerSessionToken } from "@/lib/signed-session";
 
@@ -72,6 +72,7 @@ export async function GET() {
       .leftJoin(billingCycleItems, eq(billingCycleItems.accountRequestId, accountRequests.id))
       .leftJoin(billingCycles, eq(billingCycles.id, billingCycleItems.cycleId))
       .where(and(
+        isNull(accountRequests.archivedAt),
         inArray(accountRequests.status, ["sent", "processed", "invoiced"]),
         notInArray(accountRequests.marketVoidState, ["prepared", "voided"]),
       ))
