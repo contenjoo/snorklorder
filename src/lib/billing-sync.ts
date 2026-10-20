@@ -46,7 +46,7 @@ export async function runBillingSync(options: BillingSyncOptions = {}): Promise<
   const rows: BillingRow[] = conditions.length ? await db.select({
     id: accountRequests.id, status: accountRequests.status, invoiceNumber: accountRequests.invoiceNumber,
     invoiceAmount: accountRequests.invoiceAmount, quantity: accountRequests.quantity, termYears: accountRequests.termYears, accountType: accountRequests.accountType, marketVoidState: accountRequests.marketVoidState,
-  }).from(accountRequests).where(conditions.length === 1 ? conditions[0] : or(...conditions)) : [];
+  }).from(accountRequests).where(and(isNull(accountRequests.archivedAt), conditions.length === 1 ? conditions[0] : or(...conditions))) : [];
 
   const invoices = { applied: [] as AppliedInvoice[], alreadySynced: 0, unmatched: [] as UnmatchedItem[] };
   const payments = { applied: [] as AppliedPayment[], alreadySynced: 0, unmatched: [] as UnmatchedItem[] };
@@ -88,7 +88,7 @@ export async function runBillingSync(options: BillingSyncOptions = {}): Promise<
           try {
             await withBillingTransaction(async (tx) => {
               for (const item of plan.apply) {
-                const updated = await tx.update(accountRequests).set({ invoiceNumber: mail.invoice.invoiceNumber, invoiceAmount: item.invoiceAmount, invoiceDueDate: mail.invoice.dueDate, status: "invoiced", updatedAt: new Date() }).where(and(eq(accountRequests.id, item.id), inArray(accountRequests.status, INVOICE_APPLY_STATUSES), isNull(accountRequests.invoiceNumber), notInArray(accountRequests.marketVoidState, [...VOID_EXCLUDED_STATES]))).returning({ id: accountRequests.id });
+                const updated = await tx.update(accountRequests).set({ invoiceNumber: mail.invoice.invoiceNumber, invoiceAmount: item.invoiceAmount, invoiceDueDate: mail.invoice.dueDate, status: "invoiced", updatedAt: new Date() }).where(and(isNull(accountRequests.archivedAt), eq(accountRequests.id, item.id), inArray(accountRequests.status, INVOICE_APPLY_STATUSES), isNull(accountRequests.invoiceNumber), notInArray(accountRequests.marketVoidState, [...VOID_EXCLUDED_STATES]))).returning({ id: accountRequests.id });
                 if (!updated.length) throw new Error(`request #${item.id} claim failed`);
               }
               const updatedCycle = await tx.update(billingCycles).set({ status: "invoiced", invoiceNumber: mail.invoice.invoiceNumber, invoiceGmailMessageId: mail.messageId, invoiceReceivedAt: new Date(mail.receivedAt), lastError: null, updatedAt: new Date() }).where(and(eq(billingCycles.id, cycle.id), inArray(billingCycles.status, ["sent", "invoice_mismatch"]))).returning({ id: billingCycles.id });
@@ -128,7 +128,7 @@ export async function runBillingSync(options: BillingSyncOptions = {}): Promise<
       const appliedIds: number[] = [];
       for (const item of plan.apply) {
         if (!dryRun) {
-          const claimed = await db.update(accountRequests).set({ invoiceNumber: mail.invoice.invoiceNumber, invoiceAmount: item.invoiceAmount, invoiceDueDate: mail.invoice.dueDate, status: "invoiced", updatedAt: new Date() }).where(and(eq(accountRequests.id, item.id), inArray(accountRequests.status, INVOICE_APPLY_STATUSES), isNull(accountRequests.invoiceNumber), notInArray(accountRequests.marketVoidState, [...VOID_EXCLUDED_STATES]))).returning({ id: accountRequests.id });
+          const claimed = await db.update(accountRequests).set({ invoiceNumber: mail.invoice.invoiceNumber, invoiceAmount: item.invoiceAmount, invoiceDueDate: mail.invoice.dueDate, status: "invoiced", updatedAt: new Date() }).where(and(isNull(accountRequests.archivedAt), eq(accountRequests.id, item.id), inArray(accountRequests.status, INVOICE_APPLY_STATUSES), isNull(accountRequests.invoiceNumber), notInArray(accountRequests.marketVoidState, [...VOID_EXCLUDED_STATES]))).returning({ id: accountRequests.id });
           if (!claimed.length) { claimSkipped++; continue; }
         }
         appliedIds.push(item.id);
@@ -159,7 +159,7 @@ export async function runBillingSync(options: BillingSyncOptions = {}): Promise<
       try {
         await withBillingTransaction(async (tx) => {
           for (const id of plan.ids) {
-            const claimed = await tx.update(accountRequests).set({ status: "paid", paymentDate: mail.payment.paidOn ?? mail.receivedAt.slice(0, 10), paymentMethod: mail.payment.paymentMethod ?? "card", updatedAt: new Date() }).where(and(eq(accountRequests.id, id), inArray(accountRequests.status, PAYMENT_APPLY_STATUSES))).returning({ invoiceNumber: accountRequests.invoiceNumber });
+            const claimed = await tx.update(accountRequests).set({ status: "paid", paymentDate: mail.payment.paidOn ?? mail.receivedAt.slice(0, 10), paymentMethod: mail.payment.paymentMethod ?? "card", updatedAt: new Date() }).where(and(isNull(accountRequests.archivedAt), eq(accountRequests.id, id), inArray(accountRequests.status, PAYMENT_APPLY_STATUSES))).returning({ invoiceNumber: accountRequests.invoiceNumber });
             if (!claimed.length || normalizeInvoiceNumber(claimed[0].invoiceNumber) !== mail.payment.invoiceNumber) throw new Error(`request #${id} payment claim failed`);
           }
           if (cycle) {

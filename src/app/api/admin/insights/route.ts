@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { schools, teachers, accountRequests } from "@/db/schema";
-import { eq, notInArray, sql } from "drizzle-orm";
+import { and, isNull, eq, notInArray, sql } from "drizzle-orm";
 import { schoolLevel, type SchoolLevel } from "@/lib/school-level";
 import { subjectFamily } from "@/lib/subject";
 
@@ -27,7 +27,7 @@ export async function GET() {
       requests: sql<number>`count(*)::int`,
       seats: sql<number>`sum(coalesce(${accountRequests.quantity}, 0))::int`,
     }).from(accountRequests)
-      .where(notInArray(accountRequests.marketVoidState, ["prepared", "voided"]))
+      .where(and(isNull(accountRequests.archivedAt), notInArray(accountRequests.marketVoidState, ["prepared", "voided"])))
       .groupBy(sql`1`).orderBy(sql`1`),
   ]);
 

@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { desc, eq, ne, inArray, sql, and, gte, isNotNull, notInArray } from "drizzle-orm";
+import { desc, eq, ne, inArray, sql, and, gte, isNotNull, isNull, notInArray } from "drizzle-orm";
 import { db } from "@/db";
 import { schools, teachers, upgradeBatches, emailLogs, teams, accountRequests, billingCycles, billingCycleItems, domainRequests } from "@/db/schema";
 import { checkAuth } from "@/lib/auth";
@@ -146,6 +146,7 @@ export async function GET() {
       .leftJoin(billingCycleItems, eq(billingCycleItems.accountRequestId, accountRequests.id))
       .leftJoin(billingCycles, eq(billingCycles.id, billingCycleItems.cycleId))
       .where(and(
+      isNull(accountRequests.archivedAt),
       inArray(accountRequests.status, ["draft", "sent", "processed", "invoiced"]),
       notInArray(accountRequests.marketVoidState, ["prepared", "voided"]),
     )).orderBy(desc(accountRequests.updatedAt)),
@@ -222,14 +223,14 @@ export async function GET() {
         confirmedAt: accountRequests.confirmedAt,
       })
       .from(accountRequests)
-      .where(isNotNull(accountRequests.confirmedAt))
+      .where(and(isNull(accountRequests.archivedAt), isNotNull(accountRequests.confirmedAt)))
       .orderBy(desc(accountRequests.confirmedAt))
       .limit(10),
     // 정산 파이프라인: 상태별 건수 (paid 포함 전체)
     db
       .select({ status: accountRequests.status, count: sql<number>`count(*)::int` })
       .from(accountRequests)
-      .where(notInArray(accountRequests.marketVoidState, ["prepared", "voided"]))
+      .where(and(isNull(accountRequests.archivedAt), notInArray(accountRequests.marketVoidState, ["prepared", "voided"])))
       .groupBy(accountRequests.status),
     db
       .select({ status: billingCycles.status, count: sql<number>`count(*)::int` })

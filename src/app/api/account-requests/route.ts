@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse, after } from "next/server";
 import { db } from "@/db";
 import { accountRequests, billingCycleItems, billingCycles, marketOrderVoidFences } from "@/db/schema";
-import { and, desc, eq, inArray, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import { checkAuth } from "@/lib/auth";
 import { checkRateLimit, createRateLimitResponse, isValidEmail, normalizeText } from "@/lib/security";
 import { sendAccountUpgradeCompletion } from "@/lib/email";
@@ -139,7 +139,7 @@ async function marketReplayResponse(
   });
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   if (!(await checkAuth())) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -147,6 +147,7 @@ export async function GET() {
   const result = await db
     .select()
     .from(accountRequests)
+    .where(req.nextUrl.searchParams.get("includeArchived") === "1" ? undefined : isNull(accountRequests.archivedAt))
     .orderBy(desc(accountRequests.createdAt));
   const marketOrderIds = [...new Set(
     result
@@ -445,6 +446,7 @@ export async function POST(req: NextRequest) {
     }
     // 완료 확인과 청구·결제 상태를 독립적으로 기록한다.
     const [prev] = await db.select({
+      archivedAt: accountRequests.archivedAt,
       status: accountRequests.status,
       confirmedAt: accountRequests.confirmedAt,
       invoiceNumber: accountRequests.invoiceNumber,
@@ -463,6 +465,7 @@ export async function POST(req: NextRequest) {
     if (prev.externalSource === "market_partner" && ["channel", "applicantType", "type", "schoolName", "schoolNameEn", "emails", "accountType", "quantity", "notes", "teacherName", "subject"].some((field) => data[field] !== undefined)) {
       return NextResponse.json({ error: "협력사 신청 묶음의 주문 수정·삭제에서 변경해 주세요." }, { status: 409 });
     }
+    if (prev.archivedAt) return NextResponse.json({ error: "보관된 요청은 변경할 수 없습니다." }, { status: 409 });
     const nextChannel = typeof updates.channel === "string" ? updates.channel : prev.channel;
     const nextNotes = updates.notes !== undefined ? updates.notes : prev.notes;
     if (
@@ -519,7 +522,7 @@ export async function POST(req: NextRequest) {
       [item] = await db
         .update(accountRequests)
         .set(updates)
-        .where(and(eq(accountRequests.id, id), confirmingProcessing ? pendingProcessingConfirmationCondition() : undefined))
+        .where(and(isNull(accountRequests.archivedAt), eq(accountRequests.id, id), confirmingProcessing ? pendingProcessingConfirmationCondition() : undefined))
         .returning();
     } catch (error) {
       // read 이후 prepare가 선점한 경우 DB trigger가 최종 차단한다.
@@ -558,6 +561,7 @@ export async function POST(req: NextRequest) {
   if (action === "delete" && id) {
     const [existing] = await db
       .select({
+        archivedAt: accountRequests.archivedAt,
         externalSource: accountRequests.externalSource,
         channel: accountRequests.channel,
         notes: accountRequests.notes,
@@ -570,6 +574,7 @@ export async function POST(req: NextRequest) {
       .from(accountRequests)
       .where(eq(accountRequests.id, id));
     if (!existing) return NextResponse.json({ error: "Account request not found" }, { status: 404 });
+    if (existing.archivedAt) return NextResponse.json({ error: "보관된 요청은 이력 보존을 위해 삭제할 수 없습니다." }, { status: 409 });
     if (existing.externalSource === "market_partner") {
       return NextResponse.json({ error: "협력사 신청 묶음의 주문 수정·삭제에서 삭제해 주세요." }, { status: 409 });
     }

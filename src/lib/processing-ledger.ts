@@ -9,6 +9,7 @@ import { isIndividualUpgrade, selectProcessingReminders, type ProcessingRequest 
 export async function loadProcessingReminders(fresh: ProcessingRequest[]) {
   if (!fresh.some(isIndividualUpgrade)) return { reminders: [], manualReview: [] };
   const rows = await db.select().from(accountRequests).where(and(
+    isNull(accountRequests.archivedAt),
     eq(accountRequests.type, "upgrade"),
     eq(accountRequests.partnerLifecycleState, "active"),
     inArray(accountRequests.accountType, ["teacher", "student"]),

@@ -32,7 +32,7 @@ export async function GET(
     .from(accountRequests)
     .where(eq(accountRequests.confirmToken, token));
 
-  if (!r || confirmationExpired(r)) {
+  if (!r || r.archivedAt || confirmationExpired(r)) {
     return NextResponse.json({ error: "Invalid or expired link" }, { status: 404 });
   }
   if (r.channel === 'partner' && r.partnerLifecycleState !== 'active') {
@@ -80,6 +80,7 @@ export async function GET(
         : eq(accountRequests.schoolName, r.schoolName),
       ne(accountRequests.id, r.id),
       inArray(accountRequests.status, ["sent", "invoiced", "paid"]),
+      isNull(accountRequests.archivedAt),
       isNull(accountRequests.confirmedAt),
       notInArray(accountRequests.marketVoidState, ["prepared", "voided"]),
       eq(accountRequests.partnerLifecycleState, 'active'),
@@ -108,7 +109,7 @@ export async function POST(
     .from(accountRequests)
     .where(eq(accountRequests.confirmToken, token));
 
-  if (!r || confirmationExpired(r)) {
+  if (!r || r.archivedAt || confirmationExpired(r)) {
     return NextResponse.json({ error: "Invalid or expired link" }, { status: 404 });
   }
   if (r.channel === 'partner' && r.partnerLifecycleState !== 'active') {
@@ -153,7 +154,8 @@ export async function POST(
             : eq(accountRequests.schoolName, r.schoolName),
           eq(accountRequests.partnerLifecycleState, 'active'),
           inArray(accountRequests.status, ["sent", "invoiced", "paid"]),
-          isNull(accountRequests.confirmedAt),
+          isNull(accountRequests.archivedAt),
+      isNull(accountRequests.confirmedAt),
           notInArray(accountRequests.marketVoidState, ["prepared", "voided"]),
         ))
     : [];

@@ -13,6 +13,7 @@ export function processingConfirmationValues(now = new Date()) {
 
 export function pendingProcessingConfirmationCondition() {
   return and(
+    isNull(accountRequests.archivedAt),
     isNull(accountRequests.confirmedAt),
     eq(accountRequests.partnerLifecycleState, "active"),
     inArray(accountRequests.status, ["draft", "sent", "invoiced", "paid"]),
