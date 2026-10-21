@@ -147,6 +147,7 @@ export async function GET() {
       .leftJoin(billingCycles, eq(billingCycles.id, billingCycleItems.cycleId))
       .where(and(
       isNull(accountRequests.archivedAt),
+      eq(accountRequests.partnerLifecycleState, "active"),
       inArray(accountRequests.status, ["draft", "sent", "processed", "invoiced"]),
       notInArray(accountRequests.marketVoidState, ["prepared", "voided"]),
     )).orderBy(desc(accountRequests.updatedAt)),
@@ -223,14 +224,14 @@ export async function GET() {
         confirmedAt: accountRequests.confirmedAt,
       })
       .from(accountRequests)
-      .where(and(isNull(accountRequests.archivedAt), isNotNull(accountRequests.confirmedAt)))
+      .where(and(isNull(accountRequests.archivedAt), eq(accountRequests.partnerLifecycleState, "active"), isNotNull(accountRequests.confirmedAt)))
       .orderBy(desc(accountRequests.confirmedAt))
       .limit(10),
     // 정산 파이프라인: 상태별 건수 (paid 포함 전체)
     db
       .select({ status: accountRequests.status, count: sql<number>`count(*)::int` })
       .from(accountRequests)
-      .where(and(isNull(accountRequests.archivedAt), notInArray(accountRequests.marketVoidState, ["prepared", "voided"])))
+      .where(and(isNull(accountRequests.archivedAt), eq(accountRequests.partnerLifecycleState, "active"), notInArray(accountRequests.marketVoidState, ["prepared", "voided"])))
       .groupBy(accountRequests.status),
     db
       .select({ status: billingCycles.status, count: sql<number>`count(*)::int` })
