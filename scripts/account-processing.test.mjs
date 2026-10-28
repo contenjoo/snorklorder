@@ -224,19 +224,21 @@ test("only new individual upgrades trigger the cumulative list; Market reminders
 });
 
 for (const status of ["sent", "invoiced", "paid"]) {
-  test(`admin completion records confirmedAt once and preserves ${status} billing`, async () => {
-    const h = harness([row(1, { status, invoiceNumber: "INV-1", paymentDate: "2026-09-01" })]);
-    const api = h.load("@/app/api/account-requests/route");
-    const confirm = () => api.POST(post({ action: "update", id: 1, status: "processed" }));
-    await Promise.all([confirm(), confirm()]);
-    assert.equal(h.rows[0].status, status === "sent" ? "processed" : status);
-    assert.ok(h.rows[0].confirmedAt);
-    assert.equal(h.rows[0].invoiceNumber, "INV-1");
-    assert.equal(h.rows[0].paymentDate, "2026-09-01");
-    assert.equal(h.notifications.length, 1);
-    await confirm();
-    assert.equal(h.notifications.length, 1);
-  });
+  for (const channel of ["school_store", "partner"]) {
+    test(`${channel} admin completion records confirmedAt once and preserves ${status} billing`, async () => {
+      const h = harness([row(1, { status, channel, externalSource: channel === "partner" ? "market_partner" : null, invoiceNumber: "INV-1", paymentDate: "2026-09-01" })]);
+      const api = h.load("@/app/api/account-requests/route");
+      const confirm = () => api.POST(post({ action: "update", id: 1, status: "processed" }));
+      await Promise.all([confirm(), confirm()]);
+      assert.equal(h.rows[0].status, status === "sent" ? "processed" : status);
+      assert.ok(h.rows[0].confirmedAt);
+      assert.equal(h.rows[0].invoiceNumber, "INV-1");
+      assert.equal(h.rows[0].paymentDate, "2026-09-01");
+      assert.equal(h.notifications.length, 1);
+      await confirm();
+      assert.equal(h.notifications.length, 1);
+    });
+  }
 }
 
 test("send finalization cannot undo concurrent processing completion", async () => {
@@ -262,7 +264,7 @@ test("concurrent requests share one durable confirmation token and post once", a
 });
 
 
-test("partner confirmation keeps application boundaries and does not mail teachers directly", async () => {
+test("partner confirmation emails only the upgraded recipient and keeps application boundaries", async () => {
   const h = harness([
     row(1, { channel: "partner", partnerRequestId: "partner-one" }),
     row(2, { channel: "partner", partnerRequestId: "partner-two", schoolName: "School 1" }),
@@ -273,8 +275,33 @@ test("partner confirmation keeps application boundaries and does not mail teache
   await new Promise((resolve) => setImmediate(resolve));
   assert.ok(h.rows[0].confirmedAt);
   assert.equal(h.rows[1].confirmedAt, null); assert.equal(h.rows[2].confirmedAt, null);
-  assert.equal(h.notifications.length, 1);
+  assert.equal(h.notifications.length, 2);
+  assert.deepEqual(h.notifications.filter((n) => n.email).map((n) => n.email), ["teacher1@example.test"]);
+  // 완료 버튼을 다시 누르거나 동시에 요청해도 새로 확정된 행만 알린다.
+  await Promise.all([1, 2].map(() => h.load("@/app/api/account-confirm/[token]/route").POST(post({}), { params: Promise.resolve({ token: "a1" }) })));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(h.notifications.length, 2);
   assert.equal(isOpenProcessingRequest(h.rows[2]), false);
+});
+
+test("partner group confirmation deduplicates recipient emails and preserves invoice/payment state", async () => {
+  const common = { channel: "partner", partnerRequestId: "partner-one", schoolName: "School 1" };
+  const h = harness([
+    row(1, { ...common, emails: "Teacher@example.test, teacher@example.test" }),
+    row(2, { ...common, emails: "teacher@example.test; other@example.test", status: "paid", invoiceNumber: "INV-1", paymentDate: "2026-09-01" }),
+  ]);
+  const api = h.load("@/app/api/account-confirm/[token]/route");
+  const confirm = () => api.POST(post({ alsoConfirmIds: [1, 2] }), { params: Promise.resolve({ token: "a1" }) });
+  assert.equal((await confirm()).status, 200);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(h.notifications.filter((n) => n.email).map((n) => n.email), ["teacher@example.test", "other@example.test"]);
+  assert.ok(h.rows.every((r) => r.confirmedAt));
+  assert.equal(h.rows[1].status, "paid");
+  assert.equal(h.rows[1].invoiceNumber, "INV-1");
+  assert.equal(h.rows[1].paymentDate, "2026-09-01");
+  await confirm();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(h.notifications.filter((n) => n.email).length, 2);
 });
 
 
