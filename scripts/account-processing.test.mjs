@@ -165,7 +165,7 @@ test("A/B → C → confirm A → D keeps B/C and request identity even with the
 
 for (const batch of [false, true]) {
   test(`${batch ? "batch" : "single"} preview is read-only and posting sends no Jon email`, async () => {
-    const h = harness([row(1), row(2, { status: "paid" }), fresh(3), fresh(4, { type: "extension" })]);
+    const h = harness([row(1), row(2, { status: "paid" }), fresh(3), fresh(4, { type: "extension", extensionDate: "2027-11-01" })]);
     const ids = batch ? [3, 4] : [3];
     const previewRoute = h.load("@/app/api/account-email/preview/route");
     h.setAuth(false);

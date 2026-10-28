@@ -41,6 +41,8 @@ import { processingReviewReason } from "@/lib/account-processing";
 import { isMarketLegacyAuditRequest } from "@/lib/market-legacy-audit";
 import PartnerOrderDialog from "@/components/admin/partner-order-dialog";
 import BillingCyclePanel from "@/components/admin/billing-cycle-panel";
+import { extensionRequestError } from "@/lib/account-extension";
+import { schoolRenewalDraft } from "@/lib/school-renewal";
 
 const LicenseCertificateDialog = dynamic(() => import("@/components/admin/license-certificate-dialog"), { ssr: false });
 
@@ -176,6 +178,7 @@ function AccountsPageContent() {
   const filterParam = searchParams.get("filter");
   const focusId = Number(searchParams.get("focus")) || null;
   const newParam = searchParams.get("new") === "1";
+  const renewSchoolId = Number(searchParams.get("renewSchool")) || null;
 
   const [certificateRequest, setCertificateRequest] = useState<AccountRequest | null>(null);
   const [requests, setRequests] = useState<AccountRequest[]>([]);
@@ -193,6 +196,9 @@ function AccountsPageContent() {
   const [filterInvoice, setFilterInvoice] = useState("all");
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
+  const [renewalLoading, setRenewalLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState("");
   const [partnerEditing, setPartnerEditing] = useState<AccountRequest[] | null>(null);
   const [editing, setEditing] = useState<AccountRequest | null>(null);
   const [emailPreview, setEmailPreview] = useState<AccountRequest | null>(null);
@@ -287,6 +293,30 @@ function AccountsPageContent() {
   }, [newParam]);
 
   useEffect(() => {
+    if (!renewSchoolId || !loaded) return;
+    let cancelled = false;
+    resetForm();
+    setFType("extension"); setFAccType("school");
+    setOpen(true); setRenewalLoading(true);
+    fetch("/api/schools")
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok || !Array.isArray(data)) throw new Error("학교 정보를 불러오지 못했습니다.");
+        const school = data.find((s: { id: number }) => s.id === renewSchoolId);
+        if (!school) throw new Error("연장할 학교를 찾지 못했습니다. 학교명을 직접 입력해 주세요.");
+        if (cancelled) return;
+        const draft = schoolRenewalDraft(school, requests);
+        setFSchool(draft.schoolName); setFSchoolEn(draft.schoolNameEn);
+        setFEmails(draft.emails); setFChannel(draft.channel);
+      })
+      .catch((error) => { if (!cancelled) setFormError(error instanceof Error ? error.message : "학교 정보를 불러오지 못했습니다."); })
+      .finally(() => { if (!cancelled) setRenewalLoading(false); });
+    return () => { cancelled = true; };
+    // 요청을 저장한 뒤 목록이 갱신되어도 새 연장 폼을 다시 열지 않는다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [renewSchoolId, loaded]);
+
+  useEffect(() => {
     if (fApplicant === "individual") { setSchoolMatches([]); return; }
     const q = fSchool.trim();
     if (q.length < 2) { setSchoolMatches([]); return; }
@@ -314,6 +344,7 @@ function AccountsPageContent() {
   }
 
   function resetForm() {
+    setFormError("");
     setFChannel("company"); setFApplicant("school"); setFBulk(false); setFBulkText(""); setFType("upgrade"); setFSchool(""); setFSchoolEn(""); setFEmails(""); setFAccType("teacher");
     setFQty(1); setFOldEmail(""); setFFromType("teacher"); setFExtDate(""); setFTermYears(1);
     setFNotes(""); setFNeedsInvoice(defaultNeedsInvoice("upgrade"));
@@ -326,6 +357,7 @@ function AccountsPageContent() {
   function selectType(value: string) {
     setFType(value);
     setFNeedsInvoice(defaultNeedsInvoice(value));
+    if (value === "extension" && fAccType === "school") setFQty(1);
   }
 
   function openPartnerOrder(requestId: string) {
@@ -343,7 +375,7 @@ function AccountsPageContent() {
     }
     setEditing(r);
     setFChannel(r.channel || "company"); setFApplicant(r.applicantType || "school"); setFType(r.type); setFSchool(r.schoolName); setFSchoolEn(r.schoolNameEn || ""); setFEmails(r.emails);
-    setFAccType(r.accountType || "teacher"); setFQty(r.quantity || 1);
+    setFAccType(r.accountType || "teacher"); setFQty(r.type === "extension" && r.accountType === "school" ? 1 : r.quantity || 1);
     setFOldEmail(r.oldEmail || ""); setFFromType(r.fromType || "teacher");
     setFExtDate(r.extensionDate || ""); setFTermYears(normalizeTermYears(r.termYears)); setFNotes(r.notes || "");
     setFNeedsInvoice(r.needsInvoice ?? defaultNeedsInvoice(r.type));
@@ -370,11 +402,21 @@ function AccountsPageContent() {
   }
 
   async function save() {
+    if (saving || renewalLoading) return;
+    setFormError("");
+    const extensionError = extensionRequestError({ type: fType, accountType: fAccType,
+      applicantType: fApplicant, quantity: fBulk ? 1 : fQty, extensionDate: fExtDate });
+    if (extensionError) { setFormError(extensionError); return; }
+    if (!fBulk && (!fSchool.trim() || countEmails(fEmails) === 0)) {
+      setFormError("학교명 또는 이름과 유효한 이메일을 입력해 주세요."); return;
+    }
+    setSaving(true);
+    try {
     // 일괄 생성 (개인 모드 + 신규 생성일 때만)
     if (!editing && fBulk) {
       const entries = parseBulk(fBulkText);
       if (entries.length === 0) {
-        setSendMsg("유효한 이메일이 없습니다");
+        setFormError("유효한 이메일이 없습니다");
         return;
       }
       let ok = 0, fail = 0;
@@ -412,11 +454,16 @@ function AccountsPageContent() {
     });
     const result = await res.json();
     if (!res.ok) {
-      setSendMsg(result.error || "저장에 실패했습니다");
+      setFormError(result.error || "저장에 실패했습니다");
       return;
     }
     setSendMsg(editing ? "✓ 수정 완료" : "✓ 생성 완료");
     resetForm(); setOpen(false); load();
+    } catch {
+      setFormError("저장하지 못했습니다. 연결을 확인한 뒤 다시 시도해 주세요.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function updateStatus(id: number, status: string) {
@@ -1061,18 +1108,25 @@ function AccountsPageContent() {
               {billingSyncing ? "⏳ 동기화 중…" : "📥 메일 동기화"}
             </Button>
             <a href="/admin/processing-mail" className="text-xs underline whitespace-nowrap">처리 메일 검토</a>
-            <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) resetForm(); }}>
+            <Dialog open={open} onOpenChange={(v) => { if (saving || renewalLoading) return; setOpen(v); if (!v) resetForm(); }}>
               <DialogTrigger className="inline-flex items-center justify-center rounded-md text-xs font-semibold bg-slate-900 text-white h-7 px-3 hover:bg-slate-800 cursor-pointer whitespace-nowrap">
                 + 새 요청
               </DialogTrigger>
             <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
               <DialogHeader>
-                <DialogTitle>{editing ? "요청 수정" : "새 요청"}</DialogTitle>
+                <DialogTitle>{editing ? "요청 수정" : fType === "extension" && fAccType === "school" ? "학교 단체 연장 신청" : "새 요청"}</DialogTitle>
               </DialogHeader>
               <div className="space-y-3">
+                {renewalLoading && <p role="status" className="text-sm text-blue-700">학교 정보를 불러오는 중…</p>}
+                {fType === "extension" && fAccType === "school" && (
+                  <p className="rounded-lg bg-blue-50 p-3 text-xs leading-relaxed text-blue-900">
+                    기존 학교 전체 이용권을 연장합니다. 학교를 식별할 대표 계정과 새 이용 종료일을 확인해 주세요.
+                    저장 후 요청 목록의 미리보기에서 ‘발송하기’를 누르면 Jon 처리 화면에 등록됩니다.
+                  </p>
+                )}
                 <div className="flex gap-1">
                   {APPLICANT_TYPES.map((a) => (
-                    <button key={a.value} onClick={() => { setFApplicant(a.value); if (a.value !== "individual") setFBulk(false); }}
+                    <button key={a.value} onClick={() => { setFApplicant(a.value); if (a.value !== "individual") setFBulk(false); else if (fAccType === "school") setFAccType("teacher"); }}
                       className={`flex-1 py-2 rounded-lg text-xs text-center transition-colors ${fApplicant === a.value ? "bg-purple-100 ring-1 ring-purple-400 font-semibold" : "bg-slate-50 hover:bg-slate-100"}`}>
                       {a.icon} {a.label}
                     </button>
@@ -1115,7 +1169,7 @@ function AccountsPageContent() {
                     <div className="text-[10px] text-slate-400">
                       {parseBulk(fBulkText).length}명 인식됨 — 저장 시 각각 별도 요청으로 생성됩니다
                     </div>
-                    {fType === "upgrade" && (
+                    {(fType === "upgrade" || fType === "extension") && (
                       <div className="space-y-1">
                         <Label className="text-xs">계정 타입 (전체 공통)</Label>
                         <Select value={fAccType} onValueChange={(v) => setFAccType(v ?? "teacher")}>
@@ -1162,27 +1216,30 @@ function AccountsPageContent() {
                       <Input value={fSchoolEn} onChange={(e) => setFSchoolEn(e.target.value)} placeholder={fApplicant === "individual" ? "English Name" : "English School Name (자동 번역)"} className="h-8 text-sm" />
                     </div>
                     <div className="space-y-1">
-                      <Label className="text-xs">이메일 *</Label>
-                      <Textarea value={fEmails} onChange={(e) => setFEmails(e.target.value)} placeholder="이메일 (여러 개는 쉼표/줄바꿈)" rows={2} className="text-sm" />
+                      <Label className="text-xs" htmlFor="request-emails">{fType === "extension" && fAccType === "school" ? "학교 대표 계정 이메일 *" : "이메일 *"}</Label>
+                      <Textarea id="request-emails" value={fEmails} onChange={(e) => setFEmails(e.target.value)} placeholder="이메일 (여러 개는 쉼표/줄바꿈)" rows={2} className="text-sm" />
+                      {fType === "extension" && fAccType === "school" && <p className="text-xs text-slate-500">기존 학교 이용권에 연결된 계정입니다. 등록 교사 전체를 입력할 필요는 없습니다.</p>}
                     </div>
                   </>
                 )}
-                {fType === "upgrade" && !fBulk && (
+                {(fType === "upgrade" || fType === "extension") && !fBulk && (
                   <div className="grid grid-cols-2 gap-2">
                     <div className="space-y-1">
                       <Label className="text-xs">계정 타입</Label>
-                      <Select value={fAccType} onValueChange={(v) => setFAccType(v ?? "teacher")}>
+                      <Select value={fAccType} onValueChange={(v) => { setFAccType(v ?? "teacher"); if (v === "school" && fType === "extension") setFQty(1); }}
+                        items={{ teacher: "Teacher", student: "Student", school: "학교 전체 (School)" }}>
                         <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="teacher">Teacher</SelectItem>
                           <SelectItem value="student">Student</SelectItem>
-                          <SelectItem value="school">School</SelectItem>
+                          {fApplicant === "school" && <SelectItem value="school">학교 전체 (School)</SelectItem>}
                         </SelectContent>
                       </Select>
                     </div>
                     <div className="space-y-1">
-                      <Label className="text-xs">수량</Label>
-                      <Input type="number" value={fQty} onChange={(e) => setFQty(parseInt(e.target.value) || 1)} min={1} className="h-8 text-sm" />
+                      <Label className="text-xs" htmlFor="request-quantity">{fType === "extension" && fAccType === "school" ? "학교 수" : "수량"}</Label>
+                      <Input id="request-quantity" type="number" value={fQty} onChange={(e) => setFQty(parseInt(e.target.value) || 1)} disabled={fType === "extension" && fAccType === "school"} min={1} className="h-8 text-sm" />
+                      {fType === "extension" && fAccType === "school" && <p className="text-xs text-slate-500">1교 기준으로 청구됩니다.</p>}
                     </div>
                   </div>
                 )}
@@ -1204,8 +1261,9 @@ function AccountsPageContent() {
                 )}
                 {fType === "extension" && (
                   <div className="space-y-1">
-                    <Label className="text-xs">만료일</Label>
-                    <Input type="date" value={fExtDate} onChange={(e) => setFExtDate(e.target.value)} className="h-8 text-sm" />
+                    <Label className="text-xs" htmlFor="request-extension-date">새 이용 종료일 *</Label>
+                    <Input id="request-extension-date" type="date" value={fExtDate} onChange={(e) => setFExtDate(e.target.value)} required className="h-8 text-sm" />
+                    <p className="text-xs text-slate-500">연장 후 이용권이 끝나는 날짜를 입력해 주세요.</p>
                   </div>
                 )}
                 {(fType === "upgrade" || fType === "extension") && (
@@ -1259,7 +1317,8 @@ function AccountsPageContent() {
                     </div>
                   </details>
                 )}
-                <Button onClick={save} className="w-full h-9">{editing ? "수정" : "생성"}</Button>
+                {formError && <p role="alert" className="text-sm text-red-600">{formError}</p>}
+                <Button onClick={save} disabled={saving || renewalLoading} className="w-full h-9">{saving ? "저장 중…" : editing ? "수정" : fType === "extension" && fAccType === "school" ? "연장 요청 저장" : "생성"}</Button>
               </div>
             </DialogContent>
             </Dialog>

@@ -8,6 +8,7 @@ import { checkRateLimit, createRateLimitResponse, isValidEmail, normalizeText } 
 import { sendAccountUpgradeCompletion } from "@/lib/email";
 // 인보이스 필요 여부 기본값은 SSOT 한 곳에서만 정의한다 (미리보기/발송/저장이 갈라지지 않도록).
 import { defaultNeedsInvoice, normalizeTermYears } from "@/lib/account-email-template";
+import { extensionRequestError } from "@/lib/account-extension";
 import {
   hydrateAccountRequestSchoolNames,
   resolveAccountRequestSchoolNameEn,
@@ -314,7 +315,9 @@ export async function POST(req: NextRequest) {
     const insertedApplicantType = isAuthenticated ? (data.applicantType === "individual" ? "individual" : "school") : "school";
     const insertedType = isAuthenticated ? data.type || "upgrade" : "upgrade";
     const insertedAccountType = isAuthenticated ? data.accountType || "teacher" : "teacher";
-    const insertedQuantity = isAuthenticated ? data.quantity || 1 : uniqueValidEmails.length;
+    const insertedQuantity = isAuthenticated
+      ? insertedType === "extension" ? (data.quantity ?? 1) : data.quantity || 1
+      : uniqueValidEmails.length;
     const insertedChannel = isAuthenticated ? data.channel || "company" : "company";
     // 인보이스 필요 여부: 미지정 시 유형별 스마트 기본값.
     // 돈이 드는 유형(upgrade/extension)은 true, 단순 계정 정보 변경(email_change/type_change)은 false.
@@ -341,6 +344,9 @@ export async function POST(req: NextRequest) {
       needsInvoice: insertedNeedsInvoice,
       status: "draft",
     };
+
+    const extensionError = extensionRequestError(requestValues);
+    if (extensionError) return NextResponse.json({ error: extensionError }, { status: 400 });
 
     if (marketEnvelope) {
       const payloadHash = hashMarketPayload({
@@ -446,6 +452,11 @@ export async function POST(req: NextRequest) {
     }
     // 완료 확인과 청구·결제 상태를 독립적으로 기록한다.
     const [prev] = await db.select({
+      type: accountRequests.type,
+      accountType: accountRequests.accountType,
+      applicantType: accountRequests.applicantType,
+      quantity: accountRequests.quantity,
+      extensionDate: accountRequests.extensionDate,
       archivedAt: accountRequests.archivedAt,
       status: accountRequests.status,
       confirmedAt: accountRequests.confirmedAt,
@@ -466,6 +477,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "협력사 신청 묶음의 주문 수정·삭제에서 변경해 주세요." }, { status: 409 });
     }
     if (prev.archivedAt) return NextResponse.json({ error: "보관된 요청은 변경할 수 없습니다." }, { status: 409 });
+    // 상태만 바꿔도 본사 화면에 새로 게시될 수 있다. 기존 청구·결제 상태 정리는 허용한다.
+    const publishingExtension = (data.status === "sent" && prev.status !== "sent")
+      || (prev.status === "draft" && ["processed", "invoiced"].includes(data.status));
+    if (publishingExtension || ["type", "accountType", "applicantType", "quantity", "extensionDate"].some((field) => data[field] !== undefined)) {
+      const extensionError = extensionRequestError({ ...prev, ...updates });
+      if (extensionError) return NextResponse.json({ error: extensionError }, { status: 400 });
+    }
     const nextChannel = typeof updates.channel === "string" ? updates.channel : prev.channel;
     const nextNotes = updates.notes !== undefined ? updates.notes : prev.notes;
     if (

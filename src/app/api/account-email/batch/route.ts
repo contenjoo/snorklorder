@@ -8,6 +8,7 @@ import { accountRequests } from "@/db/schema";
 import { and, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { getTransporter, logEmail, formatLogRecipients, BASE_URL, HQ_EMAIL, HQ_INVOICE_TO } from "@/lib/email";
 import { buildInvoiceEmail, defaultNeedsInvoice, generateAccountEmail, type BatchEmailItem, type InvoiceEmailItem } from "@/lib/account-email-template";
+import { extensionRequestError } from "@/lib/account-extension";
 import {
   hydrateAccountRequestSchoolNames,
   needsEnglishSchoolNameForHq,
@@ -189,6 +190,16 @@ export async function POST(req: NextRequest) {
         error: "English school name is required before sending selected requests to HQ.",
         blockedRequestIds: missingEnglishSchoolNames.map((row) => row.id),
       }, { status: 400 });
+    }
+
+    if (mode === "send_all") {
+      const invalidExtension = rows.find((row) => extensionRequestError(row));
+      if (invalidExtension) {
+        return NextResponse.json({
+          error: extensionRequestError(invalidExtension),
+          blockedRequestIds: [invalidExtension.id],
+        }, { status: 400 });
+      }
     }
 
     const deliveryStates = rows.map((row) => ({
