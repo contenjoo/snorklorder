@@ -100,13 +100,12 @@ test("DB migration은 신청 항목 유일성·소프트 취소·operation 멱�
   assert.match(apply, /row count/);
 });
 
-test("Jon 승인 route는 발송 전 draft와 다른 신청 혼입을 막고 협력사 교사 메일을 억제한다", async () => {
+test("Jon 승인 route는 발송 전 draft와 다른 신청 혼입을 막는다", async () => {
   const source = await readFile(new URL("../src/app/api/account-confirm/[token]/route.ts", import.meta.url), "utf8");
   assert.match(source, /Request has not been sent to HQ/);
   assert.match(source, /s\.channel === 'partner'/);
   assert.match(source, /s\.partnerRequestId === r\.partnerRequestId/);
   assert.match(source, /s\.processingEmailSentAt/);
-  assert.match(source, /r\.channel === 'partner'\s*\? \[\]/);
   assert.match(source, /confirmedAt:\s*confirmationAt/);
 });
 

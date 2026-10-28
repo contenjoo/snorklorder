@@ -193,10 +193,10 @@ export async function POST(
 
   // 교사 환영 메일은 응답 후 백그라운드로 발송 (형제 요청 포함)
   const combinedEmailString = transitionedRequests.map((item) => item.emails).join(",");
-  const emails = combinedEmailString
+  const emails = [...new Set(combinedEmailString
     .split(/[,;\n]+/)
     .map((e) => e.trim().toLowerCase())
-    .filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
+    .filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)))];
 
   // 이미 완료 확인됐거나 다른 완료 writer가 먼저 선점한
   // 행은 transitionedRequests에 없으므로 완료 메일도 재발송하지 않는다.
@@ -234,12 +234,11 @@ export async function POST(
             applicantType: r.applicantType || "school",
             confirmedAt: confirmationAt,
           });
-        const teacherResults = r.channel === 'partner'
-          ? []
-          : await Promise.allSettled(
+        // 협력사 요청도 실제 업그레이드된 이메일 본인에게 완료를 안내한다.
+        const teacherResults = await Promise.allSettled(
             emails.map((email) =>
               sendTeacherUpgradedEmail({
-                name: nameByEmail.get(email) || "선생님",
+                name: nameByEmail.get(email),
                 email,
                 schoolName: r.schoolName,
                 schoolNameEn: r.schoolNameEn,
