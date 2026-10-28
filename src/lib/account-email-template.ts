@@ -159,7 +159,8 @@ export function invoiceWhat(it: InvoiceEmailItem): string {
   const term = termLabel(it.termYears);
 
   if (it.type === "extension") {
-    return `Extension through ${it.extensionDate || "[DATE]"}, ${plural}, ${term}`;
+    const scope = it.accountType === "school" ? "School-wide extension" : "Extension";
+    return `${scope} through ${it.extensionDate || "[DATE]"}, ${plural}, ${term}`;
   }
   if (it.type === "upgrade" && it.accountType === "school") {
     return `School-wide upgrade, ${term}`;
@@ -380,6 +381,7 @@ export interface AccountEmailInput {
   oldEmail?: string | null;
   fromType?: string | null;
   extensionDate?: string | null;
+  termYears?: number | null;
   notes?: string | null;
   /** 미지정 시 유형별 기본값(defaultNeedsInvoice)을 사용. 인사말/CC 를 결정한다. */
   needsInvoice?: boolean | null;
@@ -409,9 +411,15 @@ export function generateAccountEmail(r: AccountEmailInput): { subject: string; b
     subject = `Account Type Change Request - ${emailStr}`;
     body = `${hi}\n\nThe account ${emailStr || ""} was registered as a ${r.fromType === "teacher" ? "teacher" : "student"}, but this user is a ${r.fromType === "teacher" ? "student" : "teacher"}. Could you please change the account type?${r.notes ? `\n\nNote: ${r.notes}` : ""}\n\nThank you.\n\nBanghyun`;
   } else if (r.type === "extension") {
-    subject = `Account Extension Request – ${school}`;
     // 인보이스 요청은 Cailie 에게 별도 메일로 나가므로 Jon 본문에는 넣지 않는다.
-    body = `${hi}\n\nCould you extend the ${emailStr || ""} account through ${r.extensionDate || "[DATE]"}?${r.notes ? `\n\nNote: ${r.notes}` : ""}\n\nThanks,\n\nBanghyun`;
+    if (r.accountType === "school") {
+      subject = `School-wide Extension Request – ${school}`;
+      const referenceEmails = emailStr.split(/[,;\n]+/).map((e) => e.trim()).filter(Boolean).map((e) => `- ${e}`).join("\n");
+      body = `${hi}\n\nCould you renew the existing school-wide license for ${school} through ${r.extensionDate || "[DATE]"}?\n\nLicense term: ${termLabel(r.termYears)}.\nPlease keep the school's existing teachers covered under the renewed school-wide license.\n\nSchool identification account(s):\n${referenceEmails}\nThese emails identify the existing school license; the renewal covers the whole school.${r.notes ? `\n\nNote: ${r.notes}` : ""}\n\nThanks,\n\nBanghyun`;
+    } else {
+      subject = `Account Extension Request – ${school}`;
+      body = `${hi}\n\nCould you extend the ${emailStr || ""} account through ${r.extensionDate || "[DATE]"}?${r.notes ? `\n\nNote: ${r.notes}` : ""}\n\nThanks,\n\nBanghyun`;
+    }
   } else {
     subject = `Snorkl Request – ${school}`;
     body = `${hi}\n\n${r.notes || ""}\n\nBanghyun`;

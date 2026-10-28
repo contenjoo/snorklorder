@@ -1,5 +1,5 @@
 function publicRequest(r: Record<string, unknown>) {
- const keys=["id","applicantType","type","schoolName","schoolNameEn","emails","accountType","quantity","oldEmail","fromType","extensionDate","status","confirmedAt","createdAt","channel","teacherName","subject"];
+ const keys=["id","applicantType","type","schoolName","schoolNameEn","emails","accountType","quantity","oldEmail","fromType","extensionDate","termYears","status","confirmedAt","createdAt","channel","teacherName","subject"];
  return Object.fromEntries(keys.filter(key=>key in r).map(key=>[key,r[key]]));
 }
 import { confirmationExpired } from "@/lib/confirmation-token";

@@ -3,7 +3,7 @@
 import { use, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { isProcessingConfirmed } from "@/lib/account-processing";
-import { confirmActionLabel } from "@/lib/account-email-template";
+import { confirmActionLabel, termLabel } from "@/lib/account-email-template";
 
 interface AccountRequest {
   id: number;
@@ -17,6 +17,7 @@ interface AccountRequest {
   oldEmail: string | null;
   fromType: string | null;
   extensionDate: string | null;
+  termYears: number | null;
   status: string;
   confirmedAt: string | null;
   channel: string;
@@ -98,6 +99,7 @@ export default function AccountConfirmPage({ params }: { params: Promise<{ token
   const alreadyConfirmed = isProcessingConfirmed(req);
   const emails = req.emails.split(/[,;\n]+/).map((e) => e.trim()).filter(Boolean);
   const displayName = req.schoolNameEn || req.schoolName;
+  const schoolRenewal = req.type === "extension" && req.accountType === "school";
 
   return (
     <div className="min-h-screen bg-gray-50 py-10 px-4">
@@ -122,13 +124,13 @@ export default function AccountConfirmPage({ params }: { params: Promise<{ token
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div>
             <div className="text-[10px] text-gray-400 uppercase tracking-wider font-medium mb-0.5">Request</div>
-            <div className="text-gray-900">{TYPE_LABELS[req.type] || req.type}</div>
+            <div className="text-gray-900">{schoolRenewal ? "School-wide Extension" : TYPE_LABELS[req.type] || req.type}</div>
           </div>
-          {req.type === "upgrade" && (
+          {(req.type === "upgrade" || req.type === "extension") && (
             <>
               <div>
                 <div className="text-[10px] text-gray-400 uppercase tracking-wider font-medium mb-0.5">Account Type</div>
-                <div className="text-gray-900">{req.accountType}</div>
+                <div className="text-gray-900">{req.accountType === "school" ? "School-wide license" : req.accountType}</div>
               </div>
               <div>
                 <div className="text-[10px] text-gray-400 uppercase tracking-wider font-medium mb-0.5">Quantity</div>
@@ -142,6 +144,12 @@ export default function AccountConfirmPage({ params }: { params: Promise<{ token
               <div className="text-gray-900">{req.extensionDate}</div>
             </div>
           )}
+          {req.type === "extension" && (
+            <div className="col-span-2">
+              <div className="text-[10px] text-gray-400 uppercase tracking-wider font-medium mb-0.5">License Term</div>
+              <div className="text-gray-900">{termLabel(req.termYears)}</div>
+            </div>
+          )}
           {req.type === "email_change" && req.oldEmail && (
             <div className="col-span-2">
               <div className="text-[10px] text-gray-400 uppercase tracking-wider font-medium mb-0.5">Old Email</div>
@@ -152,11 +160,14 @@ export default function AccountConfirmPage({ params }: { params: Promise<{ token
 
         <div>
           <div className="text-[10px] text-gray-400 uppercase tracking-wider font-medium mb-1">
-            {req.type === "email_change" ? "New Email" : "Email(s)"} ({emails.length})
+            {schoolRenewal ? "School identification account(s)" : req.type === "email_change" ? "New Email" : "Email(s)"} ({emails.length})
           </div>
           <div className="bg-gray-50 rounded-lg p-3 font-mono text-xs space-y-0.5 max-h-48 overflow-y-auto">
             {emails.map((e, i) => <div key={i}>{e}</div>)}
           </div>
+          {schoolRenewal && (
+            <p className="mt-2 text-xs text-gray-600">Renew the existing school-wide license, including its current teachers. These emails identify the school license; the renewal covers the whole school.</p>
+          )}
         </div>
 
         {req.channel === 'partner' && (
