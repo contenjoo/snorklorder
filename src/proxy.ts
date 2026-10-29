@@ -8,6 +8,8 @@ import {
 
 function isPublicApiRequest(request: NextRequest, pathname: string) {
   const method = request.method;
+  // 학교장터 이메일 수집 링크는 서명과 만료를 라우트에서 검증한다.
+  if (/^\/api\/school-store-links\/[^/]+$/.test(pathname) && method === "POST") return true;
   if (pathname === "/api/sync-group-purchase" && method === "POST") return true;
   if (pathname === "/api/auth" && method === "POST") return true;
   if (["/api/register", "/api/register/batch", "/api/register/resend", "/api/register/verify", "/api/translate"].includes(pathname) && method === "POST") return true;

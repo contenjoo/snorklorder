@@ -41,6 +41,7 @@ import { processingReviewReason } from "@/lib/account-processing";
 import { isMarketLegacyAuditRequest } from "@/lib/market-legacy-audit";
 import PartnerOrderDialog from "@/components/admin/partner-order-dialog";
 import BillingCyclePanel from "@/components/admin/billing-cycle-panel";
+import SchoolStoreLinkDialog from "@/components/admin/school-store-link-dialog";
 import { extensionRequestError } from "@/lib/account-extension";
 import { schoolRenewalDraft } from "@/lib/school-renewal";
 
@@ -1108,6 +1109,7 @@ function AccountsPageContent() {
               {billingSyncing ? "⏳ 동기화 중…" : "📥 메일 동기화"}
             </Button>
             <a href="/admin/processing-mail" className="text-xs underline whitespace-nowrap">처리 메일 검토</a>
+            <SchoolStoreLinkDialog />
             <Dialog open={open} onOpenChange={(v) => { if (saving || renewalLoading) return; setOpen(v); if (!v) resetForm(); }}>
               <DialogTrigger className="inline-flex items-center justify-center rounded-md text-xs font-semibold bg-slate-900 text-white h-7 px-3 hover:bg-slate-800 cursor-pointer whitespace-nowrap">
                 + 새 요청
