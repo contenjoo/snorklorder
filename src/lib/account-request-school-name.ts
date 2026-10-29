@@ -1,6 +1,7 @@
 import { inArray, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { schools } from "@/db/schema";
+import { translateSchoolName } from "@/lib/romanize";
 
 type SchoolNameRow = {
   schoolName: string;
@@ -10,6 +11,13 @@ type SchoolNameRow = {
 function cleanEnglishName(value: string | null | undefined) {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
+}
+
+function automaticSchoolName(name: string): string | null {
+  if (!hasKoreanText(name)) return name.trim() || null;
+  const translated = translateSchoolName(name.trim());
+  // Incomplete Hangul syllables cannot be romanized reliably.
+  return translated && !hasKoreanText(translated) ? translated : null;
 }
 
 export function hasKoreanText(value: string | null | undefined) {
@@ -29,7 +37,7 @@ export async function resolveAccountRequestSchoolNameEn(
     .where(eq(schools.name, schoolName))
     .limit(1);
 
-  return cleanEnglishName(school?.nameEn);
+  return cleanEnglishName(school?.nameEn) || automaticSchoolName(schoolName);
 }
 
 export async function hydrateAccountRequestSchoolNames<T extends SchoolNameRow>(
@@ -58,7 +66,9 @@ export async function hydrateAccountRequestSchoolNames<T extends SchoolNameRow>(
   );
 
   return rows.map((row) => {
-    const schoolNameEn = cleanEnglishName(row.schoolNameEn) || nameEnBySchoolName.get(row.schoolName) || null;
+    const schoolNameEn = cleanEnglishName(row.schoolNameEn)
+      || nameEnBySchoolName.get(row.schoolName.trim())
+      || automaticSchoolName(row.schoolName);
     return schoolNameEn === row.schoolNameEn ? row : { ...row, schoolNameEn };
   });
 }
