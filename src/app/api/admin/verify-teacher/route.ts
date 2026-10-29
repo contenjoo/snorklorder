@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { withBillingTransaction } from "@/db/billing-transaction";
 import { accountRequests, schools, teachers } from "@/db/schema";
 import { checkAuth } from "@/lib/auth";
+import { collectionWriteErrorCode } from "@/lib/market-account-collection";
 
 // Jon 처리 메일의 Note 로 나간다 — 신규 학교임을 처음 한 번만 알린다.
 const NEW_SCHOOL_NOTE = "New school — first registration from this school, not covered by an existing license. Please invoice the school.";
@@ -109,7 +110,9 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json({ success: true, updated: cleanIds.length, action, ...billing });
-  } catch {
+  } catch (error) {
+    const code = collectionWriteErrorCode(error);
+    if (code) return NextResponse.json({ code, error: code }, { status: 409 });
     return NextResponse.json({ error: "승인·청구 요청 생성 실패" }, { status: 500 });
   }
 }

@@ -6,6 +6,7 @@ import { checkAuth } from "@/lib/auth";
 import { withBillingTransaction } from "@/db/billing-transaction";
 import { accountRequests, schoolRequests, schools } from "@/db/schema";
 import { isValidEmail } from "@/lib/security";
+import { collectionWriteErrorCode } from "@/lib/market-account-collection";
 
 export async function POST(req: NextRequest) {
   if (!(await checkAuth())) {
@@ -88,7 +89,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: result.error }, { status: result.status });
     }
     return NextResponse.json({ success: true, ...result });
-  } catch {
+  } catch (error) {
+    const code = collectionWriteErrorCode(error);
+    if (code) return NextResponse.json({ code, error: code }, { status: 409 });
     return NextResponse.json({ error: "Failed to create school billing request" }, { status: 500 });
   }
 }

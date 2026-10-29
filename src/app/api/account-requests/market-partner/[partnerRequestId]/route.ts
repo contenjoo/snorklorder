@@ -4,6 +4,7 @@ import { createPartnerTransactionDb } from '@/db/transaction';
 import { accountRequests, partnerRequestOperations } from '@/db/schema';
 import { authorizeMarketStatusRequest } from '@/lib/market-status';
 import { parsePartnerBatch } from '@/lib/partner-product-request';
+import { collectionWriteErrorCode } from '@/lib/market-account-collection';
 
 class PartnerBatchConflict extends Error {
   constructor(readonly code: string) { super(code); }
@@ -165,6 +166,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ part
       needsInvoice: true,
     });
   } catch (error) {
+    const collectionCode = collectionWriteErrorCode(error);
+    if (collectionCode) return NextResponse.json({ code: collectionCode, error: collectionCode }, { status: 409 });
     if (error instanceof PartnerBatchConflict) {
       return NextResponse.json({ error: error.code }, { status: 409 });
     }

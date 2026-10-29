@@ -28,6 +28,7 @@ import { isProcessingConfirmed } from "@/lib/account-processing";
 import { processingConfirmationValues, pendingProcessingConfirmationCondition } from "@/lib/processing-confirmation-db";
 import { claimAccountRequestSideEffects } from "@/lib/market-void-db";
 import { getReceiverFulfillmentPausedResponse } from "@/lib/receiver-fulfillment-pause";
+import { collectionWriteErrorCode } from "@/lib/market-account-collection";
 import {
   hasMarketLegacyOrderNote,
   isMarketLegacyAuditRequest,
@@ -186,6 +187,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  try {
   const body = await req.json().catch(()=>null);
   if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({error:"Invalid JSON"},{status:400});
   const { action, id, ...data } = body;
@@ -389,7 +391,9 @@ export async function POST(req: NextRequest) {
           duplicate: false,
           deliveryMode: MARKET_DRAFT_DELIVERY_MODE,
         });
-      } catch {
+      } catch (error) {
+        const collectionCode = collectionWriteErrorCode(error);
+        if (collectionCode) return NextResponse.json({ code: collectionCode, error: collectionCode }, { status: 409 });
         // 동시 재시도에서 unique 제약이 먼저 이긴 경우 동일 요청을 다시 찾아 멱등 응답한다.
         try {
           const raced = await findExistingMarketRequest(marketEnvelope);
@@ -543,6 +547,8 @@ export async function POST(req: NextRequest) {
         .where(and(isNull(accountRequests.archivedAt), eq(accountRequests.id, id), confirmingProcessing ? pendingProcessingConfirmationCondition() : undefined))
         .returning();
     } catch (error) {
+      const collectionCode = collectionWriteErrorCode(error);
+      if (collectionCode) return NextResponse.json({ code: collectionCode, error: collectionCode }, { status: 409 });
       // read 이후 prepare가 선점한 경우 DB trigger가 최종 차단한다.
       if (prev.externalSource === "market") {
         return NextResponse.json({
@@ -613,4 +619,9 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({ error: "Invalid action" }, { status: 400 });
+  } catch (error) {
+    const code = collectionWriteErrorCode(error);
+    if (code) return NextResponse.json({ code, error: code }, { status: 409 });
+    throw error;
+  }
 }

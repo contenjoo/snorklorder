@@ -83,6 +83,7 @@ export async function GET(req: NextRequest) {
       or(
         eq(accountRequests.externalSource, "market"),
         eq(accountRequests.externalSource, "market_partner"),
+        eq(accountRequests.externalSource, "market_collection"),
       ),
       ...(marketOrderId ? [eq(accountRequests.marketOrderId, marketOrderId)] : []),
       ...(voidState ? [eq(effectiveVoidState, voidState)] : []),

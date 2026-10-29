@@ -1,4 +1,4 @@
-import { boolean, check, date, index, integer, pgTable, serial, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { boolean, check, date, index, integer, jsonb, pgTable, serial, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 
 export const schools = pgTable("schools", {
@@ -131,6 +131,8 @@ export const accountRequests = pgTable("account_requests", {
   idempotencyKey: text("idempotency_key"),
   externalPayloadHash: text("external_payload_hash"),
   draftOnly: boolean("draft_only").notNull().default(false),
+  // 계정정보 최종 제출 소속. 다른 collection으로 바꾸거나 삭제하지 않는다.
+  marketCollectionId: text("market_collection_id"),
   // Market 주문 취소 saga 상태. 실제 경합 차단의 SSOT는 market_order_void_fences이며,
   // 이 컬럼들은 개별 요청의 감사 추적·UI/상태 되읽기용이다.
   marketVoidState: text("market_void_state").notNull().default("active"), // active | non_voidable | prepared | voided
@@ -147,6 +149,7 @@ export const accountRequests = pgTable("account_requests", {
   uniqueIndex("account_requests_idempotency_key_unique_idx").on(table.idempotencyKey),
   uniqueIndex("account_requests_external_request_unique_idx").on(table.externalSource, table.marketRequestId),
   index("account_requests_market_order_id_idx").on(table.marketOrderId),
+  index("account_requests_market_collection_id_idx").on(table.marketCollectionId),
   index("account_requests_partner_request_idx").on(table.partnerRequestId, table.partnerRevision),
   uniqueIndex("account_requests_partner_item_unique_idx").on(table.partnerRequestId, table.partnerItemId),
   index("account_requests_order_number_idx").on(table.orderNumber),
@@ -156,6 +159,23 @@ export const accountRequests = pgTable("account_requests", {
     "account_requests_market_void_state_check",
     sql`${table.marketVoidState} in ('active', 'non_voidable', 'prepared', 'voided')`,
   ),
+]);
+
+/** Market 계정정보의 한 번 제출과 그 결과 요청 ID를 영구 보존한다. */
+export const marketAccountCollectionSync = pgTable("market_account_collection_sync", {
+  collectionId: text("collection_id").primaryKey(),
+  submissionHash: text("submission_hash").notNull(),
+  payloadHash: text("payload_hash").notNull(),
+  sourceKind: text("source_kind").notNull(),
+  marketOrderId: text("market_order_id"),
+  orderNumber: text("order_number"),
+  requestIds: jsonb("request_ids").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, table => [
+  index("market_account_collection_sync_requests_idx").using('gin', table.requestIds),
+  check("market_account_collection_sync_hash_check", sql`${table.submissionHash} ~ '^[a-f0-9]{64}$' AND ${table.payloadHash} ~ '^[a-f0-9]{64}$'`),
+  check("market_account_collection_sync_source_check", sql`(${table.sourceKind} = 'order' AND ${table.marketOrderId} IS NOT NULL AND ${table.orderNumber} IS NOT NULL) OR (${table.sourceKind} = 'external' AND ${table.marketOrderId} IS NULL AND ${table.orderNumber} IS NULL)`),
+  check("market_account_collection_sync_requests_check", sql`jsonb_typeof(${table.requestIds}) = 'array' AND jsonb_array_length(${table.requestIds}) BETWEEN 1 AND 30`),
 ]);
 
 /** 월 2회 본사 청구 목록의 불변 원장. */
