@@ -16,6 +16,7 @@ import {
 import { db } from "@/db";
 import { accountRequests, billingCycleItems, billingCycles } from "@/db/schema";
 import { nonLegacyMarketAuditCondition } from "@/lib/market-legacy-audit-db";
+import { hydrateAccountRequestSchoolNames, needsEnglishSchoolNameForHq } from "@/lib/account-request-school-name";
 import { billingWindowAt, type BillingCycleEmailItem, type BillingWindow } from "@/lib/billing-cycle";
 
 const BILLABLE_STATUSES = ["sent", "processed"] as const;
@@ -32,7 +33,6 @@ function billableCondition() {
     inArray(accountRequests.status, [...BILLABLE_STATUSES]),
     notInArray(accountRequests.marketVoidState, ["prepared", "voided"]),
     eq(accountRequests.partnerLifecycleState, "active"),
-    sql<boolean>`NULLIF(BTRIM(${accountRequests.schoolNameEn}), '') IS NOT NULL`,
     nonLegacyMarketAuditCondition(),
     notExists(
       db.select({ id: billingCycleItems.id })
@@ -70,8 +70,9 @@ async function assignEligibleRequestsToCycle(
     conditions.push(gte(accountRequests.processingEmailSentAt, cycle.periodStart));
     conditions.push(lt(accountRequests.processingEmailSentAt, cycle.periodEnd));
   }
-  const rows = await db.select({
+  const candidates = await db.select({
     requestId: accountRequests.id,
+    schoolName: accountRequests.schoolName,
     schoolNameEn: accountRequests.schoolNameEn,
     requestType: accountRequests.type,
     accountType: accountRequests.accountType,
@@ -79,6 +80,9 @@ async function assignEligibleRequestsToCycle(
     extensionDate: accountRequests.extensionDate,
     termYears: accountRequests.termYears,
   }).from(accountRequests).where(and(...conditions)).orderBy(accountRequests.id);
+
+  const rows = (await hydrateAccountRequestSchoolNames(candidates))
+    .filter((row) => row.schoolNameEn && !needsEnglishSchoolNameForHq(row));
 
   if (!rows.length) return [];
   return db.insert(billingCycleItems).values(rows.map((row) => ({
