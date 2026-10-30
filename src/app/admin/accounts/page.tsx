@@ -147,7 +147,7 @@ function countEmails(raw: string): number {
 }
 
 function needsInvoiceRetry(request: AccountRequest): boolean {
-  return getAccountEmailDeliveryState(request) === "invoice_retry";
+  return getAccountEmailDeliveryState(request) === "invoice_retry" && Boolean(request.invoiceEmailLastError);
 }
 
 function needsDeliveryReview(request: AccountRequest): boolean {
@@ -1669,6 +1669,9 @@ function AccountsPageContent() {
                     {r.termYears === 2 && (
                       <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-800 font-semibold" title="2년 결제">2년</span>
                     )}
+                    {getAccountEmailDeliveryState(r) === "invoice_retry" && !r.invoiceEmailLastError && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700" title="본사 요청 등록 완료 · 통합 청구 편입 확인 필요">통합 청구 확인</span>
+                    )}
                     {needsInvoiceRetry(r) && (
                       <span
                         className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 font-semibold"
@@ -1785,6 +1788,9 @@ function AccountsPageContent() {
                     {(r.applicantType || "school") === "individual" && <span className="text-[9px] px-1 py-0.5 rounded bg-purple-50 text-purple-700 font-medium mr-1">개인</span>}
                     {r.schoolName}
                     {r.needsInvoice && <span className="text-[9px] px-1 py-0.5 rounded bg-blue-50 text-blue-700 font-medium ml-1" title="인보이스 필요 — Cailie CC">💳</span>}
+                    {getAccountEmailDeliveryState(r) === "invoice_retry" && !r.invoiceEmailLastError && (
+                      <span className="text-[9px] px-1 rounded bg-blue-50 text-blue-700 ml-1">통합 청구 확인</span>
+                    )}
                     {needsInvoiceRetry(r) && (
                       <span className="text-[9px] px-1 py-0.5 rounded bg-amber-100 text-amber-800 font-semibold ml-1">⚠ 재시도</span>
                     )}
