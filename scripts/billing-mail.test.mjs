@@ -280,3 +280,16 @@ X School — 5 [#10, #11]
 Total $400.00`);
   assert.deepEqual(inv.requestItems, [{ requestId: 10, quantity: null }, { requestId: 11, quantity: null }]);
 });
+
+test('PDF-wrapped extension dates retain quantity without borrowing from a previous request', () => {
+  const invoice = (note) => parseInvoicePdfText(`Invoice no.: 1208\nInvoice date: 11/02/2026\nDue date: 12/02/2026\nTotal $2,960.00\nNote to customer\n${note}`);
+  const parsed = invoice(`Teacher extensions — 2 accounts\n- Mokpo Jeil Middle School — 1, through 2028-04-15 [#294]\n- Chonnam National University Middle School — 1, through 2027-10-\n28 [#296]\nSchool-wide extensions — 1 school\n- Kwangshin School — 1 [#298]`);
+  assert.deepEqual(parsed.requestItems, [{ requestId: 294, quantity: 1 }, { requestId: 296, quantity: 1 }, { requestId: 298, quantity: 1 }]);
+  assert.equal(invoice(`Teacher upgrades — 2 accounts\n- First School — 1 [#294]\n- Second School\n[#296]`).requestItems[1].quantity, null);
+});
+
+test('truncated school-wide invoice note never invents a missing request reference', () => {
+  const parsed = parseInvoicePdfText(`Invoice no.: 1208\nTotal $2,960.00\nNote to customer\nTeacher extensions — 1 account\n- Chonnam Middle School — 1, through 2027-10-\n28 [#296]\nSchool-wide extensions — 1 school\n- Kwangshin Broadcasting A`);
+  assert.deepEqual(parsed.requestItems, [{ requestId: 296, quantity: 1 }]);
+  assert.ok(!parsed.requestIds.includes(298));
+});

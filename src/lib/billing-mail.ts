@@ -139,7 +139,14 @@ function parseNoteRequestItems(note: string): { requestId: number; quantity: num
     if (ids.length === 0) return;
     const start = match.index ?? 0;
     const lineStart = note.lastIndexOf("\n", start - 1) + 1;
-    const before = note.slice(lineStart, start);
+    // PDF wrapping can put a date continuation and [#id] on a new line.
+    // Stay after the preceding reference and within the latest list item so
+    // a missing quantity cannot borrow one from another school or section.
+    const previous = matches[index - 1];
+    const boundary = previous ? (previous.index ?? 0) + previous[0].length : 0;
+    const prefix = note.slice(boundary, start);
+    const itemStart = [...prefix.matchAll(/(?:^|\n)[ \t]*[-•][ \t]+/g)].at(-1);
+    const before = itemStart ? prefix.slice(itemStart.index) : note.slice(lineStart, start);
     // 옛 형식은 수량이 번호 뒤에 오고 줄이 접힐 수 있다. 다음 구간 머리("School-wide upgrade — 1 school")는 넘지 않는다.
     const afterLines = note.slice(start + match[0].length, matches[index + 1]?.index ?? note.length).split("\n");
     const headerAt = afterLines.findIndex((line, i) => i > 0 && SECTION_HEADER_RE.test(line));
