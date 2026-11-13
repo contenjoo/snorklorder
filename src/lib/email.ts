@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import type { SendMailOptions, Transporter } from "nodemailer";
 import { db } from "@/db";
 import { emailLogs } from "@/db/schema";
 // 본사 수신자: Jon 이 업그레이드 처리 담당이라 항상 To,
@@ -43,7 +44,7 @@ function isTransientSmtpError(err: unknown): boolean {
 
 // email_logs.to_email 은 한 컬럼뿐이라, CC 가 있으면 "to (cc: x)" 형태로 함께 남긴다.
 // (스키마 변경 없이 "이 건 Cailie가 받았나"를 사후 확인하기 위함)
-export function formatLogRecipients(to: nodemailer.SendMailOptions["to"], cc?: nodemailer.SendMailOptions["cc"]): string {
+export function formatLogRecipients(to: SendMailOptions["to"], cc?: SendMailOptions["cc"]): string {
   const flat = (v: unknown): string => {
     if (!v) return "";
     if (Array.isArray(v)) return v.map(flat).filter(Boolean).join(", ");
@@ -58,8 +59,8 @@ export function formatLogRecipients(to: nodemailer.SendMailOptions["to"], cc?: n
 }
 
 async function sendAndLog(
-  transporter: nodemailer.Transporter,
-  mail: nodemailer.SendMailOptions,
+  transporter: Transporter,
+  mail: SendMailOptions,
   meta: { kind: EmailKind; relatedType?: string | null; relatedId?: number | null }
 ): Promise<EmailResult> {
   const toStr = formatLogRecipients(mail.to, mail.cc);
