@@ -11,23 +11,28 @@ import { subjectFamily } from "@/lib/subject";
 
 export async function GET() {
   if (!(await checkAuth())) return NextResponse.json({error:"Unauthorized"},{status:401});
+  // NULL 팀은 정상 학교로 유지한다. 모든 교사 지표에 동일한 완료 기준을 적용한다.
+  const activeSchool = sql`${schools.team} is distinct from '취소'`;
+  const completedTeacher = and(eq(teachers.status, "upgraded"), eq(teachers.verificationStatus, "approved"));
   const [rows, monthlyTeachers, monthlyRequests] = await Promise.all([
     db.select({
       schoolId: schools.id, schoolName: schools.name, schoolNameEn: schools.nameEn,
       team: schools.team, subject: teachers.subject, teacherId: teachers.id,
-    }).from(schools).leftJoin(teachers, eq(teachers.schoolId, schools.id)),
+    }).from(schools).leftJoin(teachers, and(eq(teachers.schoolId, schools.id), completedTeacher))
+      .where(activeSchool),
 
     db.select({
-      month: sql<string>`to_char(${teachers.createdAt}, 'YYYY-MM')`,
+      month: sql<string>`to_char(${teachers.createdAt} AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Seoul', 'YYYY-MM')`,
       count: sql<number>`count(*)::int`,
-    }).from(teachers).groupBy(sql`1`).orderBy(sql`1`),
+    }).from(teachers).innerJoin(schools, eq(teachers.schoolId, schools.id))
+      .where(and(activeSchool, completedTeacher)).groupBy(sql`1`).orderBy(sql`1`),
 
     db.select({
-      month: sql<string>`to_char(${accountRequests.createdAt}, 'YYYY-MM')`,
+      month: sql<string>`to_char(${accountRequests.createdAt} AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Seoul', 'YYYY-MM')`,
       requests: sql<number>`count(*)::int`,
       seats: sql<number>`sum(coalesce(${accountRequests.quantity}, 0))::int`,
     }).from(accountRequests)
-      .where(and(isNull(accountRequests.archivedAt), notInArray(accountRequests.marketVoidState, ["prepared", "voided"])))
+      .where(and(isNull(accountRequests.archivedAt), notInArray(accountRequests.marketVoidState, ["prepared", "voided"]), eq(accountRequests.partnerLifecycleState, "active")))
       .groupBy(sql`1`).orderBy(sql`1`),
   ]);
 
@@ -49,12 +54,13 @@ export async function GET() {
     const lv = schoolLevel(r.schoolName, r.schoolNameEn) ?? "미분류";
     if (!seenSchools.has(r.schoolId)) {
       seenSchools.add(r.schoolId);
-      byLevel[lv].schools++;
       perSchool.set(r.schoolId, { name: r.schoolName, nameEn: r.schoolNameEn, level: lv, team: r.team, count: 0 });
     }
     if (r.teacherId == null) continue; // 교사 0명 학교의 left join null 행
     byLevel[lv].teachers++;
-    perSchool.get(r.schoolId)!.count++;
+    const school = perSchool.get(r.schoolId)!;
+    if (school.count === 0) byLevel[lv].schools++;
+    school.count++;
 
     const fam = subjectFamily(r.subject);
     if (fam) {
@@ -79,6 +85,9 @@ export async function GET() {
 
   // 집중도: 상위 N 개교가 전체 교사의 몇 %인지
   const sizes = [...perSchool.values()].map((s) => s.count).filter((c) => c > 0).sort((a, b) => b - a);
+  const middle = Math.floor(sizes.length / 2);
+  const median = sizes.length === 0 ? 0 : sizes.length % 2
+    ? sizes[middle] : (sizes[middle - 1] + sizes[middle]) / 2;
   const cum = (n: number) => sizes.slice(0, n).reduce((a, b) => a + b, 0);
 
   return NextResponse.json({
@@ -87,7 +96,7 @@ export async function GET() {
       schools: sizes.length,
       schoolsRegistered: seenSchools.size,
       avgPerSchool: sizes.length ? +(totalTeachers / sizes.length).toFixed(1) : 0,
-      medianPerSchool: sizes.length ? sizes[Math.floor(sizes.length / 2)] : 0,
+      medianPerSchool: median,
       top10Share: totalTeachers ? Math.round((cum(10) / totalTeachers) * 100) : 0,
       top20Share: totalTeachers ? Math.round((cum(20) / totalTeachers) * 100) : 0,
       singleTeacherSchools: sizes.filter((c) => c === 1).length,
@@ -99,5 +108,5 @@ export async function GET() {
     subjectCoverage: { filled: subjectFilled, total: totalTeachers },
     monthlyTeachers,
     monthlyRequests,
-  }, { headers: { "Cache-Control": "private, max-age=60" } });
+  }, { headers: { "Cache-Control": "private, no-store" } });
 }

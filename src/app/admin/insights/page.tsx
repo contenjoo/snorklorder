@@ -75,12 +75,17 @@ export default function InsightsPage() {
       `}</style>
 
       <PageHeader title="인사이트">
-        <span><strong className="text-slate-900 text-sm">{totals.teachers.toLocaleString()}</strong> 유료 교사</span>
+        <span><strong className="text-slate-900 text-sm">{totals.teachers.toLocaleString()}</strong> 업그레이드 완료 교사</span>
         <StatDivider />
         <span><strong className="text-slate-900 text-sm">{totals.schools}</strong> 개교</span>
         <StatDivider />
         <span>학교당 평균 {totals.avgPerSchool}명 · 중앙값 {totals.medianPerSchool}명</span>
       </PageHeader>
+
+      <p className="text-xs text-slate-500">
+        취소 학교를 제외하고, 승인 및 업그레이드가 완료된 교사 등록 건을 집계합니다.
+        학교 수는 해당 교사가 1명 이상인 학교 기준이며, 결제 완료 인원이나 고유 이메일 수와는 다릅니다.
+      </p>
 
       <div className="grid lg:grid-cols-2 gap-4 items-start">
         {/* ── 학교급 ─────────────────────────────────────── */}
@@ -152,9 +157,9 @@ export default function InsightsPage() {
           </div>
         </Card>
 
-        {/* ── 월별 신규 유료 교사 ─────────────────────────── */}
+        {/* ── 완료 교사의 등록 월별 분포 ─────────────────────────── */}
         <Card>
-          <CardTitle title="월별 신규 유료 교사" badge={<span className="text-xs text-slate-400">등록 시점 기준</span>} />
+          <CardTitle title="완료 교사의 등록 월별 분포" badge={<span className="text-xs text-slate-400">한국 시간 · 등록일 기준</span>} />
           <div className="p-4 md:p-5">
             <div className="flex items-end gap-1.5 h-40">
               {monthlyTeachers.map((m) => {
@@ -180,14 +185,14 @@ export default function InsightsPage() {
               ))}
             </div>
             <p className="text-[11px] text-slate-400 mt-2.5">
-              최대 {maxMonthly}명 월은 기존 데이터 일괄 등록분이 섞여 있어 실제 신규 유입과 다를 수 있음.
+              현재 완료 상태인 교사의 등록일 기준입니다. 업그레이드 완료 월이나 신규 유입을 뜻하지 않으며, 일괄 등록분을 포함할 수 있습니다.
             </p>
           </div>
         </Card>
 
         {/* ── 월별 계정 요청 ─────────────────────────────── */}
         <Card>
-          <CardTitle title="월별 계정 요청" badge={<span className="text-xs text-slate-400">요청 생성일 기준</span>} />
+          <CardTitle title="월별 계정 요청" badge={<span className="text-xs text-slate-400">한국 시간 · 요청 생성일 기준</span>} />
           <div className="p-4 md:p-5">
             <div className="flex items-end gap-1.5 h-40">
               {monthlyRequests.map((m) => {
@@ -213,8 +218,7 @@ export default function InsightsPage() {
               ))}
             </div>
             <p className="text-[11px] text-slate-400 mt-2.5">
-              결제일(payment_date)이 전 건 비어 있어 <b>실제 결제 시점이 아니라 요청 생성 시점</b>입니다.
-              결제일을 채우면 실제 결제 시기로 바꿀 수 있음.
+              보관·Market 취소 대기 및 취소·협력사 취소 요청을 제외합니다. 요청 생성일 기준이며 결제 건수나 결제 시점을 뜻하지 않습니다.
             </p>
           </div>
         </Card>
@@ -257,7 +261,7 @@ export default function InsightsPage() {
             </div>
           ))}
           <p className="text-[11px] text-slate-400 pt-1">
-            이 10개교가 전체 유료 교사의 {totals.top10Share}%를 차지합니다.
+            이 10개교가 전체 완료 교사의 {totals.top10Share}%를 차지합니다.
           </p>
         </div>
       </Card>
