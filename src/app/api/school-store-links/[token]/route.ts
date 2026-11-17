@@ -1,12 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { accountRequests } from "@/db/schema";
-import { parseSchoolStoreEmails, readSchoolStoreLink } from "@/lib/school-store-link";
+import { parseSchoolStoreEmails } from "@/lib/school-store-link";
+import { resolveSchoolStoreInputLink } from "@/lib/school-store-short-link";
 import { checkRateLimit, createRateLimitResponse } from "@/lib/security";
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
-  const config = readSchoolStoreLink(token, process.env.ADMIN_SESSION_SECRET || "");
+  let config;
+  try { config = await resolveSchoolStoreInputLink(token, process.env.ADMIN_SESSION_SECRET || ""); }
+  catch {
+    console.error("[school-store-input] failed to resolve link");
+    return NextResponse.json({ error: "링크를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." }, { status: 503, headers: { "Cache-Control": "no-store" } });
+  }
   if (!config) return NextResponse.json({ error: "유효하지 않거나 만료된 링크입니다. 담당자에게 새 링크를 요청해 주세요." }, { status: 404 });
   const limit = await checkRateLimit({ request: req, key: "school-store-input", subject: config.id, limit: 10, windowMs: 10 * 60 * 1000 });
   if (!limit.ok) return createRateLimitResponse("잠시 후 다시 시도해 주세요.", limit.retryAfter);
