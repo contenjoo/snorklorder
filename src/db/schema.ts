@@ -409,6 +409,19 @@ export const schoolLoginTokens = pgTable("school_login_tokens", {
   index("school_login_tokens_token_idx").on(table.token),
 ]);
 
+/** 학교장터 계정 입력용 서명 링크를 짧은 코드로 찾는 별도 원장. */
+export const schoolStoreInputLinks = pgTable("school_store_input_links", {
+  codeHash: text("code_hash").primaryKey(),
+  signedToken: text("signed_token").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index("school_store_input_links_expires_at_idx").on(table.expiresAt),
+  check("school_store_input_links_code_hash_check", sql`${table.codeHash} ~ '^[a-f0-9]{64}$'`),
+  check("school_store_input_links_token_length_check", sql`length(${table.signedToken}) between 1 and 4096`),
+  check("school_store_input_links_expiry_check", sql`${table.expiresAt} > ${table.createdAt}`),
+]);
+
 export const schoolsRelations = relations(schools, ({ many }) => ({
   teachers: many(teachers),
   admins: many(schoolAdmins),

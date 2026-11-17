@@ -28,15 +28,25 @@ test('purchase inputs and complete email lists are validated without silently dr
   for (const value of ['', 'a@example.com', 'a@example.com A@example.com', 'a@example.com bad-address', 'a@example.com b@example.com c@example.com']) assert.throws(() => parseSchoolStoreEmails(value, 2));
 });
 function harness({ authenticated = true, rateOk = true } = {}) {
-  const writes = new Map(), calls = [];
+  const writes = new Map(), links = new Map(), calls = [];
+  const accountRequests = { name: 'orders', id: 'id', idempotencyKey: 'idempotencyKey' };
+  const schoolStoreInputLinks = { name: 'links', codeHash: 'codeHash', signedToken: 'signedToken', expiresAt: 'expiresAt' };
   const load = moduleLoader({
     'next/server': { NextResponse: Response },
     '@/lib/auth': { checkAuth: async () => authenticated },
     '@/lib/security': { checkRateLimit: async () => ({ ok: rateOk, retryAfter: 60 }), createRateLimitResponse: () => Response.json({}, { status: 429 }) },
-    '@/db/schema': { accountRequests: { id: 'id', idempotencyKey: 'idempotencyKey' } },
-    '@/db': { db: { insert() { return { values(row) { calls.push(row); return { onConflictDoNothing() { return { returning: async () => { if (writes.has(row.idempotencyKey)) return []; writes.set(row.idempotencyKey, row); return [{ id: 1 }]; } }; } }; } }; } } },
+    '@/db/schema': { accountRequests, schoolStoreInputLinks },
+    'drizzle-orm': { eq: (column, value) => ({ column, value }) },
+    '@/db': { db: {
+      insert(table) { return { values(row) {
+        if (table === schoolStoreInputLinks) return { onConflictDoNothing: async () => { if (!links.has(row.codeHash)) links.set(row.codeHash, row); } };
+        calls.push(row);
+        return { onConflictDoNothing() { return { returning: async () => { if (writes.has(row.idempotencyKey)) return []; writes.set(row.idempotencyKey, row); return [{ id: 1 }]; } }; } };
+      } }; },
+      select() { return { from() { return this; }, where({ value }) { return { limit: async () => links.has(value) ? [links.get(value)] : [] }; } }; },
+    } },
   });
-  return { load, writes, calls };
+  return { load, writes, links, calls };
 }
 const post = (body) => new NextRequest('https://example.test/api', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
@@ -48,8 +58,11 @@ test('only an administrator generates links; generation writes no orders and sen
     const result = await h.load('@/app/api/admin/school-store-links/route').POST(post(config));
     assert.equal(result.status, 200);
     const body = await result.json();
-    assert.ok(body.url.includes('/school-store/'));
-    assert.ok(readSchoolStoreLink(body.url.split('/school-store/')[1], secret));
+    assert.match(body.url, /^https:\/\/example.test\/s\/[A-Za-z0-9_-]{22}$/);
+    const payload = await h.load('@/lib/school-store-short-link').resolveSchoolStoreInputLink(body.url.split('/s/')[1], secret);
+    assert.equal(payload.schoolName, config.schoolName);
+    assert.equal(payload.expiresAt, body.expiresAt);
+    assert.equal(h.links.size, 1);
     assert.equal(h.calls.length, 0);
   } finally { if (old === undefined) delete process.env.ADMIN_SESSION_SECRET; else process.env.ADMIN_SESSION_SECRET = old; }
 });
