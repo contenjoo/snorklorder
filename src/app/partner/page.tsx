@@ -1,5 +1,7 @@
 "use client";
 
+import { AccountHistoryNotice } from "@/components/account-history-notice";
+import type { AccountHistory } from "@/lib/account-history";
 import { useEffect, useState, useMemo } from "react";
 import { teamLabelEn as teamLabel, isGroupPurchaseTeam } from "@/lib/teams";
 import { canConfirmUpgrades } from "@/lib/partner-roles";
@@ -32,6 +34,7 @@ interface School {
 }
 
 interface BillingAccount {
+  history?: AccountHistory[];
   id: number;
   schoolName: string;
   schoolNameEn: string | null;
@@ -682,6 +685,7 @@ export default function PartnerDashboard() {
                             <span className={`text-[11px] shrink-0 ${daysAgo(r.updatedAt) >= 3 ? "text-red-600 font-bold" : "text-gray-400"}`}>{daysAgo(r.updatedAt)}d</span>
                           </div>
                           <pre className="mt-2 whitespace-pre-wrap break-words font-sans text-[12px] leading-relaxed text-gray-600 bg-gray-50 rounded-lg px-3 py-2">{detail}</pre>
+                          <AccountHistoryNotice items={r.history} language="en" />
                           {isJon && r.confirmToken && (
                             <div className="mt-2 flex justify-end">
                               <button

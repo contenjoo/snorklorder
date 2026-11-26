@@ -1,5 +1,8 @@
 "use client";
 
+import { AccountHistoryLookup } from "@/components/admin/account-history-lookup";
+import { AccountHistoryNotice } from "@/components/account-history-notice";
+import type { AccountHistory } from "@/lib/account-history";
 import { Suspense, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { FileText } from "lucide-react";
@@ -51,6 +54,7 @@ const LicenseCertificateDialog = dynamic(() => import("@/components/admin/licens
 const INVOICE_VIEW_PREVIEW_URL = "https://<snorkl>/invoice?k=\u2026";
 
 interface AccountRequest {
+  history?: AccountHistory[];
   id: number;
   channel: string;
   applicantType: string;
@@ -1224,6 +1228,8 @@ function AccountsPageContent() {
                     </div>
                   </>
                 )}
+                <AccountHistoryLookup id={editing?.id} emails={fBulk ? parseBulk(fBulkText).map(row => row.email).join(",") : fEmails} />
+
                 {(fType === "upgrade" || fType === "extension") && !fBulk && (
                   <div className="grid grid-cols-2 gap-2">
                     <div className="space-y-1">
@@ -1708,6 +1714,7 @@ function AccountsPageContent() {
                   <div className="text-[11px] font-mono text-slate-500 truncate">
                     {emails.length <= 2 ? emails.join(", ") : `${emails[0]} +${emails.length - 1}`}
                   </div>
+                  <AccountHistoryNotice items={r.history} />
                   {r.channel === 'partner' && (
                     <div className="text-[10px] text-cyan-800 truncate">
                       {r.teacherName || '—'} · {r.subject || '—'}
@@ -1812,6 +1819,7 @@ function AccountsPageContent() {
                 <div className="text-[11px] font-mono text-slate-500 truncate mt-0.5 ml-6">
                   {emails.length <= 2 ? emails.join(", ") : `${emails[0]} +${emails.length - 1}`}
                 </div>
+                <AccountHistoryNotice items={r.history} />
                 <div className="text-[10px] text-slate-400 mt-0.5 ml-6 flex items-center gap-2" title={`신청: ${r.createdAt || "—"}\n완료: ${r.confirmedAt || "—"}`}>
                   <span>📅 {fmtMD(r.createdAt)}</span>
                   {processingReviewReason(r) && <span className="text-amber-700">{processingReviewReason(r)}</span>}

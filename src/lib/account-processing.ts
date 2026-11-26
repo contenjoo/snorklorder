@@ -1,8 +1,10 @@
+import { historyMessage, type AccountHistory } from "./account-history.ts";
 import { buildBatchEmail, generateAccountEmail, type AccountEmailInput } from "./account-email-template.ts";
 import { isMarketLegacyAuditRequest } from "./market-legacy-audit.ts";
 
 export interface ProcessingRequest extends AccountEmailInput {
   id: number;
+  history?: AccountHistory[];
   confirmToken?: string | null;
 }
 
@@ -79,6 +81,14 @@ export function selectProcessingReminders(newRequests: ProcessingRequest[], cand
   return { reminders, manualReview };
 }
 
+function processingEmailForRequest(row: ProcessingRequest) {
+  const email = generateAccountEmail(row);
+  if (!row.history?.length) return email;
+  const lines = row.history.map(item => `${item.email} — ${historyMessage(item, "en")}`);
+  const message = ["Check before processing:", ...lines].join("\n");
+  return { ...email, body: email.body.replace(/^(Hi Jon,\s*)/, (_, greeting) => greeting + message + "\n\n") };
+}
+
 /** Pure renderer shared by preview and both SMTP paths. No tokens are created here. */
 export function buildProcessingEmail(
   fresh: ProcessingRequest[],
@@ -103,7 +113,7 @@ export function buildProcessingEmail(
     for (const [label, rows] of [["NEW REQUESTS", newRequests], ["AWAITING CONFIRMATION", selected]] as const) {
       lines.push(`${label} (${rows.length})`, "");
       for (const r of rows) {
-        const generated = generateAccountEmail(r);
+        const generated = processingEmailForRequest(r);
         lines.push(`[#${r.id}] ${generated.subject}`);
         if (label === "AWAITING CONFIRMATION") {
           lines.push(`First sent: ${new Date((r as ProcessingCandidate).processingEmailSentAt!).toISOString().slice(0, 10)} (UTC)`);
@@ -118,11 +128,11 @@ export function buildProcessingEmail(
     };
   } else if (options.batch) {
     email = buildBatchEmail(newRequests.map((r) => ({
-      ...generateAccountEmail(r), requestId: r.id, needsInvoice: Boolean(r.needsInvoice), confirmLine: linkLine(r),
+      ...processingEmailForRequest(r), requestId: r.id, needsInvoice: Boolean(r.needsInvoice), confirmLine: linkLine(r),
     })), all.reduce((sum, r) => sum + countProcessingEmails(r.emails), 0));
   } else {
     const r = newRequests[0];
-    const generated = generateAccountEmail(r);
+    const generated = processingEmailForRequest(r);
     email = { subject: generated.subject, body: `${generated.body}\n\n${linkLine(r)}` };
   }
   return { ...email, newCount: newRequests.length, pendingCount: selected.length };

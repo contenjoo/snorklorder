@@ -1,3 +1,4 @@
+import { withAccountHistory } from "@/lib/account-history-db";
 import { checkAuth } from "@/lib/auth";
 import { cookies } from "next/headers";
 export const dynamic = "force-dynamic";
@@ -115,8 +116,11 @@ export async function GET() {
     };
   });
 
+  const actionable = canConfirm ? await withAccountHistory(acctRows.filter(row => row.status === "sent")) : [];
+  const historyById = new Map(actionable.map(row => [row.id, row.history]));
   const accountRows = acctRows.map(({ confirmToken, ...row }) => ({
     ...row,
+    history: historyById.get(row.id),
     // 처리 대기(sent) 건만 화면에서 완료 처리할 수 있다.
     confirmToken: canConfirm && row.status === "sent" ? confirmToken : null,
   }));

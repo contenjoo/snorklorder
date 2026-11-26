@@ -1,11 +1,14 @@
 "use client";
 
+import { AccountHistoryNotice } from "@/components/account-history-notice";
+import type { AccountHistory } from "@/lib/account-history";
 import { use, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { isProcessingConfirmed } from "@/lib/account-processing";
 import { confirmActionLabel, termLabel } from "@/lib/account-email-template";
 
 interface AccountRequest {
+  history?: AccountHistory[];
   id: number;
   applicantType: string;
   type: string;
@@ -33,6 +36,7 @@ const TYPE_LABELS: Record<string, string> = {
 };
 
 interface SiblingRequest {
+  history?: AccountHistory[];
   id: number;
   type: string;
   applicantType: string;
@@ -165,6 +169,7 @@ export default function AccountConfirmPage({ params }: { params: Promise<{ token
           <div className="bg-gray-50 rounded-lg p-3 font-mono text-xs space-y-0.5 max-h-48 overflow-y-auto">
             {emails.map((e, i) => <div key={i}>{e}</div>)}
           </div>
+          <AccountHistoryNotice items={req.history} language="en" />
           {schoolRenewal && (
             <p className="mt-2 text-xs text-gray-600">Renew the existing school-wide license, including its current teachers. These emails identify the school license; the renewal covers the whole school.</p>
           )}
@@ -205,6 +210,7 @@ export default function AccountConfirmPage({ params }: { params: Promise<{ token
                   <div className="flex-1 min-w-0">
                     <div className="text-xs font-medium text-gray-700">{TYPE_LABELS[s.type] || s.type} · {s.applicantType === "individual" ? "Individual" : "School"} · {s.status}</div>
                     <div className="text-[11px] font-mono text-gray-500 truncate">{s.emails}</div>
+                    <AccountHistoryNotice items={s.history} language="en" />
                     {req.channel === 'partner' && (
                       <div className="text-[11px] text-gray-500">{s.teacherName || '—'} · {s.subject || '—'}</div>
                     )}

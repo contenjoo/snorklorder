@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import vm from "node:vm";
 import ts from "typescript";
+import { matchAccountHistory } from "../src/lib/account-history.ts";
 import { buildProcessingEmail, isOpenProcessingRequest, selectProcessingReminders, isProcessingConfirmed } from "../src/lib/account-processing.ts";
 
 const root = path.resolve(import.meta.dirname, "..");
@@ -84,6 +85,10 @@ function harness(initial, options = {}) {
     // after(): 응답 뒤 실행 — 테스트에선 다음 마이크로태스크로 돌린다.
     "next/server": { NextResponse: Response, NextRequest: Request, after: (fn) => { void Promise.resolve().then(fn); } },
     "@/db": { db }, "@/db/schema": tables, "drizzle-orm": orm,
+    "@/lib/account-history-db": { withAccountHistory: async targets => {
+      const matches = matchAccountHistory(targets, rows.filter(r => !r.archivedAt && r.marketVoidState === "active"), []);
+      return targets.map((r, i) => ({ ...r, history: matches[i] }));
+    } },
     "@/lib/auth": { checkAuth: async () => authenticated },
     "@/lib/market-account-request": {}, "@/lib/market-status": {},
     "@/lib/security": { parseEmailList: (s) => s.split(/[,;\n]/).map((s) => s.trim()).filter(Boolean) },
