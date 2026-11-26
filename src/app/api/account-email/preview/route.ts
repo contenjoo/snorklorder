@@ -1,3 +1,4 @@
+import { withAccountHistory } from "@/lib/account-history-db";
 import { NextRequest, NextResponse } from "next/server";
 import { inArray } from "drizzle-orm";
 import { db } from "@/db";
@@ -31,8 +32,11 @@ export async function POST(req: NextRequest) {
     }
     const fresh = ids.map((id) => rows.find((r) => r.id === id)!);
     const pending = await loadProcessingReminders(fresh);
+    const enriched = await withAccountHistory([...fresh, ...pending.reminders]);
+    const history = new Map(enriched.map(row => [row.id, row.history]));
     return NextResponse.json({
-      ...buildProcessingEmail(fresh, pending.reminders, { baseUrl: BASE_URL, batch: input.batch === true }),
+      ...buildProcessingEmail(fresh.map(row => ({ ...row, history: history.get(row.id) })),
+        pending.reminders.map(row => ({ ...row, history: history.get(row.id) })), { baseUrl: BASE_URL, batch: input.batch === true }),
       manualReview: pending.manualReview,
       // Manual copies cannot carry Market reminders outside the server cancellation fence.
       copyAllowed: [...fresh, ...pending.reminders].every((r) => r.externalSource !== "market" && r.channel !== "partner"),

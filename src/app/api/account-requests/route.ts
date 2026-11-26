@@ -1,4 +1,5 @@
 export const dynamic = "force-dynamic";
+import { withAccountHistory } from "@/lib/account-history-db";
 import { NextRequest, NextResponse, after } from "next/server";
 import { db } from "@/db";
 import { accountRequests, billingCycleItems, billingCycles, marketOrderVoidFences } from "@/db/schema";
@@ -175,7 +176,7 @@ export async function GET(req: NextRequest) {
     : [];
   const cycleByRequest = new Map(cycleRows.map((row) => [row.requestId, row]));
   const hydrated = await hydrateAccountRequestSchoolNames(result);
-  return NextResponse.json(hydrated.map((row) => ({
+  return NextResponse.json((await withAccountHistory(hydrated)).map((row) => ({
     ...row,
     billingCycleId: cycleByRequest.get(row.id)?.cycleId ?? null,
     billingCycleCode: cycleByRequest.get(row.id)?.cycleCode ?? null,

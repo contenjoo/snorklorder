@@ -1,4 +1,7 @@
-import { and, desc, eq, isNotNull, notInArray, sql } from "drizzle-orm";
+import { and, desc, eq, gt, lt, lte, isNull, isNotNull, notInArray, sql } from "drizzle-orm";
+import { withAccountHistory } from "@/lib/account-history-db";
+import { historyMessage } from "@/lib/account-history";
+import { nonLegacyMarketAuditCondition } from "@/lib/market-legacy-audit-db";
 import { db } from "@/db";
 import { accountRequests, emailLogs, teachers } from "@/db/schema";
 import { sendHqDailyNudge } from "@/lib/email";
@@ -36,16 +39,16 @@ export async function runHqDailyNudge() {
     db
       .select({
         open: sql<number>`count(*)::int`,
-        fresh: sql<number>`count(*) filter (where ${teachers.notifiedAt} > ${since})::int`,
-        stale: sql<number>`count(*) filter (where ${teachers.notifiedAt} < ${staleBefore})::int`,
+        fresh: sql<number>`count(*) filter (where ${gt(teachers.notifiedAt, since)})::int`,
+        stale: sql<number>`count(*) filter (where ${lt(teachers.notifiedAt, staleBefore)})::int`,
       })
       .from(teachers)
       .where(openTeacher),
     db
       .select({
         open: sql<number>`count(*)::int`,
-        fresh: sql<number>`count(*) filter (where ${accountRequests.processingEmailSentAt} > ${since})::int`,
-        stale: sql<number>`count(*) filter (where ${accountRequests.processingEmailSentAt} < ${staleBefore})::int`,
+        fresh: sql<number>`count(*) filter (where ${gt(accountRequests.processingEmailSentAt, since)})::int`,
+        stale: sql<number>`count(*) filter (where ${lt(accountRequests.processingEmailSentAt, staleBefore)})::int`,
       })
       .from(accountRequests)
       .where(and(openAccount, isNotNull(accountRequests.processingEmailSentAt))),
@@ -65,6 +68,14 @@ export async function runHqDailyNudge() {
     return { sent: false, reason: counts.staleItems > 0 ? "stale reminder sent recently" : "nothing new", since, ...counts };
   }
 
-  const result = await sendHqDailyNudge(counts);
+  const posted = counts.openAccounts ? await db.select({
+    id: accountRequests.id, emails: accountRequests.emails, createdAt: accountRequests.createdAt,
+  }).from(accountRequests).where(and(openAccount, lte(accountRequests.processingEmailSentAt, new Date(now)),
+    isNull(accountRequests.archivedAt), eq(accountRequests.partnerLifecycleState, "active"),
+    nonLegacyMarketAuditCondition(),
+  )).orderBy(accountRequests.id) : [];
+  const historyLines = (await withAccountHistory(posted)).flatMap(row =>
+    row.history.map(item => `#${row.id} · ${item.email} — ${historyMessage(item, "en")}`));
+  const result = await sendHqDailyNudge(counts, historyLines);
   return { sent: result.success, since, ...counts, error: result.error };
 }

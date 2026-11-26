@@ -2,6 +2,7 @@ function publicRequest(r: Record<string, unknown>) {
  const keys=["id","applicantType","type","schoolName","schoolNameEn","emails","accountType","quantity","oldEmail","fromType","extensionDate","termYears","status","confirmedAt","createdAt","channel","teacherName","subject"];
  return Object.fromEntries(keys.filter(key=>key in r).map(key=>[key,r[key]]));
 }
+import { withAccountHistory } from "@/lib/account-history-db";
 import { confirmationExpired } from "@/lib/confirmation-token";
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse, after } from "next/server";
@@ -86,9 +87,11 @@ export async function GET(
       eq(accountRequests.partnerLifecycleState, 'active'),
     ));
 
+  const visible = [r, ...siblings.filter(sibling => !isMarketLegacyAuditRequest(sibling))];
+  const [request, ...related] = (await withAccountHistory(visible)).map(row => ({ ...publicRequest(row), history: row.history }));
   return NextResponse.json({
-    request: publicRequest(r),
-    siblings: siblings.filter((sibling) => !isMarketLegacyAuditRequest(sibling)).map(publicRequest),
+    request,
+    siblings: related,
   });
 }
 

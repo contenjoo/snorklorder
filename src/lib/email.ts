@@ -617,7 +617,7 @@ export async function sendStaleSentReminder(items: { email: string; name: string
 
 /**
  * Jon 하루 1통 알림. 건별 처리 메일 대신 본사 화면(/partner)에 올리고, 새 건이 생긴 날만 이 한 통을 보낸다.
- * 내용은 건수와 링크뿐 — 실제 처리 내용은 화면에서 본다.
+ * 같은 이메일의 이전 기록이 있으면 처리 전 확인할 사항을 함께 보낸다.
  */
 export async function sendHqDailyNudge(counts: {
   newTeachers: number;
@@ -625,7 +625,7 @@ export async function sendHqDailyNudge(counts: {
   openTeachers: number;
   openAccounts: number;
   staleItems: number; // 2일 넘게 처리 안 된 건
-}): Promise<EmailResult> {
+}, historyLines: string[] = []): Promise<EmailResult> {
   const t = getTransporter();
   if (!t) return { success: false, skipped: true };
   const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -650,6 +650,7 @@ export async function sendHqDailyNudge(counts: {
       `Waiting in total: ${waiting}.`,
       staleLine ? `${staleLine.charAt(0).toUpperCase()}${staleLine.slice(1)} — please mark them once processed.` : null,
       "",
+      ...(historyLines.length ? ["Check these accounts before processing:", ...historyLines, ""] : []),
       `Open the dashboard: ${url}`,
       "Teachers: Action Needed tab → Mark as Upgraded.",
       "Account requests: Billing tab → Mark as done.",
@@ -663,6 +664,7 @@ export async function sendHqDailyNudge(counts: {
         ${newParts ? `<p style="margin:0 0 4px"><strong>New since the last update:</strong> ${escapeHtml(newParts)}</p>` : ""}
         <p style="margin:0 0 4px;color:#6b7280">Waiting in total: ${escapeHtml(waiting)}</p>
         ${staleLine ? `<p style="margin:0 0 4px;color:#b45309"><strong>${escapeHtml(staleLine)}</strong> — please mark them once processed.</p>` : ""}
+        ${historyLines.length ? `<p><strong>Check these accounts before processing</strong></p><ul>${historyLines.map(line => `<li>${escapeHtml(line)}</li>`).join("")}</ul>` : ""}
         <p style="margin:0 0 20px"></p>
         <a href="${safe(url)}" style="display:inline-block;background:#2563eb;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold">Open dashboard</a>
         <p style="margin:20px 0 0;color:#6b7280;font-size:12px">Teachers: Action Needed tab → Mark as Upgraded.<br>Account requests: Billing tab → Mark as done.</p>
